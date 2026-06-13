@@ -79,6 +79,48 @@ function makeRides(): DemoRide[] {
   }));
 }
 
+const WEEKDAY_ABBR = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const MONTH_ABBR = [
+  "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+];
+
+/**
+ * Build `count` synthetic rides, newest-first, spaced a few days apart back from
+ * mid-2026. Used by tests that need a list long enough to exercise the coarse
+ * far-scroll phase (the built-in {@link makeRides} set is intentionally short).
+ */
+export function makeDemoRides(count: number): DemoRide[] {
+  const start = new Date(2026, 5, 13, 14, 22, 0, 0); // newest ride
+  const rides: DemoRide[] = [];
+  for (let i = 0; i < count; i++) {
+    const d = new Date(start.getTime());
+    d.setDate(d.getDate() - i * 3); // every ~3 days back in time
+    const hh = String(d.getHours()).padStart(2, "0");
+    const mm = String(d.getMinutes()).padStart(2, "0");
+    const key =
+      `${WEEKDAY_ABBR[d.getDay()]} ${MONTH_ABBR[d.getMonth()]} ${d.getDate()} ` +
+      `${d.getFullYear()} at ${hh}:${mm}`;
+    rides.push({
+      key,
+      title: `Ride ${i + 1}`,
+      distance: "10.0km",
+      duration: "0:40:00",
+      status: "pending",
+      stats: {
+        Distance: "10.0km",
+        "Average speed": "20.0km/h",
+        "Max speed": "40.0km/h",
+        "Moving time": "0:40:00",
+        "Elapsed time": "0:40:00",
+        "Elevation gain": "10m",
+        "Elevation loss": "10m",
+      },
+    });
+  }
+  return rides;
+}
+
 type DemoView = "list" | "detail" | "options" | "share" | "downloading" | "saf";
 
 export class DemoAdb implements AdbDevice {
@@ -95,6 +137,8 @@ export class DemoAdb implements AdbDevice {
   private downloadTicks = 0;
   /** Number of swipes performed while on the Journeys list (test/diagnostic hook). */
   listScrolls = 0;
+  /** Number of uiautomator dumps served — the dominant real-device cost (test hook). */
+  uiDumps = 0;
 
   constructor(opts: { rides?: DemoRide[]; size?: Size; latencyMs?: number } = {}) {
     this.size = opts.size ?? { width: 1080, height: 2400 };
@@ -138,6 +182,7 @@ export class DemoAdb implements AdbDevice {
 
   async uiDump(): Promise<string> {
     await this.tick();
+    this.uiDumps++;
     if (this.view === "options") return this.renderOptions();
     if (this.view === "share") return this.renderShare();
     if (this.view === "downloading") {
@@ -222,13 +267,25 @@ export class DemoAdb implements AdbDevice {
     }
   }
 
-  async swipe(_x1: number, y1: number, _x2: number, y2: number): Promise<void> {
+  async swipe(
+    _x1: number,
+    y1: number,
+    _x2: number,
+    y2: number,
+    duration = 300,
+  ): Promise<void> {
     await this.tick();
     if (this.view === "list") {
       this.listScrolls++;
+      // A quick flick (short duration) carries momentum and coasts several rows
+      // further than a slow controlled drag; its reach scales with travel. The
+      // slow drag keeps its original fixed 5-row step so existing behaviour and
+      // tests are unchanged.
+      const frac = Math.abs(y1 - y2) / this.size.height;
+      const step = duration <= 150 ? Math.max(6, Math.round(frac * 18)) : 5;
       const maxOffset = Math.max(0, this.rides.length - VISIBLE);
-      if (y1 > y2) this.offset = Math.min(this.offset + 5, maxOffset); // scroll down
-      else this.offset = Math.max(this.offset - 5, 0); // scroll up
+      if (y1 > y2) this.offset = Math.min(this.offset + step, maxOffset); // scroll down
+      else this.offset = Math.max(this.offset - step, 0); // scroll up
     } else if (this.view === "detail" && y1 > y2) {
       this.revealed = true; // reveal the bottom-sheet action buttons
     }

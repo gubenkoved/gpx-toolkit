@@ -76,6 +76,16 @@ export interface Timing {
   grace: number;
   scroll_settle: number;
   optimistic_upload: boolean;
+  // Fast far-scrolling knobs (used only to reach targets far down the list).
+  // `fling_ms` null keeps the normal controlled drag (safe/normal profiles); a
+  // number switches the coarse phase to a short, fast momentum fling that coasts
+  // several screens per gesture. `coarse_swipes_per_dump` chains that many blind
+  // flings between the (expensive) uiautomator dumps while a target is still far
+  // away. `fling_settle` is the settle delay after a fling — momentum needs a bit
+  // longer to come to rest than a controlled drag.
+  fling_ms: number | null;
+  fling_settle: number;
+  coarse_swipes_per_dump: number;
 }
 
 const BASE: Timing = {
@@ -86,6 +96,9 @@ const BASE: Timing = {
   grace: 4.0,
   scroll_settle: 0.5,
   optimistic_upload: false,
+  fling_ms: null, // controlled drag — no momentum flinging by default
+  fling_settle: 0.5,
+  coarse_swipes_per_dump: 1,
 };
 
 export const PROFILES: Record<string, Timing> = {
@@ -107,6 +120,9 @@ export const PROFILES: Record<string, Timing> = {
     poll_interval: 1.0,
     grace: 2.0,
     scroll_settle: 0.3,
+    fling_ms: 90, // momentum fling: coast several screens per gesture
+    fling_settle: 0.5,
+    coarse_swipes_per_dump: 3,
   },
   turbo: {
     ...BASE,
@@ -117,6 +133,9 @@ export const PROFILES: Record<string, Timing> = {
     grace: 0.0,
     scroll_settle: 0.2,
     optimistic_upload: true,
+    fling_ms: 70, // snappier fling, more coast
+    fling_settle: 0.4,
+    coarse_swipes_per_dump: 4,
   },
 };
 
@@ -143,6 +162,17 @@ export class Geometry {
 
   listScrollUp(): [number, number, number, number] {
     return [this.cx, Math.trunc(this.height * 0.3), this.cx, Math.trunc(this.height * 0.85)];
+  }
+
+  // Momentum flings: a longer travel released quickly so the list keeps coasting
+  // well past the gesture, covering several screens per swipe. Used (with a short
+  // duration) for the coarse phase when a target is far down the list.
+  listFlingDown(): [number, number, number, number] {
+    return [this.cx, Math.trunc(this.height * 0.85), this.cx, Math.trunc(this.height * 0.12)];
+  }
+
+  listFlingUp(): [number, number, number, number] {
+    return [this.cx, Math.trunc(this.height * 0.12), this.cx, Math.trunc(this.height * 0.88)];
   }
 
   detailScrollUp(): [number, number, number, number] {
@@ -227,6 +257,25 @@ export class BeelineApp {
 
   async listCards(): Promise<RideCard[]> {
     return parseJourneysList(await this.adb.uiDump());
+  }
+
+  /**
+   * Move the Journeys list one step in the chosen direction. `fling` selects a
+   * fast momentum fling (large travel, short duration, longer settle) over the
+   * normal controlled drag; the fling path is only taken when the active profile
+   * enables it (`timing.fling_ms` set). The controlled-drag branch reproduces the
+   * original durations exactly, so safe/normal behaviour is unchanged.
+   */
+  private async moveList(goUp: boolean, fling: boolean): Promise<void> {
+    if (fling && this.timing.fling_ms !== null) {
+      const [x1, y1, x2, y2] = goUp ? this.geo.listFlingUp() : this.geo.listFlingDown();
+      await this.adb.swipe(x1, y1, x2, y2, this.timing.fling_ms);
+      await this.sleep(this.timing.fling_settle);
+    } else {
+      const [x1, y1, x2, y2] = goUp ? this.geo.listScrollUp() : this.geo.listScrollDown();
+      await this.adb.swipe(x1, y1, x2, y2, goUp ? 250 : 300);
+      await this.sleep(this.timing.scroll_settle);
+    }
   }
 
   // -- ride detail -------------------------------------------------------
@@ -418,6 +467,16 @@ export class BeelineApp {
     let exhaustedUp = false;
     let exhaustedDown = false;
 
+    // Coarse→fine refinement level for the far-scroll phase (fast/turbo only):
+    //   0 = chain several momentum flings between dumps (covers the most ground),
+    //   1 = one fling per dump, 2 = precise controlled single-card drag per dump.
+    // We start coarse and step finer each time a fling overshoots the target date,
+    // so the approach is fast far away and exact up close. safe/normal can't fling
+    // (fling_ms null), so they pin to level 2 — identical to the original behaviour.
+    const canFling = this.timing.fling_ms !== null;
+    const baseLevel = canFling ? 0 : 2;
+    let level = baseLevel;
+
     // Name the rides we're still hunting for so status reads like a specific
     // intent ("Jun 13 14:22, Jun 12 09:10 (+3 more)") rather than a bare count.
     // We only know each target by its key, so show its short date/time label
@@ -440,6 +499,7 @@ export class BeelineApp {
         if (await visit(target, name, stop)) break; // aborted (e.g. cancelled)
         remaining.delete(target.key);
         exhaustedUp = exhaustedDown = false; // position moved; both ends open again
+        level = baseLevel; // a new target may be far again — start coarse
         cards = await this.listCards();
         continue;
       }
@@ -479,16 +539,40 @@ export class BeelineApp {
       else if (!exhaustedUp) goUp = true; // …then up…
       else break; // …both ends reached: the rest are gone.
 
-      if (await stop(`scrolling ${goUp ? "up" : "down"} to find ${describeRemaining()}…`)) break;
+      // The closest remaining target on the side we're heading toward — its date
+      // lets us tell when a fling has coasted PAST it (overshoot) so we can refine.
+      // When no dated target sits on that side we can't aim, so step precisely
+      // (level 2) to be sure a blind fling never skips the page it's actually on.
+      let aim: Date | null = null;
+      if (goUp && newestVisible !== null) {
+        const above = remDates.filter((d) => d > newestVisible).map((d) => d.getTime());
+        if (above.length) aim = new Date(Math.min(...above));
+      } else if (!goUp && oldestVisible !== null) {
+        const below = remDates.filter((d) => d < oldestVisible).map((d) => d.getTime());
+        if (below.length) aim = new Date(Math.max(...below));
+      }
+      const stepLevel = aim === null ? 2 : level;
+      const stride = stepLevel === 0 ? this.timing.coarse_swipes_per_dump : 1;
+      const fling = stepLevel <= 1;
+
+      const verb = fling ? "fast-scrolling" : "scrolling";
+      if (await stop(`${verb} ${goUp ? "up" : "down"} to find ${describeRemaining()}…`)) break;
       const before = cards.map((c) => c.key);
-      const [x1, y1, x2, y2] = goUp ? this.geo.listScrollUp() : this.geo.listScrollDown();
-      await this.adb.swipe(x1, y1, x2, y2, goUp ? 250 : 300);
-      await this.sleep(this.timing.scroll_settle);
+      for (let s = 0; s < stride; s++) await this.moveList(goUp, fling); // blind between dumps
       cards = await this.listCards();
       if (sameKeys(before, cards.map((c) => c.key))) {
         // The list didn't move → we've hit that end.
         if (goUp) exhaustedUp = true;
         else exhaustedDown = true;
+      } else if (aim !== null && cards.length) {
+        // Did the (fast) move coast past the target's date? If so, refine one level
+        // so the next approach is gentler — next overshoot drops to exact stepping.
+        const nv = rideDatetime(cards[0].key);
+        const ov = rideDatetime(cards[cards.length - 1].key);
+        const overshot =
+          (goUp && ov !== null && aim < ov) || // scrolled up past it (now below the window)
+          (!goUp && nv !== null && aim > nv); // scrolled down past it (now above the window)
+        if (overshot && level < 2) level += 1;
       }
     }
 

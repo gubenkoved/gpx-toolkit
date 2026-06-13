@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { DemoAdb } from "../src/adb/demo";
+import { DemoAdb, makeDemoRides } from "../src/adb/demo";
 import { BeelineApp, PROFILES } from "../src/beeline";
 
 const instant = async (): Promise<void> => {};
@@ -99,5 +99,65 @@ describe("position-aware navigation", () => {
     // because we did not bounce back to the top in between.
     await app.downloadGpx(new Set(["Tue May 19 2026 at 18:50"]));
     expect(demo.listScrolls - afterFirst).toBeLessThanOrEqual(1);
+  });
+});
+
+describe("fast far-scrolling (fling coarse→fine)", () => {
+  it("reaches a ride deep in a long list with far fewer dumps than the normal drag", async () => {
+    const rides = makeDemoRides(120);
+    const oldest = rides[rides.length - 1].key;
+
+    const slow = new DemoAdb({ rides: makeDemoRides(120) });
+    const slowApp = await BeelineApp.create(slow, PROFILES.normal, instant);
+    const slowDetails = await slowApp.processTargets(new Set([oldest]), false);
+
+    const quick = new DemoAdb({ rides: makeDemoRides(120) });
+    const quickApp = await BeelineApp.create(quick, PROFILES.fast, instant);
+    const quickDetails = await quickApp.processTargets(new Set([oldest]), false);
+
+    // Both land on the exact ride…
+    expect(slowDetails.map((d) => d.key)).toEqual([oldest]);
+    expect(quickDetails.map((d) => d.key)).toEqual([oldest]);
+    // …but flinging serves dramatically fewer (expensive) uiautomator dumps.
+    expect(quick.uiDumps).toBeLessThan(slow.uiDumps / 2);
+  });
+
+  it("lands exactly on a mid-list target despite coasting past it (overshoot recovery)", async () => {
+    const rides = makeDemoRides(120);
+    const target = rides[90].key; // deep enough that a fling will overshoot it
+
+    const demo = new DemoAdb({ rides: makeDemoRides(120) });
+    const app = await BeelineApp.create(demo, PROFILES.turbo, instant);
+    const missing: string[] = [];
+    const details = await app.processTargets(
+      new Set([target]),
+      false,
+      async () => false,
+      () => {},
+      (keys) => missing.push(...keys),
+    );
+
+    expect(details.map((d) => d.key)).toEqual([target]); // exact landing
+    expect(missing).toEqual([]); // a coasted-past present ride is never flagged deleted
+  });
+
+  it("still detects a deleted ride while fast-scrolling", async () => {
+    const rides = makeDemoRides(120);
+    const gone = rides[80].key;
+
+    const demo = new DemoAdb({ rides: makeDemoRides(120) });
+    demo.removeRide(gone); // user deleted it on the phone since we last saw it
+    const app = await BeelineApp.create(demo, PROFILES.fast, instant);
+    const missing: string[] = [];
+    const details = await app.processTargets(
+      new Set([gone]),
+      false,
+      async () => false,
+      () => {},
+      (keys) => missing.push(...keys),
+    );
+
+    expect(details).toHaveLength(0);
+    expect(missing).toEqual([gone]); // bracketed-but-absent → correctly marked deleted
   });
 });
