@@ -4,7 +4,10 @@ A **backend-free** browser companion for the **Beeline Velo 2** that batch-uploa
 rides to **Strava**. Beeline only lets you upload rides one-by-one; this app lists your
 rides with their upload status, lets you select them, and uploads in a batch.
 
-Everything runs **in the browser**: it talks to a USB-connected phone directly over
+> **Android only.** This drives the Beeline app over **ADB (Android Debug Bridge)**, which
+> exists only on Android — there is **no iOS/iPhone support**, and none is possible.
+
+Everything runs **in the browser**: it talks to a USB-connected Android phone directly over
 **WebUSB** (ADB via [`@yume-chan/adb`](https://github.com/yume-chan/ya-webadb)) and drives
 the **real Beeline app** (reads the screen, taps the buttons) — no server, no rooting, no
 API reverse-engineering. State is kept in `LocalStorage`.
@@ -13,6 +16,8 @@ API reverse-engineering. State is kept in `LocalStorage`.
 
 ## Requirements
 
+- An **Android** phone — iOS/iPhone is **not supported** (the tool relies on ADB, which is
+  Android-only).
 - A Chromium-based browser (Chrome / Edge) — WebUSB is required and is not available in
   Firefox/Safari.
 - The page must be served over `localhost` or HTTPS (WebUSB is secure-context only).
