@@ -526,6 +526,7 @@ function render(): void {
         <span class="ymeta">${yRides.length} rides · ${fmtKm(ykm)} · ${yup} up · ${ype} upload pending</span>
         <span class="yactions">
           <button class="small ghost" data-act="status-year" data-y="${year}">Check all</button>
+          <button class="small ghost" data-act="status-year-new" data-y="${year}">Check new</button>
           <button class="small" data-act="upload-year" data-y="${year}">Upload pending to Strava</button>
         </span>
       </div>
@@ -554,6 +555,7 @@ function render(): void {
           <span class="mmeta">${m.rides.length} rides · ${fmtKm(mkm)} · ${mup} up · ${mpe} upload pending</span>
           <span class="mactions">
             <button class="small ghost" data-act="status-month" data-m="${mkey}">Check</button>
+            <button class="small ghost" data-act="status-month-new" data-m="${mkey}">Check new</button>
             <button class="small" data-act="upload-month" data-m="${mkey}">Upload pending to Strava</button>
           </span>
         </div>
@@ -645,6 +647,14 @@ const pendingOfYear = (y: string): string[] =>
   STATE.rides
     .filter((r) => (r.month_key || "").slice(0, 4) === y && r.status === "pending" && !r.deleted)
     .map((r) => r.key);
+
+// A ride is "never checked" until its detail sheet has been opened, which is the
+// only thing that fills `stats` (a scan sets just title/distance/duration).
+const isUnchecked = (r: AppState["rides"][number]): boolean => !r.deleted && Object.keys(r.stats).length === 0;
+const uncheckedOfMonth = (m: string): string[] =>
+  STATE.rides.filter((r) => r.month_key === m && isUnchecked(r)).map((r) => r.key);
+const uncheckedOfYear = (y: string): string[] =>
+  STATE.rides.filter((r) => (r.month_key || "").slice(0, 4) === y && isUnchecked(r)).map((r) => r.key);
 
 function toggleGroup(keys: string[]): void {
   const allSel = keys.length > 0 && keys.every((k) => selected.has(k));
@@ -842,12 +852,22 @@ document.addEventListener("click", (e) => {
   if (act === "gpx-one") return run(() => controller.downloadGpx([t.dataset.key!]));
   if (act === "upload-one") return run(() => controller.upload([t.dataset.key!]));
   if (act === "status-month") return run(() => controller.status(keysOfMonth(t.dataset.m!)));
+  if (act === "status-month-new") {
+    const keys = uncheckedOfMonth(t.dataset.m!);
+    if (!keys.length) return toast("All rides this month are already checked.");
+    return run(() => controller.status(keys));
+  }
   if (act === "upload-month") {
     const keys = pendingOfMonth(t.dataset.m!);
     if (!keys.length) return toast("No known pending rides this month. Check first.");
     return run(() => controller.upload(keys));
   }
   if (act === "status-year") return run(() => controller.status(keysOfYear(t.dataset.y!)));
+  if (act === "status-year-new") {
+    const keys = uncheckedOfYear(t.dataset.y!);
+    if (!keys.length) return toast("All rides this year are already checked.");
+    return run(() => controller.status(keys));
+  }
   if (act === "upload-year") {
     const keys = pendingOfYear(t.dataset.y!);
     if (!keys.length) return toast("No known pending rides this year. Check first.");
