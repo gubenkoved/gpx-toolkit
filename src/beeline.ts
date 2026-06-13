@@ -569,9 +569,14 @@ export class BeelineApp {
    * name/folder-agnostic on purpose: the SAF "Save" dialog reopens at the user's
    * last-used location and names the export however it likes, so we never match on
    * a folder or filename — we diff this set across the export to find what's new.
+   *
+   * `-L` is essential: `/sdcard` is a symlink (→ /storage/emulated/0) and `find`
+   * does NOT descend a symlinked start path without it, so it would find nothing.
    */
   private async listGpxFiles(): Promise<Set<string>> {
-    const out = await this.adb.shell(`find /sdcard -maxdepth 4 -type f -iname '*.gpx' 2>/dev/null`);
+    const out = await this.adb.shell(
+      `find -L /sdcard -maxdepth 4 -type f -iname '*.gpx' 2>/dev/null`,
+    );
     return new Set(
       out
         .split("\n")
@@ -673,11 +678,17 @@ export class BeelineApp {
     }
     if (!newPath) {
       const seen = [...inventory].sort();
-      const where = seen.length ? seen.join(", ") : "(no .gpx files found under /sdcard)";
+      const where = seen.length ? seen.join(", ") : "(find saw none under /sdcard)";
+      // Independent cross-check via `ls` (resolves the symlink, unlike a bare
+      // `find /sdcard`), so the message is conclusive even if `find` itself is the
+      // problem: it shows what's actually in the default Download folder.
+      const dl = (await this.adb.shell(`ls -1 ${DOWNLOAD_DIR} 2>/dev/null`)).trim();
+      const dlList = dl ? dl.split("\n").map((s) => s.trim()).filter(Boolean).join(", ") : "(empty)";
       const reason =
-        `could not find the exported GPX file for ${key}: no new .gpx appeared under ` +
-        `/sdcard after tapping Save. The Save dialog likely targeted a folder we don't ` +
-        `scan, or a confirmation step was missed. GPX files currently on the device: ${where}`;
+        `could not find the exported GPX file for ${key}: no new .gpx appeared after ` +
+        `tapping Save. The Save dialog likely targeted a folder we don't scan, or a ` +
+        `confirmation step was missed. GPX files found by find: ${where}. ` +
+        `Contents of ${DOWNLOAD_DIR}: ${dlList}`;
       await progress(`could not find the exported GPX file for ${key}`);
       return { ok: false, reason };
     }
