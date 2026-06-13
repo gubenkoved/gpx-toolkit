@@ -1015,13 +1015,13 @@ function exportRides(): void {
 }
 
 /** Trigger a browser "Save As" for a GPX file pulled off the phone. */
-function saveGpxFile(file: { filename: string; bytes: Uint8Array }): void {
+function saveGpxFile(file: { filename: string; downloadName: string; bytes: Uint8Array }): void {
   // Demo GPX bytes are synthetic, and saving them would pop a browser "Save As"
   // dialog for every ride (especially with "ask where to save each file" on),
   // which makes the demo/test flow unusable. The route is already drawn on the
   // map from the stored track, so just acknowledge it instead of downloading.
   if (isDemo) {
-    toast(`Demo: skipped saving ${file.filename} (no real GPX in demo mode).`);
+    toast(`Demo: skipped saving ${file.downloadName} (no real GPX in demo mode).`);
     return;
   }
   const copy = new Uint8Array(file.bytes); // own the buffer for the Blob
@@ -1029,7 +1029,10 @@ function saveGpxFile(file: { filename: string; bytes: Uint8Array }): void {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = file.filename.endsWith(".gpx") ? file.filename : `${file.filename}.gpx`;
+  // Prefer the sort-friendly "YYYY-MM-DD HH-MM - <title>.gpx" name; fall back to
+  // the device-stable filename if a download name wasn't computed.
+  const name = file.downloadName || file.filename;
+  a.download = name.endsWith(".gpx") ? name : `${name}.gpx`;
   a.click();
   URL.revokeObjectURL(url);
 }

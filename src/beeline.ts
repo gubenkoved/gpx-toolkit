@@ -50,10 +50,36 @@ export function gpxFilename(key: string): string {
   return `Beeline-${slug || "ride"}.gpx`;
 }
 
+/**
+ * A human-friendly, sort-friendly name to offer in the browser's "Save As".
+ * Unlike `gpxFilename` (device-stable, keyed on the raw datetime), this leads
+ * with an ISO-ish `YYYY-MM-DD HH-MM` stamp so saved files sort chronologically,
+ * then appends the ride's own title. Colons are rendered as `-` (illegal in
+ * filenames), and any path separators / control chars in the title are stripped.
+ * Falls back to a stamp-only name when the title is empty, and to the device
+ * filename when the key can't be parsed into a date.
+ */
+export function gpxDownloadName(key: string, title: string): string {
+  const dt = rideDatetime(key);
+  if (dt === null) return gpxFilename(key);
+  const p2 = (n: number) => String(n).padStart(2, "0");
+  const stamp =
+    `${dt.getFullYear()}-${p2(dt.getMonth() + 1)}-${p2(dt.getDate())} ` +
+    `${p2(dt.getHours())}-${p2(dt.getMinutes())}`;
+  // Strip path separators and control chars; collapse runs of whitespace.
+  const clean = title
+    .replace(/[/\\<>:"|?*\x00-\x1f]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return clean ? `${stamp} - ${clean}.gpx` : `${stamp}.gpx`;
+}
+
 /** A GPX file pulled off the device for one ride. */
 export interface GpxFile {
   key: string;
   filename: string;
+  /** Sort-friendly name for the browser download (see `gpxDownloadName`). */
+  downloadName: string;
   bytes: Uint8Array;
 }
 
@@ -718,7 +744,7 @@ export class BeelineApp {
         if (!detail.key) detail.key = target.key;
         detail.title = detail.title || target.title;
         onDetail(detail);
-        const outcome = await this.exportCurrentGpx(target.key, progress);
+        const outcome = await this.exportCurrentGpx(target.key, detail.title, progress);
         await this.closeDetail();
         if (outcome.ok) {
           results.push(outcome.file);
@@ -820,7 +846,11 @@ export class BeelineApp {
    * On failure returns `{ ok: false, reason }` naming the step that didn't appear
    * (the same message is also reported via `progress`), so callers can surface it.
    */
-  private async exportCurrentGpx(key: string, progress: Progress): Promise<GpxExport> {
+  private async exportCurrentGpx(
+    key: string,
+    title: string,
+    progress: Progress,
+  ): Promise<GpxExport> {
     const root = await this.storageRoot();
     const downloadDir = `${root}/Download`;
     const before = await this.listGpxFiles(root);
@@ -901,7 +931,10 @@ export class BeelineApp {
       await this.adb.shell(`rm -f ${shellQuote(dst)} && mv ${shellQuote(newPath)} ${shellQuote(dst)}`);
     }
     const bytes = await this.adb.readFile(dst);
-    return { ok: true, file: { key, filename: finalName, bytes } };
+    return {
+      ok: true,
+      file: { key, filename: finalName, downloadName: gpxDownloadName(key, title), bytes },
+    };
   }
 }
 

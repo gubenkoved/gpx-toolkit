@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { DemoAdb } from "../src/adb/demo";
 import type { AdbDevice, Size } from "../src/adb/types";
-import { BeelineApp, DOWNLOAD_DIR, gpxFilename, PROFILES } from "../src/beeline";
+import { BeelineApp, DOWNLOAD_DIR, gpxDownloadName, gpxFilename, PROFILES } from "../src/beeline";
 import { findOptionsButton } from "../src/parsing";
 
 const instant = async (): Promise<void> => {};
@@ -163,6 +163,34 @@ describe("gpxFilename", () => {
   });
 });
 
+describe("gpxDownloadName", () => {
+  it("leads with a sortable YYYY-MM-DD HH-MM stamp then the ride title", () => {
+    expect(gpxDownloadName("Sat Jun 13 2026 at 14:22", "Afternoon ride")).toBe(
+      "2026-06-13 14-22 - Afternoon ride.gpx",
+    );
+  });
+
+  it("sorts chronologically by name", () => {
+    const a = gpxDownloadName("Fri Jun 12 2026 at 09:10", "Morning ride");
+    const b = gpxDownloadName("Sat Jun 13 2026 at 14:22", "Afternoon ride");
+    expect([b, a].sort()).toEqual([a, b]);
+  });
+
+  it("omits the title section when there is no title", () => {
+    expect(gpxDownloadName("Sat Jun 13 2026 at 14:22", "")).toBe("2026-06-13 14-22.gpx");
+  });
+
+  it("strips characters that are illegal in filenames", () => {
+    expect(gpxDownloadName("Sat Jun 13 2026 at 14:22", "Ride: a/b\\c?")).toBe(
+      "2026-06-13 14-22 - Ride a b c.gpx",
+    );
+  });
+
+  it("falls back to the device-stable name when the key is unparseable", () => {
+    expect(gpxDownloadName("not a date", "Afternoon ride")).toBe(gpxFilename("not a date"));
+  });
+});
+
 describe("downloadGpx (export flow)", () => {
   it("pulls a GPX under an app-driven name regardless of Beeline's filename", async () => {
     const demo = new DemoAdb();
@@ -173,6 +201,7 @@ describe("downloadGpx (export flow)", () => {
     expect(files).toHaveLength(1);
     expect(files[0].key).toBe(key);
     expect(files[0].filename).toBe(gpxFilename(key));
+    expect(files[0].downloadName).toBe("2026-06-13 14-22 - Afternoon ride, Demo City.gpx");
     expect(files[0].bytes.byteLength).toBeGreaterThan(0);
   });
 
