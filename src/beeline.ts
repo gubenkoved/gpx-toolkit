@@ -440,7 +440,17 @@ export class BeelineApp {
     let exhaustedUp = false;
     let exhaustedDown = false;
 
-    const left = (): string => `${remaining.size} ride${remaining.size === 1 ? "" : "s"}`;
+    // Name the rides we're still hunting for so status reads like a specific
+    // intent ("Jun 13 14:22, Jun 12 09:10 (+3 more)") rather than a bare count.
+    // We only know each target by its key, so show its short date/time label
+    // (falling back to the raw key when it can't be parsed); cap at two names.
+    const describeRemaining = (): string => {
+      const keys = [...remaining];
+      const labels = keys.map((k) => rideShortLabel(k) || k);
+      const shown = labels.slice(0, 2).join(", ");
+      const extra = labels.length - 2;
+      return extra > 0 ? `${shown} (+${extra} more)` : shown;
+    };
 
     while (remaining.size) {
       const target = cards.find((c) => remaining.has(c.key)) ?? null;
@@ -512,7 +522,7 @@ export class BeelineApp {
       else if (!exhaustedUp) goUp = true; // …then up…
       else break; // …both ends reached: the rest are gone.
 
-      if (await stop(`scrolling ${goUp ? "up" : "down"} — looking for ${left()}…`)) break;
+      if (await stop(`scrolling ${goUp ? "up" : "down"} to find ${describeRemaining()}…`)) break;
       const before = cards.map((c) => c.key);
       const [x1, y1, x2, y2] = goUp ? this.geo.listScrollUp() : this.geo.listScrollDown();
       await this.adb.swipe(x1, y1, x2, y2, goUp ? 250 : 300);
