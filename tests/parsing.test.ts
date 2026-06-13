@@ -8,6 +8,7 @@ import {
   autoGranularity,
   bucketRide,
   compareRideKeysDesc,
+  isRideDetail,
   parseJourneysList,
   parseRideDetail,
   rideMonth,
@@ -87,6 +88,24 @@ describe("parseRideDetail", () => {
     expect(s["Elapsed time"]).toBe("1:37:52");
     expect(s["Elevation gain"]).toBe("25m");
     expect(s["Elevation loss"]).toBe("34m");
+  });
+});
+
+describe("isRideDetail", () => {
+  it("detects a detail even when the upload buttons are below the fold", () => {
+    // A freshly opened detail sheet: stat labels are on screen but the
+    // Strava/komoot buttons are not yet revealed.
+    const xml = read("02_ride_detail.xml");
+    expect(parseRideDetail(xml).stravaStatus).toBe("unknown"); // no buttons visible
+    expect(isRideDetail(xml)).toBe(true); // …yet we still know it's a detail
+  });
+
+  it("detects a revealed detail with action buttons", () => {
+    expect(isRideDetail(read("16_uploaded.xml"))).toBe(true);
+  });
+
+  it("is false on the Journeys list", () => {
+    expect(isRideDetail(read("01_launch.xml"))).toBe(false);
   });
 });
 

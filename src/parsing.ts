@@ -223,6 +223,26 @@ export function hasActionButtons(xml: string): boolean {
   return textNodes(xml).some((n) => ACTION_LABELS.has(n.text));
 }
 
+/**
+ * True when a ride-detail bottom-sheet is on screen — even before it's been
+ * swiped up to reveal the Strava/komoot buttons. A freshly opened detail has its
+ * action buttons below the fold, so `hasActionButtons` alone misses it; we instead
+ * key off the detail's stat labels (Distance / Average speed / Moving time / …),
+ * which the Journeys *list* never shows. Two or more such labels means we're
+ * looking at a detail, not the list. (Action buttons still count, for the revealed
+ * case where the sheet may have scrolled past the stats.)
+ */
+export function isRideDetail(xml: string): boolean {
+  const nodes = textNodes(xml);
+  if (nodes.some((n) => ACTION_LABELS.has(n.text))) return true;
+  const statLabels = new Set<string>(DETAIL_STAT_LABELS);
+  let count = 0;
+  for (const n of nodes) {
+    if (statLabels.has(n.text) && ++count >= 2) return true;
+  }
+  return false;
+}
+
 // --- GPX export flow ----------------------------------------------------------
 // Locators for the native "Options → Share/download → download GPX" path. Each
 // returns the tappable Bounds (or null) so automation can drive the export screens

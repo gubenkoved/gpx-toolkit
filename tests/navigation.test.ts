@@ -45,4 +45,26 @@ describe("position-aware navigation", () => {
     const details = await app.processTargets(new Set(["Mon Jan 1 2001 at 00:00"]), false);
     expect(details).toHaveLength(0); // nothing found, but it returned cleanly
   });
+
+  it("recovers when a ride-detail sheet is already open (does not false-flag missing)", async () => {
+    const demo = new DemoAdb();
+    const app = await BeelineApp.create(demo, PROFILES.normal, instant);
+
+    // Leave the app on an *unrevealed* ride-detail sheet — its upload buttons are
+    // below the fold, so only the stats/Options identify it as a detail.
+    const cards = await app.listCards();
+    await app.openCard(cards[0]);
+
+    const missing: string[] = [];
+    const details = await app.processTargets(
+      new Set(["Sun May 17 2026 at 12:29"]), // a *different*, still-present ride
+      false,
+      async () => false,
+      () => {},
+      (keys) => missing.push(...keys),
+    );
+
+    expect(missing).toEqual([]); // the open detail must not cause a false "deleted"
+    expect(details.map((d) => d.key)).toEqual(["Sun May 17 2026 at 12:29"]);
+  });
 });

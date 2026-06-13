@@ -188,8 +188,10 @@ export class DemoAdb implements AdbDevice {
       }
       return;
     }
-    if (y > this.size.height * 0.9) {
-      // bottom-nav "Journeys" tab → land on the list.
+    if (this.view !== "detail" && y > this.size.height * 0.9) {
+      // bottom-nav "Journeys" tab → land on the list. A ride-detail bottom-sheet
+      // covers the nav bar, so while it's open a tap down here hits the sheet, not
+      // the tab — only Back dismisses a detail (mirrors the real device).
       this.view = "list";
       this.detailIndex = -1;
       this.revealed = false;

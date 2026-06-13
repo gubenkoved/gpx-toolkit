@@ -17,6 +17,7 @@ import {
   findShareDownloadRow,
   hasActionButtons,
   isDownloadingGpx,
+  isRideDetail,
   parseJourneysList,
   parseRideDetail,
   rideDatetime,
@@ -178,15 +179,18 @@ export class BeelineApp {
    */
   async openJourneys(): Promise<void> {
     await this.ensureRunning();
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < 6; i++) {
       const xml = await this.adb.uiDump();
-      if (hasActionButtons(xml)) {
-        // A detail sheet is open — Back preserves the list's scroll position.
+      if (parseJourneysList(xml).length >= 2) return; // on the list, stay put
+      if (isRideDetail(xml)) {
+        // A detail sheet is open (its buttons may be below the fold) — Back
+        // returns to the list at the same scroll position. Never tap the
+        // Journeys tab here: the sheet covers the nav and would scroll/tap the
+        // wrong window, which previously made checks report rides as missing.
         await this.adb.back();
         await this.sleep(this.timing.close_detail);
         continue;
       }
-      if (parseJourneysList(xml).length >= 2) return; // already on the list, stay put
       // Some other screen/tab — the Journeys tab is the only way back (resets scroll).
       const [x, y] = this.geo.journeysTab;
       await this.adb.tap(x, y);
