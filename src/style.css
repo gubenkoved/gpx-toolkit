@@ -256,7 +256,11 @@ details.help kbd { background: var(--line); border-radius: 4px; padding: 1px 5px
 .rbtns { display: flex; gap: 6px; flex: 0 0 auto; }
 
 .rmap { margin-top: 8px; height: 200px; border-radius: 9px; overflow: hidden;
-  border: 1px solid var(--line); background: var(--bg); }
+  border: 1px solid var(--line); background: var(--bg);
+  /* Own stacking context so Leaflet's high internal z-indexes (panes/controls
+     up to 1000) stay contained within this card and never paint above the
+     floating bottom status pill (.job). */
+  isolation: isolate; }
 .rmap .leaflet-container { height: 100%; width: 100%; background: var(--bg); }
 /* Desaturate the basemap so the colored track stands out against OSM's own
    orange/red roads and POIs. */
