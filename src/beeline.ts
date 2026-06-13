@@ -178,6 +178,10 @@ export class Geometry {
   detailScrollUp(): [number, number, number, number] {
     return [this.cx, Math.trunc(this.height * 0.8), this.cx, Math.trunc(this.height * 0.25)];
   }
+
+  detailScrollDown(): [number, number, number, number] {
+    return [this.cx, Math.trunc(this.height * 0.25), this.cx, Math.trunc(this.height * 0.8)];
+  }
 }
 
 export class BeelineApp {
@@ -304,6 +308,24 @@ export class BeelineApp {
 
   async readDetail(): Promise<RideDetail> {
     return parseRideDetail(await this.revealActions());
+  }
+
+  /**
+   * Bring the top-right "Options" header back into view and return its bounds.
+   * Reading the detail (revealActions) swipes the bottom sheet UP to expose the
+   * Strava/komoot buttons, which pushes "Options" off the top of the screen — so
+   * before the GPX export can tap it we swipe the sheet back DOWN until it shows
+   * again. Returns null if it never reappears (caller surfaces the failure).
+   */
+  async revealOptions(maxSwipes = 5): Promise<Bounds | null> {
+    const [x1, y1, x2, y2] = this.geo.detailScrollDown();
+    for (let i = 0; i < maxSwipes; i++) {
+      const found = findOptionsButton(await this.adb.uiDump());
+      if (found) return found;
+      await this.adb.swipe(x1, y1, x2, y2, 250);
+      await this.sleep(this.timing.reveal_swipe);
+    }
+    return findOptionsButton(await this.adb.uiDump());
   }
 
   async closeDetail(): Promise<void> {
@@ -803,9 +825,9 @@ export class BeelineApp {
     const downloadDir = `${root}/Download`;
     const before = await this.listGpxFiles(root);
 
-    const options = await this.pollFor(findOptionsButton, 4);
+    const options = await this.revealOptions();
     if (!options) {
-      const reason = `could not find Options for ${key}`;
+      const reason = `could not find Options for ${key} (scrolled the detail to look for it)`;
       await progress(reason);
       return { ok: false, reason };
     }

@@ -302,8 +302,11 @@ export class DemoAdb implements AdbDevice {
       const maxOffset = Math.max(0, this.rides.length - VISIBLE);
       if (y1 > y2) this.offset = Math.min(this.offset + step, maxOffset); // scroll down
       else this.offset = Math.max(this.offset - step, 0); // scroll up
-    } else if (this.view === "detail" && y1 > y2) {
-      this.revealed = true; // reveal the bottom-sheet action buttons
+    } else if (this.view === "detail") {
+      // Swiping up reveals the bottom-sheet action buttons (and pushes the
+      // top-right "Options" header off-screen); swiping back down restores it.
+      if (y1 > y2) this.revealed = true;
+      else if (y1 < y2) this.revealed = false;
     }
   }
 
@@ -396,10 +399,13 @@ export class DemoAdb implements AdbDevice {
 
   private renderDetail(ride: DemoRide): string {
     const parts: string[] = [
-      node("Options", bnd(846, 190, 996, 239)),
       node(`${ride.title}, Demo City`, bnd(120, 300, 820, 360)),
       node(ride.key, bnd(120, 380, 780, 430)),
     ];
+    // The top-right "Options" header is only present while the sheet sits at its
+    // resting position; once scrolled up to expose the action buttons it scrolls
+    // off the top (mirrors the real Beeline detail sheet).
+    if (!this.revealed) parts.unshift(node("Options", bnd(846, 190, 996, 239)));
     DETAIL_STAT_LABELS.forEach((label, j) => {
       const valueTop = 470 + j * 120;
       const value = ride.stats[label] ?? "—";

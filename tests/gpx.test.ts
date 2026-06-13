@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { DemoAdb } from "../src/adb/demo";
 import type { AdbDevice, Size } from "../src/adb/types";
 import { BeelineApp, DOWNLOAD_DIR, gpxFilename, PROFILES } from "../src/beeline";
+import { findOptionsButton } from "../src/parsing";
 
 const instant = async (): Promise<void> => {};
 
@@ -204,6 +205,31 @@ describe("downloadGpx (export flow)", () => {
   it("detects a SAF-deduplicated export named 'ride.gpx (N)'", async () => {
     const app = await BeelineApp.create(new SafDedupAdb(new DemoAdb()), PROFILES.normal, instant);
     const key = "Sat Jun 13 2026 at 14:22";
+
+    const files = await app.downloadGpx(new Set([key]));
+    expect(files).toHaveLength(1);
+    expect(files[0].key).toBe(key);
+    expect(files[0].filename).toBe(gpxFilename(key));
+    expect(files[0].bytes.byteLength).toBeGreaterThan(0);
+  });
+
+  it("reveals Options after reading the detail scrolls it off-screen", async () => {
+    const demo = new DemoAdb();
+    const app = await BeelineApp.create(demo, PROFILES.normal, instant);
+    const key = "Sat Jun 13 2026 at 14:22";
+
+    // Reading the detail swipes the sheet up to expose the action buttons, which
+    // hides the top-right "Options" header — the exact condition that used to make
+    // the export fail with "could not find Options".
+    await app.openJourneys();
+    const card = (await app.listCards()).find((c) => c.key === key)!;
+    await app.openCard(card);
+    await app.readDetail();
+    expect(findOptionsButton(await demo.uiDump())).toBeNull();
+
+    // revealOptions must scroll it back into view, and the full export succeeds.
+    expect(await app.revealOptions()).not.toBeNull();
+    await app.closeDetail();
 
     const files = await app.downloadGpx(new Set([key]));
     expect(files).toHaveLength(1);
