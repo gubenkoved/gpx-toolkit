@@ -259,11 +259,8 @@ details.help kbd { background: var(--line); border-radius: 4px; padding: 1px 5px
   color: var(--muted); font-size: 12px; }
 .rmaphint b { color: var(--text); }
 .rdetailhint { margin-top: 8px; padding: 9px 11px; border: 1px dashed var(--line); border-radius: 9px;
-  color: var(--muted); font-size: 12px; display: flex; align-items: center; gap: 10px;
-  flex-wrap: wrap; }
-.rdetailhint span { flex: 1; min-width: 0; }
+  color: var(--muted); font-size: 12px; }
 .rdetailhint b { color: var(--text); }
-.rdetailhint-busy { flex: 0 0 auto; color: var(--muted); font-style: italic; }
 #trackPointsBox input { width: 4ch; min-width: 3.4ch; }
 
 .empty { color: var(--muted); text-align: center; padding: 56px 20px; line-height: 1.7; }

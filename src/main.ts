@@ -202,21 +202,16 @@ function trackBlock(key: string, track: string): string {
 /**
  * Expanded-details body for an open ride. When a ride has never been Checked its
  * `stats` are empty, so instead of an empty bordered grid we show a clear prompt
- * with an inline Check button (which runs the same `status-one` action).
+ * telling the user to press Check.
  */
 function detailsBlock(key: string, stats: Record<string, string> | undefined, track: string): string {
   const hasStats = !!stats && Object.keys(stats).length > 0;
   if (!hasStats) {
     const checking = RUNNING.has(key) || ACTIVE.has(key);
-    const cta = checking
-      ? `<span class="rdetailhint-busy">Checking…</span>`
-      : `<button class="small ghost" data-act="status-one" data-key="${esc(key)}">Check</button>`;
-    return (
-      `<div class="rdetailhint">` +
-      `<span>No details yet — press <b>Check</b> to load this ride's stats and route.</span>` +
-      cta +
-      `</div>`
-    );
+    const msg = checking
+      ? `Checking… loading this ride's stats and route.`
+      : `No details yet — press <b>Check</b> to load this ride's stats and route.`;
+    return `<div class="rdetailhint">${msg}</div>`;
   }
   return `<div class="stats open" id="st-${esc(key)}">${fmtStats(stats)}</div>` + trackBlock(key, track);
 }
