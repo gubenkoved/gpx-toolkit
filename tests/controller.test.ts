@@ -239,7 +239,7 @@ describe("Controller + DemoAdb (real orchestration, no phone)", () => {
     const off = c.onGpx((f) => files.push(f));
 
     const key = "Sat Jun 13 2026 at 14:22";
-    c.downloadGpx([key]);
+    c.downloadGpx([key], true); // save mode: also hand the full file to the UI
     await vi.waitFor(() => expect(c.state().jobs.busy).toBe(false), { timeout: 8000 });
     off();
 
@@ -249,6 +249,25 @@ describe("Controller + DemoAdb (real orchestration, no phone)", () => {
 
     const rec = c.state().rides.find((r) => r.key === key)!;
     expect(rec.track.length).toBeGreaterThan(0); // a rough track was stored
+  });
+
+  it("preview-only download stores a track but emits no file", async () => {
+    const c = makeController(new DemoAdb());
+    await c.connect();
+    c.scan("all", null);
+    await vi.waitFor(() => expect(c.state().jobs.busy).toBe(false), { timeout: 5000 });
+
+    const files: { filename: string; bytes: Uint8Array }[] = [];
+    const off = c.onGpx((f) => files.push(f));
+
+    const key = "Sat Jun 13 2026 at 14:22";
+    c.downloadGpx([key]); // default: preview only, no disk save
+    await vi.waitFor(() => expect(c.state().jobs.busy).toBe(false), { timeout: 8000 });
+    off();
+
+    expect(files.length).toBe(0); // nothing handed to the UI to save
+    const rec = c.state().rides.find((r) => r.key === key)!;
+    expect(rec.track.length).toBeGreaterThan(0); // but the preview track was stored
   });
 
   it("honours the track-detail density when simplifying", async () => {

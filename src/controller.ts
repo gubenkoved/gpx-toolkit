@@ -290,6 +290,9 @@ export class Controller {
 
   private async doDownloadGpx(task: Task, report: Report): Promise<void> {
     const app = await this.appFor();
+    // Two modes: preview-only (default) just stores the rough track for the mini-map;
+    // save mode additionally hands the full GPX to the UI to write to disk.
+    const saveToDisk = task.payload.saveToDisk === true;
     let removed = 0;
     const failures: string[] = [];
     const files = await app.downloadGpx(
@@ -313,7 +316,8 @@ export class Controller {
           // bogus empty track; record it so the task surfaces a real, persistent error.
           failures.push(`${file.key}: couldn't extract a GPS track from the downloaded GPX`);
         }
-        this.emitGpx(file); // hand the full file to the UI for download
+        // Only hand the full file to the UI when the user actually asked to save it.
+        if (saveToDisk) this.emitGpx(file);
       },
       (missing) => {
         for (const key of missing) if (this.store.markDeleted(key)) removed++;
@@ -328,7 +332,8 @@ export class Controller {
       (detail) => this.persistDetail(detail),
     );
     const suffix = removed ? `, ${removed} deleted` : "";
-    report(`downloaded ${files.length} GPX file${files.length === 1 ? "" : "s"}${suffix}`);
+    const noun = saveToDisk ? "GPX file" : "preview";
+    report(`downloaded ${files.length} ${noun}${files.length === 1 ? "" : "s"}${suffix}`);
 
     if (failures.length) {
       // Fail the task so the UI shows a persistent, acknowledgeable error with full
@@ -355,8 +360,17 @@ export class Controller {
     return this.jobs.submit("upload", { label: label || `${keys.length} rides`, keys });
   }
 
-  downloadGpx(keys: string[], label = ""): TaskSnapshotResult {
-    return this.jobs.submit("download-gpx", { label: label || `${keys.length} rides`, keys });
+  /**
+   * Download GPX for the given rides. By default this is *preview-only*: it stores a
+   * rough track for the mini-map and never touches the disk. Pass `saveToDisk = true`
+   * to also hand the full GPX file to the UI to write out.
+   */
+  downloadGpx(keys: string[], saveToDisk = false, label = ""): TaskSnapshotResult {
+    return this.jobs.submit("download-gpx", {
+      label: label || `${keys.length} rides`,
+      keys,
+      payload: { saveToDisk },
+    });
   }
 
   /** Update the rough-track density (points/km, persisted). Returns the clamped value. */

@@ -174,7 +174,13 @@ export class JobQueue {
     // Coalesce consecutive same-kind upload/status tasks into this one.
     if (COALESCE_KINDS.has(task.kind)) {
       const seen = new Set(task.keys);
-      while (this.queue.length && this.queue[0].kind === task.kind) {
+      while (
+        this.queue.length &&
+        this.queue[0].kind === task.kind &&
+        // Don't merge GPX previews with GPX file-saves: they behave differently
+        // (only saves emit a file), so a mixed sweep would drop or add downloads.
+        this.queue[0].payload.saveToDisk === task.payload.saveToDisk
+      ) {
         const nxt = this.queue.shift()!;
         for (const k of nxt.keys) {
           if (!seen.has(k)) {

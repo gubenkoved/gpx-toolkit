@@ -24,7 +24,13 @@
     <button class="ghost small" id="btnExport">Export</button>
     <button class="ghost small danger" id="btnReset" title="Erase all locally stored rides, settings, and the remembered phone, then return to demo mode. Does not delete anything on the phone.">Reset</button>
     <button class="ghost small" id="btnStatusSel">Check selected</button>
-    <button class="ghost small" id="btnGpxSel">Download GPX</button>
+    <span class="split">
+      <button class="ghost small" id="btnGpxSel" title="Download a rough route preview for the selected rides (no file saved)">Preview selected</button>
+      <button class="ghost small caret" data-gpxmenu="sel" aria-haspopup="true" aria-expanded="false" title="More GPX options">▾</button>
+      <span class="splitmenu" id="gpxSelMenu">
+        <button class="ghost small" id="btnGpxSaveSel" title="Download the full GPX for the selected rides and save them to disk">Save .gpx files</button>
+      </span>
+    </span>
     <button class="small" id="btnUploadSel">Upload selected to Strava</button>
     <button class="primary small" id="btnUploadPending">Upload all pending to Strava</button>
     <input type="file" id="importFile" accept="application/json,.json" style="display:none" />

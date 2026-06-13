@@ -225,6 +225,7 @@ details.help kbd { background: var(--line); border-radius: 4px; padding: 1px 5px
 .badge.processing { color: var(--blue); border-color: #16324a; background: #0c1d2e; }
 .badge.queued { color: var(--blue); border-color: #2a3550; background: #11192b; }
 .badge.deleted { color: #ff8f84; border-color: #5a2420; background: #2a1513; }
+.badge.gps { color: #36c2b4; border-color: #1c4742; background: #0c211f; }
 .badge.working { color: var(--blue); border-color: #16324a; background: #0c1d2e; }
 .badge.working::before { content: ""; display: inline-block; width: 7px; height: 7px;
   margin-right: 5px; border-radius: 50%; background: var(--blue); animation: pulse 1s ease-in-out infinite; }
@@ -254,6 +255,17 @@ details.help kbd { background: var(--line); border-radius: 4px; padding: 1px 5px
 .stats.open { display: grid; }
 .stats b { color: var(--text); font-weight: 600; font-size: 13px; }
 .rbtns { display: flex; gap: 6px; flex: 0 0 auto; }
+
+/* Split button: a primary action plus a caret that reveals a dropdown of related
+   actions (used for GPX Preview / Save .gpx file). */
+.split { position: relative; display: inline-flex; }
+.split > button.caret { padding-left: 6px; padding-right: 6px; }
+.split.open > button.caret { color: var(--text); }
+.splitmenu { display: none; position: absolute; top: calc(100% + 4px); right: 0; z-index: 30;
+  background: var(--panel2); border: 1px solid var(--line); border-radius: 9px; padding: 4px;
+  box-shadow: 0 8px 24px rgba(0,0,0,.45); white-space: nowrap; }
+.split.open .splitmenu { display: block; }
+.splitmenu button { display: block; width: 100%; text-align: left; }
 
 .rmap { margin-top: 8px; height: 200px; border-radius: 9px; overflow: hidden;
   border: 1px solid var(--line); background: var(--bg);

@@ -181,6 +181,10 @@ const selected = new Set<string>();
 const openMonths = new Set<string>();
 const openYears = new Set<string>();
 const openStats = new Set<string>();
+// Which GPX split-button menu is open, if any: a ride key for a per-ride button or
+// "sel" for the selection toolbar. Kept at module scope (like openStats/selected) so
+// it survives the frequent re-renders the job ticker triggers.
+let openGpxMenu: string | null = null;
 let preset = "month";
 let statGran: Granularity | "auto" = "auto";
 let statMetric: "distance" | "speed" = "distance";
@@ -524,6 +528,27 @@ function queueBadge(key: string): string {
 function deletedBadge(): string {
   return `<span class="badge deleted" title="This ride is no longer on your phone — it was deleted in the Beeline app.">deleted</span>`;
 }
+/** Marks a ride whose rough route preview is already downloaded and ready to draw. */
+function gpsBadge(): string {
+  return `<span class="badge gps" title="Route preview available — expand details to see the map.">gps</span>`;
+}
+/**
+ * GPX split button: a primary "Preview" action (download a rough route, no file) plus
+ * a caret that reveals the secondary "Save .gpx file" action. `scope` identifies which
+ * menu is open (a ride key, or "sel" for the selection toolbar); `key` is forwarded on
+ * the per-ride actions so the click handler knows which ride to act on.
+ */
+function gpxSplit(scope: string, key: string): string {
+  const open = openGpxMenu === scope;
+  const dataKey = key ? ` data-key="${key}"` : "";
+  return (
+    `<span class="split${open ? " open" : ""}">` +
+    `<button class="small ghost" data-act="gpx-one"${dataKey} title="Download a rough route preview (no file saved)">Preview</button>` +
+    `<button class="small ghost caret" data-gpxmenu="${scope}" aria-haspopup="true" aria-expanded="${open}" title="More GPX options">▾</button>` +
+    `<span class="splitmenu"><button class="small ghost" data-act="gpx-save-one"${dataKey} title="Download the full GPX and save it to disk">Save .gpx file</button></span>` +
+    `</span>`
+  );
+}
 function fmtStats(st: Record<string, string> | undefined): string {
   const order = ["Distance", "Average speed", "Max speed", "Moving time", "Elapsed time", "Elevation gain", "Elevation loss"];
   return order
@@ -834,6 +859,7 @@ function render(): void {
         <span class="yactions">
           <button class="small ghost" data-act="status-year" data-y="${year}">Check all</button>
           <button class="small ghost" data-act="status-year-new" data-y="${year}">Check new</button>
+          <button class="small ghost" data-act="gpx-year-missing" data-y="${year}">Get previews</button>
           <button class="small" data-act="upload-year" data-y="${year}">Upload pending to Strava</button>
         </span>
       </div>
@@ -863,6 +889,7 @@ function render(): void {
           <span class="mactions">
             <button class="small ghost" data-act="status-month" data-m="${mkey}">Check</button>
             <button class="small ghost" data-act="status-month-new" data-m="${mkey}">Check new</button>
+            <button class="small ghost" data-act="gpx-month-missing" data-m="${mkey}">Get previews</button>
             <button class="small" data-act="upload-month" data-m="${mkey}">Upload pending to Strava</button>
           </span>
         </div>
@@ -884,14 +911,14 @@ function render(): void {
         el.innerHTML = `
           <input type="checkbox" class="chk" data-key="${r.key}" ${selected.has(r.key) ? "checked" : ""}>
           <div class="rmain">
-            <div class="rtitle"><span class="rname"><span class="rtitle-text">${r.title || "Ride"}</span>${r.location ? `<span class="rtitle-loc">${r.location}</span>` : ""}</span> ${badge(r.status)} ${r.deleted ? deletedBadge() : ""} ${queueBadge(r.key)}</div>
+            <div class="rtitle"><span class="rname"><span class="rtitle-text">${r.title || "Ride"}</span>${r.location ? `<span class="rtitle-loc">${r.location}</span>` : ""}</span> ${badge(r.status)} ${r.track ? gpsBadge() : ""} ${r.deleted ? deletedBadge() : ""} ${queueBadge(r.key)}</div>
             <div class="rmeta">${r.key} · ${summaryDistance} · ${summaryDuration}
               <a href="#" data-stats="${r.key}">${so ? "hide" : "details"}</a></div>
             ${so ? detailsBlock(r.key, r.stats, r.track) : ""}
           </div>
           <div class="rbtns">
             <button class="small ghost" data-act="status-one" data-key="${r.key}">Check</button>
-            <button class="small ghost" data-act="gpx-one" data-key="${r.key}">GPX</button>
+            ${gpxSplit(r.key, r.key)}
             <button class="small" data-act="upload-one" data-key="${r.key}">Upload to Strava</button>
           </div>`;
         rowsEl.appendChild(el);
@@ -901,6 +928,10 @@ function render(): void {
   renderJob();
   if (activeView === "map") mountAllRidesMap();
   else mountMaps();
+  // The selection toolbar's GPX split button lives in static markup (not rebuilt
+  // here), so sync its open state from the shared `openGpxMenu` flag.
+  const selSplit = document.getElementById("gpxSelMenu")?.closest(".split");
+  selSplit?.classList.toggle("open", openGpxMenu === "sel");
   lastSig = stateSig();
 }
 
@@ -967,6 +998,13 @@ const uncheckedOfMonth = (m: string): string[] =>
   STATE.rides.filter((r) => r.month_key === m && isUnchecked(r)).map((r) => r.key);
 const uncheckedOfYear = (y: string): string[] =>
   STATE.rides.filter((r) => (r.month_key || "").slice(0, 4) === y && isUnchecked(r)).map((r) => r.key);
+
+// A ride is "missing a preview" until a GPX download has stored its rough track.
+const hasNoPreview = (r: AppState["rides"][number]): boolean => !r.deleted && !r.track;
+const missingPreviewOfMonth = (m: string): string[] =>
+  STATE.rides.filter((r) => r.month_key === m && hasNoPreview(r)).map((r) => r.key);
+const missingPreviewOfYear = (y: string): string[] =>
+  STATE.rides.filter((r) => (r.month_key || "").slice(0, 4) === y && hasNoPreview(r)).map((r) => r.key);
 
 function toggleGroup(keys: string[]): void {
   const allSel = keys.length > 0 && keys.every((k) => selected.has(k));
@@ -1099,6 +1137,18 @@ document.addEventListener("click", (e) => {
   if (target && target.tagName === "INPUT") return; // checkboxes handled on 'change'
   const t = (target.closest("button, a, .mhead, .yhead") as HTMLElement) || target;
 
+  // GPX split-button: toggle its dropdown. Any click outside an open menu closes it.
+  if (t.dataset && t.dataset.gpxmenu) {
+    openGpxMenu = openGpxMenu === t.dataset.gpxmenu ? null : t.dataset.gpxmenu;
+    render();
+    return;
+  }
+  if (openGpxMenu !== null && !target.closest(".split")) {
+    openGpxMenu = null;
+    render();
+    // fall through so this same click can still trigger whatever it landed on
+  }
+
   if (t.dataset && t.dataset.view) {
     setView(t.dataset.view as ViewName);
     return;
@@ -1169,6 +1219,11 @@ document.addEventListener("click", (e) => {
     if (!selected.size) return toast("Select some rides first.");
     return run(() => controller.downloadGpx([...selected]));
   }
+  if (t.id === "btnGpxSaveSel") {
+    openGpxMenu = null;
+    if (!selected.size) return toast("Select some rides first.");
+    return run(() => controller.downloadGpx([...selected], true));
+  }
   if (t.id === "btnUploadSel") {
     if (!selected.size) return toast("Select some rides first.");
     return run(() => controller.upload([...selected]));
@@ -1182,6 +1237,10 @@ document.addEventListener("click", (e) => {
   const act = t.dataset && t.dataset.act;
   if (act === "status-one") return run(() => controller.status([t.dataset.key!]));
   if (act === "gpx-one") return run(() => controller.downloadGpx([t.dataset.key!]));
+  if (act === "gpx-save-one") {
+    openGpxMenu = null;
+    return run(() => controller.downloadGpx([t.dataset.key!], true));
+  }
   if (act === "upload-one") return run(() => controller.upload([t.dataset.key!]));
   if (act === "status-month") return run(() => controller.status(keysOfMonth(t.dataset.m!)));
   if (act === "status-month-new") {
@@ -1194,6 +1253,11 @@ document.addEventListener("click", (e) => {
     if (!keys.length) return toast("No known pending rides this month. Check first.");
     return run(() => controller.upload(keys));
   }
+  if (act === "gpx-month-missing") {
+    const keys = missingPreviewOfMonth(t.dataset.m!);
+    if (!keys.length) return toast("All rides this month already have a preview.");
+    return run(() => controller.downloadGpx(keys));
+  }
   if (act === "status-year") return run(() => controller.status(keysOfYear(t.dataset.y!)));
   if (act === "status-year-new") {
     const keys = uncheckedOfYear(t.dataset.y!);
@@ -1204,6 +1268,11 @@ document.addEventListener("click", (e) => {
     const keys = pendingOfYear(t.dataset.y!);
     if (!keys.length) return toast("No known pending rides this year. Check first.");
     return run(() => controller.upload(keys));
+  }
+  if (act === "gpx-year-missing") {
+    const keys = missingPreviewOfYear(t.dataset.y!);
+    if (!keys.length) return toast("All rides this year already have a preview.");
+    return run(() => controller.downloadGpx(keys));
   }
 
   if (t.dataset && t.dataset.stats) {
@@ -1239,6 +1308,14 @@ document.addEventListener("click", (e) => {
   if (mhead) {
     const m = mhead.dataset.m!;
     openMonths.has(m) ? openMonths.delete(m) : openMonths.add(m);
+    render();
+  }
+});
+
+// Escape closes an open GPX split-button menu.
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && openGpxMenu !== null) {
+    openGpxMenu = null;
     render();
   }
 });

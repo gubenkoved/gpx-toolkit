@@ -50,6 +50,25 @@ describe("JobQueue", () => {
     expect(processed).toHaveLength(1);
   });
 
+  it("does not coalesce GPX preview and save tasks together", async () => {
+    const processed: { keys: string[]; save: unknown }[] = [];
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const q = new JobQueue(async (task: Task) => {
+      await gate;
+      processed.push({ keys: [...task.keys], save: task.payload.saveToDisk });
+    });
+    // A preview-only download and a save-to-disk download behave differently, so
+    // they must stay as two separate passes even though both are "download-gpx".
+    q.submit("download-gpx", { keys: ["a"], payload: { saveToDisk: false } });
+    q.submit("download-gpx", { keys: ["b"], payload: { saveToDisk: true } });
+    await tick(10);
+    release();
+    await vi.waitFor(() => expect(processed.length).toBe(2));
+    expect(processed[0]).toEqual({ keys: ["a"], save: false });
+    expect(processed[1]).toEqual({ keys: ["b"], save: true });
+  });
+
   it("clear() drops queued tasks but not the running one", async () => {
     let release!: () => void;
     const gate = new Promise<void>((r) => (release = r));
