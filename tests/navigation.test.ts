@@ -67,4 +67,37 @@ describe("position-aware navigation", () => {
     expect(missing).toEqual([]); // the open detail must not cause a false "deleted"
     expect(details.map((d) => d.key)).toEqual(["Sun May 17 2026 at 12:29"]);
   });
+
+  it("downloads a GPX for the on-screen ride without any list scrolling", async () => {
+    const demo = new DemoAdb();
+    const app = await BeelineApp.create(demo, PROFILES.normal, instant);
+    // Newest ride is already at the top of a freshly-opened list.
+    const files = await app.downloadGpx(new Set(["Sat Jun 13 2026 at 14:22"]));
+    expect(files).toHaveLength(1);
+    expect(demo.listScrolls).toBe(0); // no scroll-to-top round trip
+  });
+
+  it("downloads a GPX for an off-screen ride by scrolling toward it, not to the top", async () => {
+    const demo = new DemoAdb();
+    const app = await BeelineApp.create(demo, PROFILES.normal, instant);
+    // Oldest ride is far down the list; reaching it needs a few DOWN scrolls only.
+    const files = await app.downloadGpx(new Set(["Sun May 17 2026 at 12:29"]));
+    expect(files).toHaveLength(1);
+    expect(demo.listScrolls).toBeGreaterThan(0);
+    expect(demo.listScrolls).toBeLessThanOrEqual(4); // bounded, no top-reset round-trip
+  });
+
+  it("does not re-scroll to the top between two consecutive GPX downloads", async () => {
+    const demo = new DemoAdb();
+    const app = await BeelineApp.create(demo, PROFILES.normal, instant);
+
+    // First download walks down to the oldest ride, leaving the list near the bottom.
+    await app.downloadGpx(new Set(["Sun May 17 2026 at 12:29"]));
+    const afterFirst = demo.listScrolls;
+
+    // Second download of a ride near the bottom needs almost no extra scrolling,
+    // because we did not bounce back to the top in between.
+    await app.downloadGpx(new Set(["Tue May 19 2026 at 18:50"]));
+    expect(demo.listScrolls - afterFirst).toBeLessThanOrEqual(1);
+  });
 });

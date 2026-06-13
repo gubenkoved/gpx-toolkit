@@ -229,32 +229,6 @@ export class BeelineApp {
     return parseJourneysList(await this.adb.uiDump());
   }
 
-  /** Scroll the list down one screen. Returns false if already at the end. */
-  async scrollListDown(): Promise<boolean> {
-    const before = (await this.listCards()).map((c) => c.key);
-    const [x1, y1, x2, y2] = this.geo.listScrollDown();
-    await this.adb.swipe(x1, y1, x2, y2, 300);
-    await this.sleep(this.timing.scroll_settle);
-    const after = (await this.listCards()).map((c) => c.key);
-    return !sameKeys(before, after);
-  }
-
-  /** Locate a ride by its datetime key (scrolling) and open it. */
-  async findAndOpen(key: string, maxScrolls = 400): Promise<boolean> {
-    await this.openJourneys();
-    await this.scrollListToTop();
-    for (let i = 0; i < maxScrolls; i++) {
-      for (const card of await this.listCards()) {
-        if (card.key === key) {
-          await this.openCard(card);
-          return true;
-        }
-      }
-      if (!(await this.scrollListDown())) return false;
-    }
-    return false;
-  }
-
   // -- ride detail -------------------------------------------------------
 
   async openCard(card: RideCard): Promise<void> {
@@ -399,27 +373,32 @@ export class BeelineApp {
   }
 
   /**
-   * Open each ride whose key is in `keys`, read its detail (and upload to Strava if
-   * `doUpload` and it is pending). `onDetail` fires after each ride so callers can
-   * persist status AS IT IS KNOWN.
+   * Position-aware sweep over `keys`: starting from wherever the Journeys list
+   * currently sits (NO wasteful scroll-to-top), repeatedly bring each remaining
+   * target on screen and hand it to `visit`. Direction is chosen from the list's
+   * newest-first ordering — newer rides are up, older rides are down — and we
+   * only move toward a side that could still hold a target, stopping once both
+   * ends are exhausted so a removed/stale key can never cause an infinite loop.
    *
-   * Navigation is position-aware: we start from wherever the list currently sits
-   * (no wasteful scroll-to-top) and scroll *towards* each target using the list's
-   * newest-first ordering — newer rides are up, older rides are down. We only move
-   * in a direction that could contain a remaining target, and stop as soon as both
-   * ends are exhausted, so a removed/stale key can never cause an infinite loop.
+   * `visit(card, name, stop)` owns opening the card, doing the per-ride work, and
+   * closing the detail; it returns true to abort the whole sweep (e.g. cancelled).
+   * The shared `stop(msg)` reports progress and returns the cancel signal, marking
+   * the sweep cancelled so unfound rides aren't wrongly treated as deleted.
    *
-   * `onMissing` is called (only when the search ran to completion, not when it was
-   * cancelled) with keys we searched the whole list for but never found — i.e. rides
-   * that have been deleted on the phone since we last saw them.
+   * `onMissing` is called (only when the sweep ran to completion, not when it was
+   * cancelled) with keys we searched the whole list for but never found — i.e.
+   * rides that have been deleted on the phone since we last saw them.
    */
-  async processTargets(
+  private async sweepTargets(
     keys: Set<string>,
-    doUpload: boolean,
-    progress: Progress = noop,
-    onDetail: (detail: RideDetail) => void = () => {},
+    progress: Progress,
+    visit: (
+      card: RideCard,
+      name: string,
+      stop: (msg: string) => Promise<boolean>,
+    ) => Promise<boolean>,
     onMissing: (keys: string[]) => void = () => {},
-  ): Promise<RideDetail[]> {
+  ): Promise<void> {
     let cancelled = false;
     // A progress call that returns the cancel signal; records it so we don't treat
     // an interrupted pass as proof that the unfound rides are gone.
@@ -431,11 +410,10 @@ export class BeelineApp {
       return false;
     };
 
-    if (await stop("checking we're on your rides…")) return [];
+    if (await stop("checking we're on your rides…")) return;
     await this.openJourneys(); // dismisses any open detail without resetting scroll
     const remaining = new Set(keys);
     const missing = new Set<string>(); // requested but proven absent → deleted
-    const results: RideDetail[] = [];
     let cards = await this.listCards(); // start from the CURRENT position
     let exhaustedUp = false;
     let exhaustedDown = false;
@@ -445,8 +423,7 @@ export class BeelineApp {
     // We only know each target by its key, so show its short date/time label
     // (falling back to the raw key when it can't be parsed); cap at two names.
     const describeRemaining = (): string => {
-      const keys = [...remaining];
-      const labels = keys.map((k) => rideShortLabel(k) || k);
+      const labels = [...remaining].map((k) => rideShortLabel(k) || k);
       const shown = labels.slice(0, 2).join(", ");
       const extra = labels.length - 2;
       return extra > 0 ? `${shown} (+${extra} more)` : shown;
@@ -460,28 +437,8 @@ export class BeelineApp {
         const dateLabel = rideShortLabel(target.key);
         const name =
           target.title && dateLabel ? `${target.title} (${dateLabel})` : target.title || target.key;
-        if (await stop(`opening ride: ${name}`)) break;
-        await this.openCard(target);
-        if (await stop(`reading ride: ${name}`)) {
-          await this.closeDetail();
-          break;
-        }
-        const detail = await this.readDetail();
-        if (!detail.key) detail.key = target.key;
-        detail.title = detail.title || target.title;
-        if (doUpload && detail.stravaStatus === "pending") {
-          if (await stop(`uploading to Strava: ${name}`)) {
-            await this.closeDetail();
-            break;
-          }
-          detail.stravaStatus = await this.uploadCurrentToStrava(progress);
-        } else {
-          await progress(`checked: ${name} — ${detail.stravaStatus}`);
-        }
-        await this.closeDetail(); // Back returns to the list at the same position
+        if (await visit(target, name, stop)) break; // aborted (e.g. cancelled)
         remaining.delete(target.key);
-        results.push(detail);
-        onDetail(detail); // persist this ride's status immediately
         exhaustedUp = exhaustedDown = false; // position moved; both ends open again
         cards = await this.listCards();
         continue;
@@ -542,6 +499,51 @@ export class BeelineApp {
         onMissing([...missing]);
       }
     }
+  }
+
+  /**
+   * Open each ride whose key is in `keys`, read its detail (and upload to Strava if
+   * `doUpload` and it is pending). `onDetail` fires after each ride so callers can
+   * persist status AS IT IS KNOWN. Navigation is position-aware via `sweepTargets`
+   * (no scroll-to-top); `onMissing` reports keys no longer on the phone.
+   */
+  async processTargets(
+    keys: Set<string>,
+    doUpload: boolean,
+    progress: Progress = noop,
+    onDetail: (detail: RideDetail) => void = () => {},
+    onMissing: (keys: string[]) => void = () => {},
+  ): Promise<RideDetail[]> {
+    const results: RideDetail[] = [];
+    await this.sweepTargets(
+      keys,
+      progress,
+      async (target, name, stop) => {
+        if (await stop(`opening ride: ${name}`)) return true;
+        await this.openCard(target);
+        if (await stop(`reading ride: ${name}`)) {
+          await this.closeDetail();
+          return true;
+        }
+        const detail = await this.readDetail();
+        if (!detail.key) detail.key = target.key;
+        detail.title = detail.title || target.title;
+        if (doUpload && detail.stravaStatus === "pending") {
+          if (await stop(`uploading to Strava: ${name}`)) {
+            await this.closeDetail();
+            return true;
+          }
+          detail.stravaStatus = await this.uploadCurrentToStrava(progress);
+        } else {
+          await progress(`checked: ${name} — ${detail.stravaStatus}`);
+        }
+        await this.closeDetail(); // Back returns to the list at the same position
+        results.push(detail);
+        onDetail(detail); // persist this ride's status immediately
+        return false;
+      },
+      onMissing,
+    );
     return results;
   }
 
@@ -552,7 +554,10 @@ export class BeelineApp {
    * download GPX" flow, and pull the resulting file off the device. `onGpx` fires
    * per ride so callers can persist/download each file as it arrives; `onFail`
    * reports rides that were found but whose export failed (with the failing step);
-   * `onMissing` reports keys that are no longer on the phone.
+   * `onMissing` reports keys that are no longer on the phone. Navigation is
+   * position-aware via `sweepTargets`, so a download never bounces the list back
+   * to the top — it starts from wherever we already are and scrolls only toward
+   * each target.
    */
   async downloadGpx(
     keys: Set<string>,
@@ -562,24 +567,24 @@ export class BeelineApp {
     onFail: (key: string, reason: string) => void = () => {},
   ): Promise<GpxFile[]> {
     const results: GpxFile[] = [];
-    const missing: string[] = [];
-    for (const key of keys) {
-      if (await progress(`finding ride: ${key}`)) break;
-      const opened = await this.findAndOpen(key);
-      if (!opened) {
-        missing.push(key);
-        continue;
-      }
-      const outcome = await this.exportCurrentGpx(key, progress);
-      await this.closeDetail();
-      if (outcome.ok) {
-        results.push(outcome.file);
-        onGpx(outcome.file);
-      } else {
-        onFail(key, outcome.reason);
-      }
-    }
-    if (missing.length) onMissing(missing);
+    await this.sweepTargets(
+      keys,
+      progress,
+      async (target, name, stop) => {
+        if (await stop(`opening ride: ${name}`)) return true;
+        await this.openCard(target);
+        const outcome = await this.exportCurrentGpx(target.key, progress);
+        await this.closeDetail();
+        if (outcome.ok) {
+          results.push(outcome.file);
+          onGpx(outcome.file);
+        } else {
+          onFail(target.key, outcome.reason);
+        }
+        return false;
+      },
+      onMissing,
+    );
     return results;
   }
 
