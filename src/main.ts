@@ -555,7 +555,9 @@ function toast(msg: string, err = false): void {
   t.classList.toggle("err", !!err);
   t.style.display = "block";
   clearTimeout(t._t);
-  t._t = window.setTimeout(() => (t.style.display = "none"), 4000);
+  // Errors stay put until the next toast replaces them (or the user reads the
+  // persistent error bar and dismisses it) — they must never just blink past.
+  if (!err) t._t = window.setTimeout(() => (t.style.display = "none"), 4000);
 }
 
 function stateSig(): string {

@@ -51,6 +51,11 @@ export interface GpxFile {
   bytes: Uint8Array;
 }
 
+/** Per-ride outcome of the native GPX export flow. */
+export type GpxExport =
+  | { ok: true; file: GpxFile }
+  | { ok: false; reason: string };
+
 // A callback the long-running passes call to report progress and check for cancel.
 // It receives a short status message; returning true asks the operation to stop.
 export type Progress = (msg: string) => boolean | Promise<boolean>;
@@ -526,14 +531,16 @@ export class BeelineApp {
   /**
    * Open each ride in `keys`, drive Beeline's native "Options → Share/download →
    * download GPX" flow, and pull the resulting file off the device. `onGpx` fires
-   * per ride so callers can persist/download each file as it arrives; `onMissing`
-   * reports keys that are no longer on the phone.
+   * per ride so callers can persist/download each file as it arrives; `onFail`
+   * reports rides that were found but whose export failed (with the failing step);
+   * `onMissing` reports keys that are no longer on the phone.
    */
   async downloadGpx(
     keys: Set<string>,
     progress: Progress = noop,
     onGpx: (file: GpxFile) => void = () => {},
     onMissing: (keys: string[]) => void = () => {},
+    onFail: (key: string, reason: string) => void = () => {},
   ): Promise<GpxFile[]> {
     const results: GpxFile[] = [];
     const missing: string[] = [];
@@ -544,11 +551,13 @@ export class BeelineApp {
         missing.push(key);
         continue;
       }
-      const file = await this.exportCurrentGpx(key, progress);
+      const outcome = await this.exportCurrentGpx(key, progress);
       await this.closeDetail();
-      if (file) {
-        results.push(file);
-        onGpx(file);
+      if (outcome.ok) {
+        results.push(outcome.file);
+        onGpx(outcome.file);
+      } else {
+        onFail(key, outcome.reason);
       }
     }
     if (missing.length) onMissing(missing);
@@ -582,31 +591,35 @@ export class BeelineApp {
 
   /**
    * From an open ride detail, run the GPX export flow and return the pulled file.
-   * Returns null if any screen fails to appear or the file never lands.
+   * On failure returns `{ ok: false, reason }` naming the step that didn't appear
+   * (the same message is also reported via `progress`), so callers can surface it.
    */
-  private async exportCurrentGpx(key: string, progress: Progress): Promise<GpxFile | null> {
+  private async exportCurrentGpx(key: string, progress: Progress): Promise<GpxExport> {
     const before = await this.listGpxDownloads();
 
     const options = await this.pollFor(findOptionsButton, 4);
     if (!options) {
-      await progress(`could not find Options for ${key}`);
-      return null;
+      const reason = `could not find Options for ${key}`;
+      await progress(reason);
+      return { ok: false, reason };
     }
     await this.tapBounds(options);
 
     const shareRow = await this.pollFor(findShareDownloadRow, 6);
     if (!shareRow) {
-      await progress(`no Share/download option for ${key}`);
-      return null;
+      const reason = `no Share/download option for ${key}`;
+      await progress(reason);
+      return { ok: false, reason };
     }
     await this.tapBounds(shareRow);
 
     const riddenRoute = await this.pollFor(findRiddenRouteRow, 6);
     if (!riddenRoute) {
-      await progress(`no "ridden route" export for ${key}`);
-      return null;
+      const reason = `no "ridden route" export for ${key}`;
+      await progress(reason);
+      return { ok: false, reason };
     }
-    if (await progress(`exporting GPX: ${key}`)) return null;
+    if (await progress(`exporting GPX: ${key}`)) return { ok: false, reason: `cancelled before exporting ${key}` };
     await this.tapBounds(riddenRoute);
 
     // Wait out the "Downloading GPX route" progress, then tap Save in the system dialog.
@@ -615,8 +628,9 @@ export class BeelineApp {
       20,
     );
     if (!save) {
-      await progress(`GPX export did not complete for ${key}`);
-      return null;
+      const reason = `GPX export did not complete for ${key}`;
+      await progress(reason);
+      return { ok: false, reason };
     }
     await this.tapBounds(save);
 
@@ -635,8 +649,9 @@ export class BeelineApp {
       await this.sleep(this.timing.poll_interval);
     }
     if (!newName) {
-      await progress(`could not find the exported GPX file for ${key}`);
-      return null;
+      const reason = `could not find the exported GPX file for ${key}`;
+      await progress(reason);
+      return { ok: false, reason };
     }
 
     // Move the export to a stable, app-driven name so device files never collide
@@ -648,7 +663,7 @@ export class BeelineApp {
       await this.adb.shell(`rm -f ${shellQuote(dst)} && mv ${shellQuote(src)} ${shellQuote(dst)}`);
     }
     const bytes = await this.adb.readFile(`${DOWNLOAD_DIR}/${finalName}`);
-    return { key, filename: finalName, bytes };
+    return { ok: true, file: { key, filename: finalName, bytes } };
   }
 }
 

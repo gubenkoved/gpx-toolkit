@@ -262,6 +262,7 @@ export class Controller {
   private async doDownloadGpx(task: Task, report: Report): Promise<void> {
     const app = await this.appFor();
     let removed = 0;
+    const failures: string[] = [];
     const files = await app.downloadGpx(
       new Set(task.keys),
       (msg) => report(msg),
@@ -272,6 +273,10 @@ export class Controller {
           this.store.upsert(file.key, { track });
           this.store.save();
           this.notify();
+        } else {
+          // We pulled the file but couldn't read a GPS track out of it. Don't store a
+          // bogus empty track; record it so the task surfaces a real, persistent error.
+          failures.push(`${file.key}: couldn't extract a GPS track from the downloaded GPX`);
         }
         this.emitGpx(file); // hand the full file to the UI for download
       },
@@ -282,9 +287,19 @@ export class Controller {
           this.notify();
         }
       },
+      (key, reason) => failures.push(`${key}: ${reason}`),
     );
     const suffix = removed ? `, ${removed} deleted` : "";
     report(`downloaded ${files.length} GPX file${files.length === 1 ? "" : "s"}${suffix}`);
+
+    if (failures.length) {
+      // Fail the task so the UI shows a persistent, acknowledgeable error with full
+      // per-ride detail under "Details" — not a status message that just blinks past.
+      const header = `${failures.length} of ${task.keys.length} GPX download${
+        task.keys.length === 1 ? "" : "s"
+      } failed (${files.length} succeeded):`;
+      throw new Error([header, ...failures.map((f) => `  • ${f}`)].join("\n"));
+    }
   }
 
   // -- enqueue helpers / API surface ------------------------------------
