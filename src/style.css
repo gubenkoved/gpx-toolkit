@@ -248,6 +248,9 @@ details.help kbd { background: var(--line); border-radius: 4px; padding: 1px 5px
 .rmap { margin-top: 8px; height: 200px; border-radius: 9px; overflow: hidden;
   border: 1px solid var(--line); background: var(--bg); }
 .rmap .leaflet-container { height: 100%; width: 100%; background: var(--bg); }
+/* Desaturate the basemap so the colored track stands out against OSM's own
+   orange/red roads and POIs. */
+.rmap .leaflet-tile.rmap-tiles { filter: grayscale(60%) contrast(92%) brightness(104%); }
 .rmapnote { margin-top: 5px; color: var(--muted); font-size: 11.5px; font-style: italic; }
 .rmaphint { margin-top: 8px; padding: 8px 11px; border: 1px dashed var(--line); border-radius: 9px;
   color: var(--muted); font-size: 12px; }

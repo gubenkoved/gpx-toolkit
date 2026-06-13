@@ -234,7 +234,11 @@ function mountMaps(): void {
     L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
       maxZoom: 19,
       attribution: "© OpenStreetMap",
+      className: "rmap-tiles",
     }).addTo(map);
+    // White casing underneath + colored line on top so the track stays legible
+    // over OSM's own orange/red roads and POIs.
+    L.polyline(pts, { color: "#ffffff", weight: 6, opacity: 0.9 }).addTo(map);
     const line = L.polyline(pts, { color: "#fc5200", weight: 3 }).addTo(map);
     map.fitBounds(line.getBounds(), { padding: [12, 12] });
     // The container was sized by CSS only after insertion; nudge Leaflet to re-measure.
