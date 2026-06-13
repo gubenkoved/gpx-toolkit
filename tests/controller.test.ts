@@ -74,6 +74,36 @@ describe("Controller + DemoAdb (real orchestration, no phone)", () => {
     expect(r.duration).toBe(r.stats["Elapsed time"]);
   });
 
+  it("captures the ride detail while downloading GPX for a never-opened ride", async () => {
+    const device = new DemoAdb();
+    const store = new Store(memStorage());
+    const c = new Controller(async () => device, store, async () => {});
+    await c.connect();
+
+    // A ride the list scan recorded with only its base title — no detail loaded yet
+    // (no stats, no Strava status, no distance/duration on the summary line).
+    const key = "Sat Jun 13 2026 at 14:22";
+    store.upsert(key, { title_base: "Afternoon ride" });
+    let r = c.state().rides.find((v) => v.key === key)!;
+    expect(r.distance).toBe("");
+    expect(r.duration).toBe("");
+    expect(r.status).toBe("unknown");
+    expect(Object.keys(r.stats)).toHaveLength(0);
+
+    c.downloadGpx([key]);
+    await vi.waitFor(() => expect(c.state().jobs.busy).toBe(false), { timeout: 5000 });
+
+    r = c.state().rides.find((v) => v.key === key)!;
+    // The GPX track was captured…
+    expect(r.track).not.toBe("");
+    expect(r.track_points).toBeGreaterThan(0);
+    // …AND the detail was read on the way: stats, status and summary fields too.
+    expect(r.stats["Average speed"]).toBe("20.0km/h");
+    expect(r.status).toBe("pending");
+    expect(r.distance).toBe("22.6km");
+    expect(r.duration).toBe(r.stats["Elapsed time"]);
+  });
+
   it("keeps the scan name and splits the check-time location suffix", async () => {
     const c = makeController(new DemoAdb());
     await c.connect();

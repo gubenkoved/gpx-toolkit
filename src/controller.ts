@@ -11,7 +11,7 @@
 import { AdbError, realSleep, type AdbDevice, type Sleep } from "./adb/types";
 import { BeelineApp, DEFAULT_PROFILE, PROFILES, type GpxFile } from "./beeline";
 import { JobQueue, type JobsSnapshot, type Report, type Task } from "./jobs";
-import { rideDatetime, rideMonth, sinceFromPreset } from "./parsing";
+import { rideDatetime, rideMonth, sinceFromPreset, type RideDetail } from "./parsing";
 import { monthKey, monthLabel, Store, type Settings, type UpsertFields } from "./store";
 import { gpxToRoughTrack } from "./track";
 
@@ -252,20 +252,8 @@ export class Controller {
       (msg) => report(msg),
       (d) => {
         // Persist and surface each ride's status the moment it is read/uploaded.
-        const cur = this.store.rides.get(d.key);
-        const fields: UpsertFields = { title: d.title, strava_status: d.stravaStatus, stats: d.stats };
-        // Backfill the one-line summary fields from the freshly read detail when the
-        // list scan never captured them, so the summary, distance chart and KPIs all
-        // agree with the expanded detail instead of showing "?".
-        if (!cur?.distance && d.stats["Distance"]) fields.distance = d.stats["Distance"];
-        if (!cur?.duration) {
-          const dur = d.stats["Elapsed time"] || d.stats["Moving time"];
-          if (dur) fields.duration = dur;
-        }
-        this.store.upsert(d.key, fields);
+        this.persistDetail(d);
         if (d.stravaStatus === "uploaded") uploaded++;
-        this.store.save();
-        this.notify();
       },
       (missing) => {
         // Searched the whole list and never found these → deleted on the phone.
@@ -279,6 +267,25 @@ export class Controller {
     const suffix = removed ? `, ${removed} deleted` : "";
     if (doUpload) report(`done: ${uploaded} now on Strava (${details.length} processed)${suffix}`);
     else report(`checked ${details.length} rides${suffix}`);
+  }
+
+  /**
+   * Persist a freshly read ride detail (title, Strava status, stats) and surface it.
+   * Backfills the one-line summary fields (distance/duration) from the detail when
+   * the list scan never captured them, so the summary, distance chart and KPIs all
+   * agree with the expanded detail instead of showing "?".
+   */
+  private persistDetail(d: RideDetail): void {
+    const cur = this.store.rides.get(d.key);
+    const fields: UpsertFields = { title: d.title, strava_status: d.stravaStatus, stats: d.stats };
+    if (!cur?.distance && d.stats["Distance"]) fields.distance = d.stats["Distance"];
+    if (!cur?.duration) {
+      const dur = d.stats["Elapsed time"] || d.stats["Moving time"];
+      if (dur) fields.duration = dur;
+    }
+    this.store.upsert(d.key, fields);
+    this.store.save();
+    this.notify();
   }
 
   private async doDownloadGpx(task: Task, report: Report): Promise<void> {
@@ -316,6 +323,9 @@ export class Controller {
         }
       },
       (key, reason) => failures.push(`${key}: ${reason}`),
+      // Capture the ride's detail read during the export so a GPX download on a
+      // ride we never opened still records its title/stats/Strava status.
+      (detail) => this.persistDetail(detail),
     );
     const suffix = removed ? `, ${removed} deleted` : "";
     report(`downloaded ${files.length} GPX file${files.length === 1 ? "" : "s"}${suffix}`);

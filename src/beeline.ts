@@ -638,7 +638,10 @@ export class BeelineApp {
    * download GPX" flow, and pull the resulting file off the device. `onGpx` fires
    * per ride so callers can persist/download each file as it arrives; `onFail`
    * reports rides that were found but whose export failed (with the failing step);
-   * `onMissing` reports keys that are no longer on the phone. Navigation is
+   * `onMissing` reports keys that are no longer on the phone. `onDetail` fires per
+   * ride with the detail read while its card is open, so a download records the
+   * ride's title/stats/Strava status even if it was never opened via a Check.
+   * Navigation is
    * position-aware via `sweepTargets`, so a download never bounces the list back
    * to the top — it starts from wherever we already are and scrolls only toward
    * each target.
@@ -649,6 +652,7 @@ export class BeelineApp {
     onGpx: (file: GpxFile) => void = () => {},
     onMissing: (keys: string[]) => void = () => {},
     onFail: (key: string, reason: string) => void = () => {},
+    onDetail: (detail: RideDetail) => void = () => {},
   ): Promise<GpxFile[]> {
     const results: GpxFile[] = [];
     await this.sweepTargets(
@@ -657,6 +661,13 @@ export class BeelineApp {
       async (target, name, stop) => {
         if (await stop(`opening ride: ${name}`)) return true;
         await this.openCard(target);
+        // Read the ride's detail while the card is open so a GPX download on a
+        // ride we never explicitly opened still records its title/stats/Strava
+        // status — exactly like a Check would.
+        const detail = await this.readDetail();
+        if (!detail.key) detail.key = target.key;
+        detail.title = detail.title || target.title;
+        onDetail(detail);
         const outcome = await this.exportCurrentGpx(target.key, progress);
         await this.closeDetail();
         if (outcome.ok) {
