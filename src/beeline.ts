@@ -593,10 +593,15 @@ export class BeelineApp {
   }
 
   /**
-   * Every `.gpx` file under shared storage, as absolute paths. Recursive and
-   * name/folder-agnostic on purpose: the SAF "Save" dialog reopens at the user's
-   * last-used location and names the export however it likes, so we never match on
-   * a folder or filename — we diff this set across the export to find what's new.
+   * Every exported-GPX file under shared storage, as absolute paths. Recursive
+   * and name/folder-agnostic on purpose: the SAF "Save" dialog reopens at the
+   * user's last-used location and names the export however it likes, so we never
+   * match on a folder or exact filename — we diff this set across the export.
+   *
+   * Crucially we match both `*.gpx` AND `*.gpx (N)`: when a file already exists,
+   * Android SAF de-duplicates by appending " (1)", " (2)", … AFTER the extension,
+   * so a fresh export is often named "ride.gpx (3)" — which a plain `*.gpx` glob
+   * would miss entirely (the exact bug that left exports undetected).
    *
    * Bounded for speed: we prune the heavyweight trees that can hold tens of
    * thousands of files but never a user-saved GPX (`Android/` app sandboxes,
@@ -607,7 +612,8 @@ export class BeelineApp {
     const prune = GPX_SCAN_PRUNE.map((d) => `-name ${shellQuote(d)}`).join(" -o ");
     const out = await this.adb.shell(
       `find -L ${shellQuote(root)} -maxdepth 4 ` +
-        `\\( ${prune} \\) -prune -o -type f -iname '*.gpx' -print 2>/dev/null`,
+        `\\( ${prune} \\) -prune -o -type f \\( -iname '*.gpx' -o -iname '*.gpx (*)' \\) ` +
+        `-print 2>/dev/null`,
     );
     return new Set(
       out
