@@ -476,6 +476,12 @@ export class BeelineApp {
     const canFling = this.timing.fling_ms !== null;
     const baseLevel = canFling ? 0 : 2;
     let level = baseLevel;
+    // Consecutive "the list didn't move" results in the current direction. One
+    // stall is treated as a transient miss (a fling that failed to register, or a
+    // dump taken before the list settled) and is retried with a reliable drag; only
+    // a SECOND, confirmed stall accepts that we've genuinely reached that end. This
+    // is what stops a single missed swipe from ending the sweep and wandering off.
+    let stalls = 0;
 
     // Name the rides we're still hunting for so status reads like a specific
     // intent ("Jun 13 14:22, Jun 12 09:10 (+3 more)") rather than a bare count.
@@ -500,6 +506,7 @@ export class BeelineApp {
         remaining.delete(target.key);
         exhaustedUp = exhaustedDown = false; // position moved; both ends open again
         level = baseLevel; // a new target may be far again — start coarse
+        stalls = 0; // fresh approach — forget any stall from the last target
         cards = await this.listCards();
         continue;
       }
@@ -525,19 +532,27 @@ export class BeelineApp {
         if (remaining.size === 0) break;
       }
 
-      // Pick a direction from where the remaining targets must be.
+      // Direction is decided by the list's newest→oldest ordering and the dates of
+      // the rides we still want — and it is AUTHORITATIVE: a target newer than
+      // everything on screen is strictly ABOVE us, so we go up and never down (and
+      // vice-versa). We only fall back to a blind both-ends sweep when a remaining
+      // key has no parseable date to reason about. Crucially, when a target lies past
+      // an end we've already CONFIRMED we cannot scroll toward, the ride is gone — we
+      // stop instead of reversing into the opposite direction (the old bug that made
+      // one missed up-swipe send us scrolling down forever).
       const remDates = [...remaining]
         .map(rideDatetime)
         .filter((d): d is Date => d !== null);
-      const wantUp = remDates.some((d) => newestVisible !== null && d > newestVisible);
-      const wantDown = remDates.some((d) => oldestVisible !== null && d < oldestVisible);
+      const hasUndated = [...remaining].some((k) => rideDatetime(k) === null);
+      const needUp = remDates.some((d) => newestVisible !== null && d > newestVisible);
+      const needDown = remDates.some((d) => oldestVisible !== null && d < oldestVisible);
 
       let goUp: boolean;
-      if (wantUp && !exhaustedUp) goUp = true;
-      else if (wantDown && !exhaustedDown) goUp = false;
-      else if (!exhaustedDown) goUp = false; // unknown/undated → sweep down first…
-      else if (!exhaustedUp) goUp = true; // …then up…
-      else break; // …both ends reached: the rest are gone.
+      if (needUp && !exhaustedUp) goUp = true; // target is above and we can still go up
+      else if (needDown && !exhaustedDown) goUp = false; // …or below and we can go down
+      else if (hasUndated && !exhaustedDown) goUp = false; // no date — sweep down first…
+      else if (hasUndated && !exhaustedUp) goUp = true; // …then up…
+      else break; // every remaining ride is past a confirmed end → they're gone
 
       // The closest remaining target on the side we're heading toward — its date
       // lets us tell when a fling has coasted PAST it (overshoot) so we can refine.
@@ -552,8 +567,12 @@ export class BeelineApp {
         if (below.length) aim = new Date(Math.max(...below));
       }
       const stepLevel = aim === null ? 2 : level;
-      const stride = stepLevel === 0 ? this.timing.coarse_swipes_per_dump : 1;
-      const fling = stepLevel <= 1;
+      // Resilient gesture choice: only risk a fast momentum fling when we have a date
+      // to aim at AND the list actually moved last time. After ANY stall we drop to a
+      // slow, reliable controlled drag — a fling that merely failed to register must
+      // never be mistaken for the end of the list.
+      const fling = canFling && aim !== null && stepLevel <= 1 && stalls === 0;
+      const stride = fling && stepLevel === 0 ? this.timing.coarse_swipes_per_dump : 1;
 
       const verb = fling ? "fast-scrolling" : "scrolling";
       if (await stop(`${verb} ${goUp ? "up" : "down"} to find ${describeRemaining()}…`)) break;
@@ -561,18 +580,27 @@ export class BeelineApp {
       for (let s = 0; s < stride; s++) await this.moveList(goUp, fling); // blind between dumps
       cards = await this.listCards();
       if (sameKeys(before, cards.map((c) => c.key))) {
-        // The list didn't move → we've hit that end.
-        if (goUp) exhaustedUp = true;
-        else exhaustedDown = true;
-      } else if (aim !== null && cards.length) {
-        // Did the (fast) move coast past the target's date? If so, refine one level
-        // so the next approach is gentler — next overshoot drops to exact stepping.
-        const nv = rideDatetime(cards[0].key);
-        const ov = rideDatetime(cards[cards.length - 1].key);
-        const overshot =
-          (goUp && ov !== null && aim < ov) || // scrolled up past it (now below the window)
-          (!goUp && nv !== null && aim > nv); // scrolled down past it (now above the window)
-        if (overshot && level < 2) level += 1;
+        // The list didn't budge — usually just a missed fling. Retry with a reliable
+        // drag next time; only after a second, confirmed stall do we accept this end.
+        stalls += 1;
+        if (stalls >= 2) {
+          if (goUp) exhaustedUp = true;
+          else exhaustedDown = true;
+          stalls = 0;
+        }
+      } else {
+        stalls = 0; // we moved — this end is clearly not reached
+        // Did a fast move coast past the target's date? Refine one level so the next
+        // approach is gentler; the final level is an exact single-card drag that
+        // cannot overshoot, guaranteeing convergence.
+        if (aim !== null && cards.length) {
+          const nv = rideDatetime(cards[0].key);
+          const ov = rideDatetime(cards[cards.length - 1].key);
+          const overshot =
+            (goUp && ov !== null && aim < ov) || // scrolled up past it (now below the window)
+            (!goUp && nv !== null && aim > nv); // scrolled down past it (now above the window)
+          if (overshot && level < 2) level += 1;
+        }
       }
     }
 

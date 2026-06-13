@@ -161,3 +161,58 @@ describe("fast far-scrolling (fling coarse→fine)", () => {
     expect(missing).toEqual([gone]); // bracketed-but-absent → correctly marked deleted
   });
 });
+
+describe("resilient navigation (recovers from missed swipes)", () => {
+  it("recovers when an UP swipe fails to register instead of reversing downward", async () => {
+    const rides = makeDemoRides(120);
+    const oldest = rides[rides.length - 1].key;
+    const target = rides[60].key; // sits ABOVE the bottom — reaching it needs UP scrolls
+
+    // PROFILES.normal takes one controlled drag per step, so a single missed swipe
+    // fully stalls that step — exactly the condition that used to be misread as
+    // "top reached", after which the old code scrolled DOWN forever and gave up.
+    const demo = new DemoAdb({ rides: makeDemoRides(120) });
+    const app = await BeelineApp.create(demo, PROFILES.normal, instant);
+
+    // Walk down to the oldest ride first so the list is parked near the bottom and
+    // the next target lies strictly above the current view.
+    await app.processTargets(new Set([oldest]), false);
+
+    demo.missNextSwipes(1); // the first UP gesture toward the target silently fails
+    const missing: string[] = [];
+    const details = await app.processTargets(
+      new Set([target]),
+      false,
+      async () => false,
+      () => {},
+      (keys) => missing.push(...keys),
+    );
+
+    expect(details.map((d) => d.key)).toEqual([target]); // found despite the missed swipe
+    expect(missing).toEqual([]); // never wrongly declared deleted
+  });
+
+  it("recovers when a whole coarse fling step fails to register (fast profile)", async () => {
+    const rides = makeDemoRides(120);
+    const oldest = rides[rides.length - 1].key;
+
+    // fast chains coarse_swipes_per_dump (3) flings per step; missing all three
+    // stalls the step. The fix retries with a reliable drag rather than declaring
+    // the end of the list, so the descent still reaches the very oldest ride.
+    const demo = new DemoAdb({ rides: makeDemoRides(120) });
+    const app = await BeelineApp.create(demo, PROFILES.fast, instant);
+
+    demo.missNextSwipes(PROFILES.fast.coarse_swipes_per_dump); // whole first step misses
+    const missing: string[] = [];
+    const details = await app.processTargets(
+      new Set([oldest]),
+      false,
+      async () => false,
+      () => {},
+      (keys) => missing.push(...keys),
+    );
+
+    expect(details.map((d) => d.key)).toEqual([oldest]); // reached the very bottom
+    expect(missing).toEqual([]);
+  });
+});

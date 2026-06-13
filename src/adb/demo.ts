@@ -139,6 +139,8 @@ export class DemoAdb implements AdbDevice {
   listScrolls = 0;
   /** Number of uiautomator dumps served — the dominant real-device cost (test hook). */
   uiDumps = 0;
+  /** Remaining list swipes to silently swallow — simulates flings that fail to register. */
+  private missSwipes = 0;
 
   constructor(opts: { rides?: DemoRide[]; size?: Size; latencyMs?: number } = {}) {
     this.size = opts.size ?? { width: 1080, height: 2400 };
@@ -154,6 +156,16 @@ export class DemoAdb implements AdbDevice {
     this.view = "list";
     this.detailIndex = -1;
     this.revealed = false;
+  }
+
+  /**
+   * Test hook: make the next `n` Journeys-list swipes do nothing (the gesture is
+   * still counted, but the list does not move) — reproduces a flaky touch/fling
+   * that fails to register, which navigation must recover from rather than treat
+   * as the end of the list.
+   */
+  missNextSwipes(n: number): void {
+    this.missSwipes = n;
   }
 
   private async tick(): Promise<void> {
@@ -277,6 +289,10 @@ export class DemoAdb implements AdbDevice {
     await this.tick();
     if (this.view === "list") {
       this.listScrolls++;
+      if (this.missSwipes > 0) {
+        this.missSwipes--; // simulate a missed gesture: counted, but no movement
+        return;
+      }
       // A quick flick (short duration) carries momentum and coasts several rows
       // further than a slow controlled drag; its reach scales with travel. The
       // slow drag keeps its original fixed 5-row step so existing behaviour and
