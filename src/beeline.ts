@@ -34,6 +34,12 @@ export const PACKAGE = "co.beeline";
 export const DOWNLOAD_DIR = "/sdcard/Download";
 
 /**
+ * Directory names pruned from the `.gpx` scan: heavyweight trees that can hold
+ * tens of thousands of files but never a user-saved GPX. Keeps detection fast.
+ */
+const GPX_SCAN_PRUNE = ["Android", "DCIM", ".thumbnails", "Pictures", "Movies", "Music"];
+
+/**
  * A deterministic, collision-free GPX filename derived from a ride's (unique)
  * datetime key. Beeline names every export after its title/date, so two rides can
  * share a name and clobber each other on the device; deriving the name from the
@@ -146,6 +152,9 @@ export class Geometry {
 
 export class BeelineApp {
   geo!: Geometry;
+
+  /** Resolved real path of `/sdcard` (cached after first lookup). */
+  private gpxRoot: string | null = null;
 
   private constructor(
     readonly adb: AdbDevice,
@@ -565,17 +574,40 @@ export class BeelineApp {
   }
 
   /**
+   * The real shared-storage root, with the `/sdcard` symlink resolved once and
+   * cached. On Android `/sdcard` → `/storage/emulated/0`; resolving it up front
+   * means `find` never has to descend a symlinked start path (which it won't do),
+   * so file detection is robust regardless of how the device wires up storage.
+   * Falls back to `/sdcard` if `readlink` is unavailable.
+   */
+  private async storageRoot(): Promise<string> {
+    if (this.gpxRoot) return this.gpxRoot;
+    let root = "";
+    try {
+      root = (await this.adb.shell(`readlink -f /sdcard 2>/dev/null`)).trim();
+    } catch {
+      root = "";
+    }
+    this.gpxRoot = root || "/sdcard";
+    return this.gpxRoot;
+  }
+
+  /**
    * Every `.gpx` file under shared storage, as absolute paths. Recursive and
    * name/folder-agnostic on purpose: the SAF "Save" dialog reopens at the user's
    * last-used location and names the export however it likes, so we never match on
    * a folder or filename — we diff this set across the export to find what's new.
    *
-   * `-L` is essential: `/sdcard` is a symlink (→ /storage/emulated/0) and `find`
-   * does NOT descend a symlinked start path without it, so it would find nothing.
+   * Bounded for speed: we prune the heavyweight trees that can hold tens of
+   * thousands of files but never a user-saved GPX (`Android/` app sandboxes,
+   * `DCIM/` photos, thumbnail caches), and cap depth. `-L` is belt-and-suspenders
+   * in case the resolved root is still a symlink on some device.
    */
-  private async listGpxFiles(): Promise<Set<string>> {
+  private async listGpxFiles(root: string): Promise<Set<string>> {
+    const prune = GPX_SCAN_PRUNE.map((d) => `-name ${shellQuote(d)}`).join(" -o ");
     const out = await this.adb.shell(
-      `find -L /sdcard -maxdepth 4 -type f -iname '*.gpx' 2>/dev/null`,
+      `find -L ${shellQuote(root)} -maxdepth 4 ` +
+        `\\( ${prune} \\) -prune -o -type f -iname '*.gpx' -print 2>/dev/null`,
     );
     return new Set(
       out
@@ -623,7 +655,9 @@ export class BeelineApp {
    * (the same message is also reported via `progress`), so callers can surface it.
    */
   private async exportCurrentGpx(key: string, progress: Progress): Promise<GpxExport> {
-    const before = await this.listGpxFiles();
+    const root = await this.storageRoot();
+    const downloadDir = `${root}/Download`;
+    const before = await this.listGpxFiles(root);
 
     const options = await this.pollFor(findOptionsButton, 4);
     if (!options) {
@@ -668,7 +702,7 @@ export class BeelineApp {
     let newPath: string | null = null;
     let inventory = before;
     for (let i = 0; i < 20; i++) {
-      inventory = await this.listGpxFiles();
+      inventory = await this.listGpxFiles(root);
       const fresh = [...inventory].filter((p) => !before.has(p));
       if (fresh.length) {
         newPath = await this.newestGpx(fresh);
@@ -678,17 +712,17 @@ export class BeelineApp {
     }
     if (!newPath) {
       const seen = [...inventory].sort();
-      const where = seen.length ? seen.join(", ") : "(find saw none under /sdcard)";
-      // Independent cross-check via `ls` (resolves the symlink, unlike a bare
-      // `find /sdcard`), so the message is conclusive even if `find` itself is the
-      // problem: it shows what's actually in the default Download folder.
-      const dl = (await this.adb.shell(`ls -1 ${DOWNLOAD_DIR} 2>/dev/null`)).trim();
+      const where = seen.length ? seen.join(", ") : `(find saw none under ${root})`;
+      // Independent cross-check via `ls` on the resolved Download folder, so the
+      // message is conclusive even if `find` itself is the problem: it shows what's
+      // actually sitting in the default save location.
+      const dl = (await this.adb.shell(`ls -1 ${shellQuote(downloadDir)} 2>/dev/null`)).trim();
       const dlList = dl ? dl.split("\n").map((s) => s.trim()).filter(Boolean).join(", ") : "(empty)";
       const reason =
         `could not find the exported GPX file for ${key}: no new .gpx appeared after ` +
         `tapping Save. The Save dialog likely targeted a folder we don't scan, or a ` +
-        `confirmation step was missed. GPX files found by find: ${where}. ` +
-        `Contents of ${DOWNLOAD_DIR}: ${dlList}`;
+        `confirmation step was missed. GPX files found by find under ${root}: ${where}. ` +
+        `Contents of ${downloadDir}: ${dlList}`;
       await progress(`could not find the exported GPX file for ${key}`);
       return { ok: false, reason };
     }
@@ -696,7 +730,7 @@ export class BeelineApp {
     // Consolidate the export into Downloads under a stable, app-driven name so device
     // files never collide (our own re-export overwrites this ride, never a stranger).
     const finalName = gpxFilename(key);
-    const dst = `${DOWNLOAD_DIR}/${finalName}`;
+    const dst = `${downloadDir}/${finalName}`;
     if (newPath !== dst) {
       await this.adb.shell(`rm -f ${shellQuote(dst)} && mv ${shellQuote(newPath)} ${shellQuote(dst)}`);
     }

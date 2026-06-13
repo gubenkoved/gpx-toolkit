@@ -16,7 +16,7 @@ import { DemoAdb } from "./adb/demo";
 import { AdbError, type AdbDevice } from "./adb/types";
 import { WebUsbAdb } from "./adb/webusb";
 import { Controller, type AppState } from "./controller";
-import { autoGranularity, bucketRide, compareRideKeysDesc, type Granularity } from "./parsing";
+import { autoGranularity, bucketRide, compareRideKeysDesc, parseDurationSec, type Granularity } from "./parsing";
 import { LEGACY_STORAGE_KEY, STORAGE_KEY, Store } from "./store";
 import { decodePolyline } from "./track";
 
@@ -168,6 +168,7 @@ const openYears = new Set<string>();
 const openStats = new Set<string>();
 let preset = "month";
 let statGran: Granularity | "auto" = "auto";
+let statMetric: "distance" | "speed" = "distance";
 let dismissedErrId = 0;
 let lastErrShownId = 0;
 let lastSig = "";
@@ -281,6 +282,9 @@ function parseKm(s: string): number {
 function fmtKm(v: number): string {
   return v >= 1000 ? (v / 1000).toFixed(1) + "k km" : Math.round(v) + " km";
 }
+function fmtSpeed(v: number): string {
+  return v.toFixed(1) + " km/h";
+}
 
 function renderStats(rides: AppState["rides"]): void {
   const panel = $("#statsPanel");
@@ -294,28 +298,66 @@ function renderStats(rides: AppState["rides"]): void {
   document
     .querySelectorAll<HTMLButtonElement>("#statGran button")
     .forEach((b) => b.classList.toggle("active", b.dataset.gran === statGran));
-  ($(".sp-title") as HTMLElement).textContent = `Distance per ${gran}`;
+  document
+    .querySelectorAll<HTMLButtonElement>("#statMetric button")
+    .forEach((b) => b.classList.toggle("active", b.dataset.metric === statMetric));
 
-  const byM = new Map<string, { label: string; short: string; km: number; n: number }>();
+  // Per bucket we track distance (always) and the subset that also has a moving
+  // time (only "checked" rides whose detail was fetched). Speed is distance-weighted:
+  // bucketSpeed = Σ km(with time) / Σ hours — so a short fast ride can't skew it.
+  const byM = new Map<
+    string,
+    { label: string; short: string; km: number; n: number; spKm: number; spSec: number; spN: number }
+  >();
   for (const r of rides) {
     const km = parseKm(r.distance);
     const [bkey, label, short] = bucketRide(r.key, gran);
-    if (!byM.has(bkey)) byM.set(bkey, { label, short, km: 0, n: 0 });
+    if (!byM.has(bkey)) byM.set(bkey, { label, short, km: 0, n: 0, spKm: 0, spSec: 0, spN: 0 });
     const e = byM.get(bkey)!;
     e.km += km;
     e.n += 1;
+    const sec = parseDurationSec((r.stats && r.stats["Moving time"]) || "");
+    if (sec > 0) {
+      // Prefer the detail's own distance value when present; fall back to the list one.
+      e.spKm += parseKm((r.stats && r.stats["Distance"]) || r.distance);
+      e.spSec += sec;
+      e.spN += 1;
+    }
   }
   const items = [...byM.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+  const bucketSpeed = (e: { spKm: number; spSec: number }): number =>
+    e.spSec > 0 ? e.spKm / (e.spSec / 3600) : 0;
 
-  const totalKm = rides.reduce((s, r) => s + parseKm(r.distance), 0);
+  if (statMetric === "speed") {
+    renderSpeed(gran, items, bucketSpeed, rides.length);
+  } else {
+    renderDistance(gran, items, rides.length);
+  }
+}
+
+type StatBucket = {
+  label: string;
+  short: string;
+  km: number;
+  n: number;
+  spKm: number;
+  spSec: number;
+  spN: number;
+};
+
+function renderDistance(gran: Granularity, items: [string, StatBucket][], rideCount: number): void {
+  ($(".sp-title") as HTMLElement).textContent = `Distance per ${gran}`;
+  $("#spNote").classList.add("hidden");
+
+  const totalKm = items.reduce((s, [, e]) => s + e.km, 0);
   const buckets = items.length;
   const maxKm = Math.max(1, ...items.map(([, e]) => e.km));
 
   $("#spKpis").innerHTML = [
     `<div class="kpi"><b>${fmtKm(totalKm)}</b><span>total</span></div>`,
-    `<div class="kpi"><b>${rides.length}</b><span>rides</span></div>`,
+    `<div class="kpi"><b>${rideCount}</b><span>rides</span></div>`,
     `<div class="kpi"><b>${fmtKm(totalKm / buckets)}</b><span>avg / ${gran}</span></div>`,
-    `<div class="kpi"><b>${(totalKm / rides.length).toFixed(1)} km</b><span>avg / ride</span></div>`,
+    `<div class="kpi"><b>${(totalKm / rideCount).toFixed(1)} km</b><span>avg / ride</span></div>`,
   ].join("");
 
   $("#chart").innerHTML = items
@@ -323,6 +365,62 @@ function renderStats(rides: AppState["rides"]): void {
       const h = Math.round((e.km / maxKm) * 96);
       return `<div class="col" title="${e.label}: ${e.km.toFixed(1)} km over ${e.n} rides">
       <span class="cval">${Math.round(e.km)}</span>
+      <div class="bar" style="height:${h}px"></div>
+      <span class="clab">${e.short}</span>
+    </div>`;
+    })
+    .join("");
+}
+
+function renderSpeed(
+  gran: Granularity,
+  items: [string, StatBucket][],
+  bucketSpeed: (e: StatBucket) => number,
+  rideCount: number,
+): void {
+  ($(".sp-title") as HTMLElement).textContent = `Average speed per ${gran}`;
+
+  // Overall distance-weighted average across every checked ride.
+  const totSpKm = items.reduce((s, [, e]) => s + e.spKm, 0);
+  const totSpSec = items.reduce((s, [, e]) => s + e.spSec, 0);
+  const ridesWithSpeed = items.reduce((s, [, e]) => s + e.spN, 0);
+  const overall = totSpSec > 0 ? totSpKm / (totSpSec / 3600) : 0;
+  const speeds = items.filter(([, e]) => e.spN > 0).map(([, e]) => bucketSpeed(e));
+  const fastest = speeds.length ? Math.max(...speeds) : 0;
+  const slowest = speeds.length ? Math.min(...speeds) : 0;
+  const maxSpeed = Math.max(1, ...speeds);
+
+  // Subtle warning: speed only covers rides we've "checked" (detail fetched).
+  const note = $("#spNote");
+  const missing = rideCount - ridesWithSpeed;
+  if (missing > 0) {
+    note.textContent =
+      `Speed uses ${ridesWithSpeed} of ${rideCount} rides — Check the rest to include their moving time.`;
+    note.classList.remove("hidden");
+  } else {
+    note.classList.add("hidden");
+  }
+
+  $("#spKpis").innerHTML = [
+    `<div class="kpi"><b>${fmtSpeed(overall)}</b><span>avg speed</span></div>`,
+    `<div class="kpi"><b>${ridesWithSpeed}</b><span>rides w/ data</span></div>`,
+    `<div class="kpi"><b>${fmtSpeed(fastest)}</b><span>fastest ${gran}</span></div>`,
+    `<div class="kpi"><b>${fmtSpeed(slowest)}</b><span>slowest ${gran}</span></div>`,
+  ].join("");
+
+  $("#chart").innerHTML = items
+    .map(([, e]) => {
+      const v = bucketSpeed(e);
+      if (e.spN === 0) {
+        return `<div class="col" title="${e.label}: no speed data">
+      <span class="cval">—</span>
+      <div class="bar empty" style="height:2px"></div>
+      <span class="clab">${e.short}</span>
+    </div>`;
+      }
+      const h = Math.round((v / maxSpeed) * 96);
+      return `<div class="col" title="${e.label}: ${v.toFixed(1)} km/h over ${e.spN} rides">
+      <span class="cval">${Math.round(v)}</span>
       <div class="bar" style="height:${h}px"></div>
       <span class="clab">${e.short}</span>
     </div>`;
@@ -464,6 +562,7 @@ function render(): void {
         const so = openStats.has(r.key);
         const el = document.createElement("div");
         el.className = "rrow" + (r.deleted ? " deleted" : "");
+        el.dataset.key = r.key;
         el.innerHTML = `
           <input type="checkbox" class="chk" data-key="${r.key}" ${selected.has(r.key) ? "checked" : ""}>
           <div class="rmain">
@@ -680,6 +779,14 @@ document.addEventListener("click", (e) => {
     render();
     return;
   }
+  if (t.dataset && t.dataset.metric) {
+    statMetric = t.dataset.metric as "distance" | "speed";
+    document
+      .querySelectorAll<HTMLButtonElement>("#statMetric button")
+      .forEach((b) => b.classList.toggle("active", b.dataset.metric === statMetric));
+    render();
+    return;
+  }
   if (t.dataset && t.dataset.speed) {
     document
       .querySelectorAll<HTMLButtonElement>("#speeds button")
@@ -749,6 +856,19 @@ document.addEventListener("click", (e) => {
     openStats.has(k) ? openStats.delete(k) : openStats.add(k);
     render();
     return;
+  }
+
+  // Clicking anywhere on a ride tile toggles its details — except on the
+  // interactive bits (buttons, links, checkbox) or inside the already-open
+  // details/map area, so the user can interact with those without collapsing.
+  if (!target.closest("button, a, input, .stats, .rmap, .rmapnote, .rmaphint")) {
+    const rrow = target.closest(".rrow") as HTMLElement | null;
+    if (rrow && rrow.dataset.key) {
+      const k = rrow.dataset.key;
+      openStats.has(k) ? openStats.delete(k) : openStats.add(k);
+      render();
+      return;
+    }
   }
 
   const yhead = t.classList && t.classList.contains("yhead") ? t : t.closest && (t.closest(".yhead") as HTMLElement | null);

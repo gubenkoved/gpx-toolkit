@@ -86,6 +86,10 @@
   <div class="stats-panel hidden" id="statsPanel">
     <div class="sp-head">
       <span class="sp-title">Distance per month</span>
+      <div class="seg sp-metric" id="statMetric">
+        <button data-metric="distance" class="active">Distance</button>
+        <button data-metric="speed">Speed</button>
+      </div>
       <div class="seg sp-gran" id="statGran">
         <button data-gran="auto" class="active">Auto</button>
         <button data-gran="day">Day</button>
@@ -95,6 +99,7 @@
       </div>
       <div class="sp-kpis" id="spKpis"></div>
     </div>
+    <div class="sp-note hidden" id="spNote"></div>
     <div class="chart" id="chart"></div>
   </div>
   <div id="months"></div>

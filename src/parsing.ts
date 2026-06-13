@@ -417,6 +417,17 @@ export function bucketRide(key: string, gran: Granularity): [string, string, str
 }
 
 /**
+ * Parse a Beeline duration string ("H:MM:SS" or "MM:SS") into whole seconds.
+ * Returns 0 for empty/garbage input so callers can treat "no data" as zero time.
+ */
+export function parseDurationSec(s: string): number {
+  if (!DURATION_RE.test((s || "").trim())) return 0;
+  const parts = s.trim().split(":").map(Number);
+  if (parts.some((n) => !Number.isFinite(n))) return 0;
+  return parts.reduce((acc, n) => acc * 60 + n, 0);
+}
+
+/**
  * Pick a sensible chart granularity from the span of ride dates so the chart
  * never collapses to a single lonely bar. Thresholds (on the min→max span):
  * ≤ 21 days → day, ≤ 120 days → week, ≤ ~3 years → month, otherwise year.
