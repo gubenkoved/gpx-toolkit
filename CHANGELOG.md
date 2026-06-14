@@ -17,7 +17,18 @@ humans and the assistant can read this file as a compressed history of decisions
 
 ---
 
+## Map view: clicking a route pins matched rides instead of jumping away
+- **What:** A click on the map no longer redirects straight to Explore. It now pins the
+  matched ride(s) into a "Matched" block at the top of the side panel — each with quick
+  stats (date · distance · avg speed) and a persistent track highlight — plus a Clear
+  button; a *second* click on a matched entry is what opens that ride in Explore. Clicking
+  empty map clears the pin.
+- **Why:** The old one-click jump lost map context and never showed *which* ride(s) you hit
+  (overlapping tracks were ambiguous). A two-step pin → open flow keeps you oriented, makes
+  overlaps explicit, and surfaces the key stats inline before you commit to leaving the map.
+
 ## Make the work queue legible: ride-accurate counts + an "Up next" panel
+
 - **What:** Reworked the floating job pill into a small queue panel. The queued-count badge now counts **rides** (running + waiting, deduped via `active_keys`) instead of *tasks*, so a 12-ride month Check reads "12 rides queued" rather than the misleading "1 queued"; scans still count as one item. The running task shows an accurate, live **"Checking 3 of 12 rides"** title (backed by a new `progress {done,total}` field on `Task`/`TaskSnapshot`, incremented per ride in `doTargets`/`doDownloadGpx`) over the existing message line that names the specific ride/step, plus a thin determinate progress bar. An expandable **"Up next"** list reveals every still-queued task with a per-item remove (×) that calls `controller.cancel(id)`.
 - **Why:** A month/year operation is a single coalesced task carrying many ride keys, so the old "N queued" (task count) badge undercounted the real work and the queue was otherwise invisible — you couldn't see what was running, how far along it was, or what was lined up behind it. Surfacing ride-level counts, per-task progress, and the pending list gives honest, at-a-glance visibility into the whole pipeline without breaking the single-worker coalescing model.
 

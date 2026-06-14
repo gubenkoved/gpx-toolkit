@@ -15,7 +15,7 @@ import L from "leaflet";
 import { DemoAdb } from "./adb/demo";
 import { AdbError, type AdbDevice } from "./adb/types";
 import { WebUsbAdb } from "./adb/webusb";
-import { Controller, type AppState } from "./controller";
+import { Controller, type AppState, type RideView } from "./controller";
 import { ridesWithTracks, nearestRides, type PixelPoint, type ProjectedTrack, type RideTrack } from "./mapview";
 import { autoGranularity, bucketRide, compareRideKeysDesc, parseDurationSec, rideShortLabel, trimmedSpeed, type Granularity } from "./parsing";
 import { LEGACY_STORAGE_KEY, STORAGE_KEY, Store } from "./store";
@@ -325,8 +325,10 @@ let allRidesMap: L.Map | null = null;
 let allRidesLayer: L.LayerGroup | null = null;
 const trackLines = new Map<string, L.Polyline>();
 let currentTracks: RideTrack[] = [];
+let currentMissing = 0;
 let projectedTracks: ProjectedTrack[] = [];
-let hotKeys: string[] = [];
+let hotKeys: string[] = []; // rides under the cursor right now (ephemeral)
+let pinnedKeys: string[] = []; // rides matched by the last click (persist until next click)
 let lastCursor: PixelPoint | null = null;
 let hoverRaf = 0;
 let lastTrackSig = "";
@@ -346,25 +348,49 @@ function reprojectTracks(): void {
   }));
 }
 
-/** Emphasize the given rides on the map + side panel (empty list clears it). */
-function setHot(keys: string[]): void {
-  if (sameKeys(keys, hotKeys)) return;
-  for (const k of hotKeys) trackLines.get(k)?.setStyle(BASE_TRACK);
-  hotKeys = keys;
-  for (const k of keys) {
-    const pl = trackLines.get(k);
-    if (pl) {
+/**
+ * Repaint track + side-panel emphasis from the current hover and pinned sets.
+ * Pinned rides (matched by the last click) stay highlighted even with no cursor;
+ * hovered rides are highlighted on top, transiently.
+ */
+function paintEmphasis(): void {
+  const emphasized = new Set<string>([...pinnedKeys, ...hotKeys]);
+  for (const [key, pl] of trackLines) {
+    if (emphasized.has(key)) {
       pl.setStyle(HOT_TRACK);
       pl.bringToFront();
+    } else {
+      pl.setStyle(BASE_TRACK);
     }
   }
   document.querySelectorAll<HTMLElement>("#mapSide .ms-item").forEach((el) => {
-    el.classList.toggle("hot", !!el.dataset.key && keys.includes(el.dataset.key));
+    const k = el.dataset.key;
+    el.classList.toggle("hot", !!k && hotKeys.includes(k));
+    el.classList.toggle("pinned", !!k && pinnedKeys.includes(k));
   });
   const cnt = document.getElementById("msCount");
-  if (cnt) cnt.textContent = keys.length ? `${keys.length} under cursor` : "";
+  if (cnt) cnt.textContent = hotKeys.length ? `${hotKeys.length} under cursor` : "";
   const host = allRidesMap?.getContainer();
-  if (host) host.style.cursor = keys.length ? "pointer" : "";
+  if (host) host.style.cursor = hotKeys.length ? "pointer" : "";
+}
+
+/** Set the hover (cursor) emphasis; pinned rides stay highlighted regardless. */
+function setHot(keys: string[]): void {
+  if (sameKeys(keys, hotKeys)) return;
+  hotKeys = keys;
+  paintEmphasis();
+}
+
+/** Pin the rides matched by a click (empty clears the pin); refresh the side panel. */
+function setPinned(keys: string[]): void {
+  pinnedKeys = keys;
+  refreshMapSide();
+}
+
+/** Re-render the side panel for the current tracks and re-apply emphasis. */
+function refreshMapSide(): void {
+  renderMapSide(currentTracks, currentMissing);
+  paintEmphasis();
 }
 
 function onMapMove(e: L.LeafletMouseEvent): void {
@@ -378,7 +404,9 @@ function onMapMove(e: L.LeafletMouseEvent): void {
 
 function onMapClick(e: L.LeafletMouseEvent): void {
   const keys = nearestRides(projectedTracks, { x: e.containerPoint.x, y: e.containerPoint.y }, HOVER_PX);
-  if (keys.length) openRideInExplore(keys[0]);
+  // First click pins the matched ride(s) into the side panel (keeping map context);
+  // a second click on a matched entry opens it in Explore. A miss clears the pin.
+  setPinned(keys);
 }
 
 /** Switch to the Explore view and reveal a specific ride's details. */
@@ -397,6 +425,18 @@ function openRideInExplore(key: string): void {
       }
     }
   });
+}
+
+/** Compact distance label for a ride: prefer the measured route length, fall back to the summary. */
+function rideKmText(r: RideView): string {
+  if (r.track_km > 0) return fmtKm(r.track_km);
+  const km = parseKm((r.stats && r.stats["Distance"]) || r.distance || "");
+  return km > 0 ? fmtKm(km) : "—";
+}
+
+/** Average-speed label for a ride, as reported by Beeline (em dash when unknown). */
+function rideSpeedText(r: RideView): string {
+  return (r.stats && r.stats["Average speed"]) || "—";
 }
 
 /** Build the side panel: every non-deleted ride, with the ones on the map clickable. */
@@ -432,8 +472,44 @@ function renderMapSide(tracks: RideTrack[], missing: number): void {
     : `${tracks.length} on map`;
   side.innerHTML =
     `<div class="ms-head"><h2>All rides</h2><span class="ms-count" id="msCount"></span></div>` +
+    renderMatched() +
     `<div class="ms-sub">${sub}</div><div class="ms-list">${items}</div>`;
 }
+
+/**
+ * The "Matched" block: rides hit by the last click on the map, each with quick stats
+ * (date · distance · avg speed). Clicking an entry opens it in the Explore view.
+ */
+function renderMatched(): string {
+  if (!pinnedKeys.length) return "";
+  const matched = pinnedKeys
+    .map((k) => STATE.rides.find((r) => r.key === k && !r.deleted))
+    .filter((r): r is RideView => !!r);
+  if (!matched.length) return "";
+  const cards = matched
+    .map((r) => {
+      const when = escHtml(rideShortLabel(r.key) || r.key);
+      const name = escHtml((r.title || "Ride") + (r.location || ""));
+      const km = escHtml(rideKmText(r));
+      const spd = escHtml(rideSpeedText(r));
+      return (
+        `<div class="ms-item matched" data-key="${escHtml(r.key)}">` +
+        `<div class="ms-line"><span class="ms-when">${when}</span><span class="ms-name">${name}</span></div>` +
+        `<div class="ms-stats"><span>${km}</span><span>${spd}</span></div>` +
+        `</div>`
+      );
+    })
+    .join("");
+  const noun = matched.length === 1 ? "ride" : "rides";
+  return (
+    `<div class="ms-matched">` +
+    `<div class="ms-mhead"><h3>Matched · ${matched.length} ${noun}</h3>` +
+    `<button class="ms-clear" id="msClear" title="Clear the selection">Clear</button></div>` +
+    `<div class="ms-mhint">Click a ride below to open it in Explore.</div>` +
+    `<div class="ms-list">${cards}</div></div>`
+  );
+}
+
 
 /** (Re)draw the all-rides map for the current state; lazily creates the map. */
 function mountAllRidesMap(): void {
@@ -441,7 +517,7 @@ function mountAllRidesMap(): void {
   if (!host) return;
   const { tracks, missing } = ridesWithTracks(STATE.rides);
   currentTracks = tracks;
-  renderMapSide(tracks, missing);
+  currentMissing = missing;
 
   if (!allRidesMap) {
     allRidesMap = L.map(host, { attributionControl: true, zoomControl: true, fadeAnimation: false });
@@ -470,8 +546,12 @@ function mountAllRidesMap(): void {
       trackLines.set(t.key, line);
       for (const p of t.points) all.push(p as L.LatLngExpression);
     }
+    // Drop any pinned rides whose track is no longer drawn (e.g. deleted/re-scanned).
+    pinnedKeys = pinnedKeys.filter((k) => trackLines.has(k));
     if (all.length) allRidesMap.fitBounds(L.latLngBounds(all), { padding: [24, 24] });
   }
+  renderMapSide(tracks, missing);
+  paintEmphasis();
   // The container is only correctly sized once its view becomes visible.
   setTimeout(() => {
     allRidesMap!.invalidateSize();
@@ -1500,7 +1580,12 @@ if (mapSideEl) {
   });
   mapSideEl.addEventListener("mouseleave", () => setHot([]));
   mapSideEl.addEventListener("click", (e) => {
-    const item = (e.target as HTMLElement).closest(".ms-item") as HTMLElement | null;
+    const target = e.target as HTMLElement;
+    if (target.closest(".ms-clear")) {
+      setPinned([]);
+      return;
+    }
+    const item = target.closest(".ms-item") as HTMLElement | null;
     if (item?.dataset.key) openRideInExplore(item.dataset.key);
   });
 }
