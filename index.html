@@ -201,9 +201,13 @@
     </div>
     <span class="qcount" id="qcount"></span>
     <button class="small ghost job-toggle" id="btnQueueToggle" aria-expanded="true"></button>
-    <button class="small ghost" id="btnClear">Clear queue</button>
+    <button class="small ghost job-icon" id="btnClear" title="Clear queue" aria-label="Clear queue">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6l-1 14a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1L5 6"/><path d="M10 11v6M14 11v6"/></svg>
+    </button>
     <button class="small" id="btnCancel">Stop</button>
-    <button class="small ghost job-hide" id="btnJobHide" title="Hide — work keeps running" aria-label="Hide">Hide</button>
+    <button class="small ghost job-icon job-hide" id="btnJobHide" title="Hide — work keeps running" aria-label="Hide">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+    </button>
   </div>
   <div class="job-bar" id="jobBar"><div class="job-bar-fill" id="jobBarFill"></div></div>
 </div>

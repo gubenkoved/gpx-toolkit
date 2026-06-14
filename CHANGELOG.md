@@ -17,6 +17,16 @@ humans and the assistant can read this file as a compressed history of decisions
 
 ---
 
+## Declutter the job/queue status bar
+- **What:** Collapsed the secondary "Clear queue" and "Hide" controls into square
+  icon buttons, let the live message wrap to two lines (instead of a one-line
+  ellipsis), tightened the head-row gap, and red-tinted the "Stop" button.
+- **Why:** The verbose progress message — which names the exact ride/step we're on,
+  by design — was competing with three text-labelled buttons in one flex row and
+  got ellipsized, hiding the very detail the user watches for. Freeing the row's
+  width and allowing a 2-line wrap keeps that detail visible, while Stop stays a
+  labelled, destructive-looking button so it's easy to find and hard to misfire.
+
 ## Dark-theme the native checkboxes
 - **What:** Added `color-scheme: dark` to `:root` so the native ride/select-all checkboxes
   (and other form controls) render against the dark UI instead of the browser's light theme.
