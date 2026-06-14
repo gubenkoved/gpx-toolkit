@@ -373,7 +373,26 @@ export class BeelineApp {
   }
 
   async readDetail(): Promise<RideDetail> {
-    return parseRideDetail(await this.revealActions());
+    // The resting bottom-sheet shows the heading "<Name>, <City>" and the full
+    // stats grid; the Strava/komoot buttons usually sit below the fold. Read the
+    // title, key and stats from THIS resting dump first — because revealing the
+    // buttons swipes the sheet up, and on a short screen (e.g. the YAL-L21) that
+    // scrolls the heading and datetime off the top entirely, losing the ", City"
+    // suffix the detail uniquely adds over the list card. Then reveal only to read
+    // the Strava button state, and merge: identity + stats from the resting sheet,
+    // upload status from the revealed one. Costs one extra dump on tall screens
+    // where the heading would have survived, but is uniformly correct across
+    // devices instead of betting on screen height.
+    const resting = parseRideDetail(await this.adb.uiDump());
+    if (resting.stravaStatus !== "unknown") return resting; // buttons already visible
+    const revealed = parseRideDetail(await this.revealActions());
+    return {
+      key: resting.key || revealed.key,
+      title: resting.title || revealed.title,
+      stats: Object.keys(resting.stats).length ? resting.stats : revealed.stats,
+      stravaStatus: revealed.stravaStatus,
+      stravaTap: revealed.stravaTap,
+    };
   }
 
   /**

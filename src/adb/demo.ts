@@ -454,14 +454,19 @@ export class DemoAdb implements AdbDevice {
   }
 
   private renderDetail(ride: DemoRide): string {
-    const parts: string[] = [
-      node(`${ride.title}, Demo City`, bnd(120, 300, 820, 360)),
-      node(ride.key, bnd(120, 380, 780, 430)),
-    ];
-    // The top-right "Options" header is only present while the sheet sits at its
-    // resting position; once scrolled up to expose the action buttons it scrolls
-    // off the top (mirrors the real Beeline detail sheet).
-    if (!this.revealed) parts.unshift(node("Options", bnd(846, 190, 996, 239)));
+    const parts: string[] = [];
+    // Heading block (top-right "Options" control + the "<Name>, <City>" title +
+    // datetime) sits at the resting top of the bottom-sheet. Swiping up to reveal
+    // the action buttons scrolls it off the top — mirroring the real Beeline detail
+    // on a short screen, where the heading and datetime are gone once the buttons
+    // show. So `readDetail` must read the title from the resting dump, not the
+    // revealed one; emitting these nodes only while !revealed makes the demo (and
+    // the tests it backs) exercise that real-device behaviour.
+    if (!this.revealed) {
+      parts.push(node("Options", bnd(846, 190, 996, 239)));
+      parts.push(node(`${ride.title}, Demo City`, bnd(120, 300, 820, 360)));
+      parts.push(node(ride.key, bnd(120, 380, 780, 430)));
+    }
     DETAIL_STAT_LABELS.forEach((label, j) => {
       const valueTop = 470 + j * 120;
       const value = ride.stats[label] ?? "—";

@@ -17,6 +17,10 @@ humans and the assistant can read this file as a compressed history of decisions
 
 ---
 
+## Read the ride title from the resting detail sheet, not the scrolled one
+- **What:** `BeelineApp.readDetail()` now dumps the bottom-sheet at its resting position first (title/datetime/stats), then reveals the upload buttons only to read the Strava status, merging the two. The demo's `renderDetail` now hides the heading + datetime once revealed, mirroring a short screen — making the existing controller/GPX tests real regression guards.
+- **Why:** The Check/GPX flow swipes the sheet up to expose the Strava button; on a short screen (YAL-L21) that scrolls the heading off the top, so the only title left was the list card's short name — the ", City" suffix the detail uniquely provides was lost. The unit tests passed because they fed the *resting* fixture directly and the demo unrealistically kept the heading visible when revealed, so neither exercised the scrolled flow the real Check uses. Reading the resting sheet is uniformly correct across screen sizes (one extra dump on tall screens where the heading would have survived).
+
 ## Never persist a stat value as a ride title (Check on a short screen)
 - **What:** `parseRideDetail` now refuses stat-shaped text (`looksLikeStat`: distance/speed/duration/elevation values + stat labels) and action-button labels as the title, and the store scrubs such titles on load. Added a real scrolled-detail fixture (`22_detail_scrolled_yal.xml`) + parsing/store tests.
 - **Why:** The Check flow swipes the detail sheet up to reveal the Strava button; on the YAL-L21 that pushes the heading *and* datetime off the top, so the top-most remaining text is a stat value (`20,0km/h`). The old title fallback persisted that as the ride title. Now the title stays empty when the heading is off-screen (the store keeps the scan-seeded "Morning ride"), and previously-corrupted titles self-heal on the next load.
