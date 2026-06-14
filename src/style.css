@@ -306,23 +306,54 @@ button.small {
   color: var(--text);
   font-weight: 600;
 }
+/* The Source dropdown reads as a pill, not a text field: pointer cursor, a
+   CSS-drawn chevron (same two-border recipe as .menubtn) instead of the native
+   off-baseline glyph, and the accent "on" state shared with the tri-state chips
+   so an active device filter looks active like everything else in the bar. */
 .fdevice {
   cursor: pointer;
 }
+.fdevice:focus-within {
+  /* native focus-within accent (from .custom) is for editable fields; a select
+     isn't being typed into, so keep the idle look and let .on signal activity. */
+  color: var(--muted);
+}
 .fdevice select {
+  appearance: none;
+  -webkit-appearance: none;
   background: transparent;
-  color: var(--text);
+  color: inherit;
   border: 0;
-  padding: 0;
+  /* room on the right so the label text never collides with the drawn chevron */
+  padding: 0 2px 0 0;
   font: inherit;
   font-weight: 600;
   cursor: pointer;
   outline: none;
   max-width: 16ch;
+  text-overflow: ellipsis;
 }
 .fdevice select option {
   background: var(--panel2);
   color: var(--text);
+}
+.fdevice::after {
+  content: "";
+  width: 6px;
+  height: 6px;
+  margin-left: 1px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  color: var(--muted);
+  transform: translateY(-2px) rotate(45deg);
+}
+.fdevice.on {
+  border-color: var(--accent);
+  background: rgba(252, 82, 0, 0.1);
+  color: var(--text);
+}
+.fdevice.on::after {
+  color: var(--accent);
 }
 .fdist input {
   width: 3.6ch;

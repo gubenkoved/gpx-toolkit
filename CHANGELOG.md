@@ -17,6 +17,10 @@ humans and the assistant can read this file as a compressed history of decisions
 
 ---
 
+## Unify the Source filter dropdown with the bar's design language
+- **What:** Restyled the Explore-list `Source` device `<select>`: stripped the native OS arrow (`appearance: none`) and drew a CSS chevron via `.fdevice::after` reusing the `.menubtn` two-border recipe, and gave the pill the shared accent `.on` state (toggled in `syncFilterBar` when a non-"All" device is picked).
+- **Why:** The native select arrow/popup rendered off-baseline and alien next to the chips and segments, and an active device filter never turned accent-orange like the GPS/Details/Deleted chips — so it both looked ugly and read as inactive. Now it matches the rest of the filter row.
+
 ## Icon-only map/heatmap controls + heatmap full screen
 - **What:** Replaced the Map/heatmap floating buttons' visible Unicode glyphs
   (`⤢ Expand` / `▢ Select area` / `✕ Cancel`) with icon-only square buttons drawn

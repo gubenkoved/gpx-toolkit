@@ -1277,6 +1277,9 @@ function syncFilterBar(allRides: AppState["rides"]): void {
       (filters.device === "__none__" && hasMissing);
     if (!valid) filters.device = "all";
     sel.value = filters.device;
+    // Mirror the chips: a non-"All" device turns the pill accent-orange so an
+    // active Source filter reads as active like the rest of the bar.
+    sel.closest(".fdevice")?.classList.toggle("on", filters.device !== "all");
   }
 
   // Distance inputs (don't clobber the field being typed into).
