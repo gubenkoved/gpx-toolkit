@@ -19,6 +19,7 @@ import {
   type RideDetail,
   rideDatetime,
   rideMonth,
+  rideShortLabel,
   sinceFromPreset,
 } from "./parsing";
 import { monthKey, monthLabel, type Settings, type Store, type UpsertFields } from "./store";
@@ -317,6 +318,7 @@ export class Controller {
     const app = await this.appFor();
     let uploaded = 0;
     let removed = 0;
+    const failures: string[] = [];
     // Seed live progress so the queue panel shows "0 of N" the moment work starts;
     // each processed ride bumps `done` below.
     task.progress = { done: 0, total: task.keys.length };
@@ -338,11 +340,28 @@ export class Controller {
           this.notify();
         }
       },
+      (key, reason) => {
+        // One ride threw mid-sweep: it was isolated and skipped so the rest still
+        // ran. Collect it and surface every failure as one persistent error below.
+        failures.push(`${rideShortLabel(key) || key}: ${reason}`);
+        if (task.progress) task.progress.done++;
+      },
     );
     const suffix = removed ? `, ${removed} deleted` : "";
     if (doUpload)
       report(`done: ${uploaded} now on Strava (${details.length} processed)${suffix}`);
     else report(`checked ${details.length} rides${suffix}`);
+
+    if (failures.length) {
+      // Fail the task so the UI shows a persistent, acknowledgeable error with full
+      // per-ride detail — not a status message that just blinks past. The rides that
+      // did succeed are already persisted above; this only reports the ones that didn't.
+      const verb = doUpload ? "upload" : "check";
+      const header = `${failures.length} of ${task.keys.length} ride${
+        task.keys.length === 1 ? "" : "s"
+      } failed to ${verb} (${details.length} succeeded):`;
+      throw new Error([header, ...failures.map((f) => `  • ${f}`)].join("\n"));
+    }
   }
 
   /**

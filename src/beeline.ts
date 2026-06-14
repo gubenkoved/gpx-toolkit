@@ -566,6 +566,10 @@ export class BeelineApp {
    * `onMissing` is called (only when the sweep ran to completion, not when it was
    * cancelled) with keys we searched the whole list for but never found — i.e.
    * rides that have been deleted on the phone since we last saw them.
+   *
+   * `onError(key, reason)` is called when a target's `visit` throws: the failure is
+   * isolated (recorded, the list recovered) and the sweep keeps going to the next
+   * ride, so one bad ride never aborts the whole batch.
    */
   private async sweepTargets(
     keys: Set<string>,
@@ -576,6 +580,7 @@ export class BeelineApp {
       stop: (msg: string) => Promise<boolean>,
     ) => Promise<boolean>,
     onMissing: (keys: string[]) => void = () => {},
+    onError: (key: string, reason: string) => void = () => {},
   ): Promise<void> {
     let cancelled = false;
     // A progress call that returns the cancel signal; records it so we don't treat
@@ -642,7 +647,35 @@ export class BeelineApp {
           target.title && dateLabel
             ? `${target.title} (${dateLabel})`
             : target.title || target.key;
-        if (await visit(target, name, stop)) break; // aborted (e.g. cancelled)
+        let aborted = false;
+        try {
+          aborted = await visit(target, name, stop);
+        } catch (exc) {
+          // One ride failing must NOT abort the whole sweep. Record the failure,
+          // then recover back to a known-good Journeys list so the next target can
+          // still be reached. If even the recovery fails the phone has likely drifted
+          // off-screen — pause without marking anything deleted (same guard as an
+          // empty parse below) rather than risk acting on the wrong screen.
+          const reason = exc instanceof Error ? exc.message : String(exc);
+          onError(target.key, reason);
+          remaining.delete(target.key); // handled (as a failure) — don't retry forever
+          try {
+            await this.openJourneys(); // dismiss any half-open detail, back to the list
+          } catch {
+            cancelled = true;
+            await progress(
+              "lost the Beeline rides screen after a ride error — pausing so nothing is wrongly marked deleted (don't touch the phone)",
+            );
+            break;
+          }
+          exhaustedUp = exhaustedDown = false; // position may have moved; reopen both ends
+          level = baseLevel;
+          dragStalls = 0;
+          preferDrag = false;
+          cards = await this.listCards();
+          continue;
+        }
+        if (aborted) break; // aborted (e.g. cancelled)
         remaining.delete(target.key);
         exhaustedUp = exhaustedDown = false; // position moved; both ends open again
         level = baseLevel; // a new target may be far again — start coarse
@@ -865,7 +898,8 @@ export class BeelineApp {
    * Open each ride whose key is in `keys`, read its detail (and upload to Strava if
    * `doUpload` and it is pending). `onDetail` fires after each ride so callers can
    * persist status AS IT IS KNOWN. Navigation is position-aware via `sweepTargets`
-   * (no scroll-to-top); `onMissing` reports keys no longer on the phone.
+   * (no scroll-to-top); `onMissing` reports keys no longer on the phone; `onError`
+   * reports rides whose check/upload threw — they are skipped and the sweep goes on.
    */
   async processTargets(
     keys: Set<string>,
@@ -873,6 +907,7 @@ export class BeelineApp {
     progress: Progress = noop,
     onDetail: (detail: RideDetail) => void = () => {},
     onMissing: (keys: string[]) => void = () => {},
+    onError: (key: string, reason: string) => void = () => {},
   ): Promise<RideDetail[]> {
     const results: RideDetail[] = [];
     await this.sweepTargets(
@@ -903,6 +938,7 @@ export class BeelineApp {
         return false;
       },
       onMissing,
+      onError,
     );
     return results;
   }
@@ -955,6 +991,9 @@ export class BeelineApp {
         return false;
       },
       onMissing,
+      // A navigation/read throw on one ride is reported through the same channel as a
+      // failed export step, so the whole download keeps going either way.
+      onFail,
     );
     return results;
   }

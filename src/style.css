@@ -661,6 +661,23 @@ body:has(#mapFilter:not(.hidden)) .job-handle {
 .errbar.show {
   display: flex;
 }
+/* Stacked errors: one card per unacknowledged error, each dismissed on its own. */
+.errstack {
+  display: flex;
+  flex-direction: column;
+}
+.errstack:empty {
+  display: none;
+}
+.errcard {
+  margin: 0 0 12px;
+}
+.errcard .errbar {
+  margin: 0;
+}
+.errcard .errfull {
+  margin: 6px 0 0;
+}
 .errbar .ico {
   font-size: 15px;
   flex: 0 0 auto;

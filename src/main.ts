@@ -56,7 +56,7 @@ const $ = <T extends HTMLElement = HTMLElement>(sel: string): T =>
 /** Durable ride-cache storage. One IndexedDB connection shared by every controller. */
 const storageBackend = idbBackend();
 /** Surface a background-write failure (e.g. quota exceeded) to the user. */
-const onStorageError = (message: string): void => toast(message, true);
+const onStorageError = (message: string): void => pushError("Storage error", message);
 
 let controller!: Controller;
 // Starts false so the first paint matches the offline boot; activate() sets the
@@ -152,7 +152,7 @@ async function goReal(): Promise<void> {
     rememberReal(serial);
     toast(`Connected: ${controller.state().device}`);
   } catch (err) {
-    toast(err instanceof AdbError ? err.message : String(err), true);
+    pushError("Connection failed", err instanceof AdbError ? err.message : String(err));
     void goOffline(); // keep the app usable, showing stored rides
   }
 }
@@ -233,8 +233,20 @@ let jobHidden = false;
 let preset = "month";
 let statGran: Granularity | "auto" = "auto";
 let statMetric: "distance" | "speed" = "distance";
-let dismissedErrId = 0;
-let lastErrShownId = 0;
+// Persistent error stack. Every error — failed jobs AND standalone connection/
+// import/storage errors — is shown as its own card and only disappears when the
+// user dismisses it (or, for a job, when that job is re-run and succeeds). We track
+// dismissed/already-flashed ids by string so the two error sources share one model.
+const dismissedErrIds = new Set<string>();
+const shownErrIds = new Set<string>();
+interface PushedError {
+  id: string;
+  title: string;
+  full: string;
+  ts: number;
+}
+const pushedErrors: PushedError[] = [];
+let errSeq = 0;
 let lastSig = "";
 
 const yearOf = (mkey: string): string => (mkey || "").slice(0, 4);
@@ -1804,28 +1816,91 @@ function shortError(text: string): string {
 }
 
 function renderError(jobs: AppState["jobs"]): void {
+  const stack = $("#errstack");
+
+  // Combine the two error sources into one newest-first list, dropping any the user
+  // has already dismissed. Job errors are keyed by task id; standalone errors carry
+  // their own push id. Both expose a wall-clock `ts` so they interleave by recency.
+  type ErrCard = { id: string; title: string; full: string; ts: number };
+  const cards: ErrCard[] = [];
   const all = [...(jobs.history || [])];
   if (jobs.current) all.push(jobs.current);
-  const errored = all.filter((t) => t.status === "error" && t.error);
-  errored.sort((a, b) => b.id - a.id);
-  const latest = errored[0];
-
-  const bar = $("#errbar");
-  if (!latest || latest.id <= dismissedErrId) {
-    bar.classList.remove("show");
-    return;
+  for (const t of all) {
+    if (t.status !== "error" || !t.error) continue;
+    cards.push({
+      id: `job-${t.id}`,
+      title: `${t.kind} failed${t.label ? ` — ${t.label}` : ""}`,
+      full: t.error,
+      ts: (t.finished_at ?? 0) * 1000,
+    });
   }
-  bar.classList.add("show");
-  $("#errTitle").textContent =
-    `${latest.kind} failed${latest.label ? ` — ${latest.label}` : ""}`;
-  $("#errMsg").textContent = shortError(latest.error);
-  bar.dataset.id = String(latest.id);
-  bar.dataset.full = latest.error;
-
-  if (latest.id > lastErrShownId) {
-    lastErrShownId = latest.id;
-    toast(shortError(latest.error), true);
+  for (const p of pushedErrors) {
+    cards.push({ id: p.id, title: p.title, full: p.full, ts: p.ts });
   }
+  const visible = cards
+    .filter((c) => !dismissedErrIds.has(c.id))
+    .sort((a, b) => b.ts - a.ts);
+
+  // Rebuild the stack from scratch each render; building via DOM (not innerHTML)
+  // keeps user-supplied error text from being interpreted as markup.
+  stack.textContent = "";
+  for (const c of visible) {
+    const card = document.createElement("div");
+    card.className = "errcard";
+    card.dataset.id = c.id;
+
+    const bar = document.createElement("div");
+    bar.className = "errbar show";
+
+    const ico = document.createElement("span");
+    ico.className = "ico";
+    ico.textContent = "⚠";
+
+    const etext = document.createElement("div");
+    etext.className = "etext";
+    const title = document.createElement("b");
+    title.textContent = c.title;
+    const msg = document.createElement("span");
+    msg.textContent = shortError(c.full);
+    etext.append(title, msg);
+
+    const details = document.createElement("button");
+    details.className = "small ghost";
+    details.dataset.errDetails = "";
+    details.textContent = "Details";
+
+    const dismiss = document.createElement("button");
+    dismiss.className = "small ghost";
+    dismiss.dataset.errDismiss = "";
+    dismiss.textContent = "Dismiss";
+
+    bar.append(ico, etext, details, dismiss);
+
+    const full = document.createElement("pre");
+    full.className = "errfull";
+    full.textContent = c.full;
+
+    card.append(bar, full);
+    stack.append(card);
+  }
+
+  // Flash the newest error as a toast the first time we see it, for immediacy — the
+  // persistent card is the durable record, so the flash may safely fade.
+  const newest = visible[0];
+  if (newest && !shownErrIds.has(newest.id)) {
+    shownErrIds.add(newest.id);
+    toast(shortError(newest.full), true);
+  }
+}
+
+/**
+ * Record a standalone error (connection, import, storage…) that lives outside the
+ * job queue, so it persists in the error stack until the user dismisses it instead
+ * of vanishing with the next status toast.
+ */
+function pushError(title: string, full: string): void {
+  pushedErrors.push({ id: `push-${++errSeq}`, title, full, ts: Date.now() });
+  renderError(STATE.jobs);
 }
 
 const keysOfMonth = (m: string): string[] =>
@@ -1903,12 +1978,12 @@ function applyState(): void {
   render();
 }
 
-/** Run a controller action, surfacing AdbError to a toast. */
+/** Run a controller action, surfacing AdbError to a persistent error card. */
 function run(fn: () => void): void {
   try {
     fn();
   } catch (err) {
-    toast(err instanceof AdbError ? err.message : String(err), true);
+    pushError("Action failed", err instanceof AdbError ? err.message : String(err));
   }
 }
 
@@ -1984,7 +2059,7 @@ function importRides(file: File): void {
         resultLength: typeof reader.result === "string" ? reader.result.length : null,
       });
       const label = e?.name ? `${e.name} — ${e.message}` : e?.message;
-      toast(`Import failed: ${label}`, true);
+      pushError("Import failed", e?.stack || label || "unknown import error");
     }
   };
   reader.onerror = () => {
@@ -1995,7 +2070,10 @@ function importRides(file: File): void {
       message: reader.error?.message,
       file: { name: file.name, size: file.size, type: file.type },
     });
-    toast(`Couldn't read ${file.name}: ${reader.error?.message ?? "unknown read error"}`, true);
+    pushError(
+      "Couldn't read file",
+      `${file.name}: ${reader.error?.message ?? "unknown read error"}`,
+    );
   };
   reader.readAsText(file);
 }
@@ -2144,16 +2222,15 @@ document.addEventListener("click", (e) => {
   if (t.dataset?.cancel) {
     return run(() => controller.cancel(parseInt(t.dataset.cancel!, 10)));
   }
-  if (t.id === "errDismiss") {
-    dismissedErrId = parseInt($("#errbar").dataset.id || "0", 10);
-    $("#errbar").classList.remove("show");
-    $("#errFull").classList.remove("show");
+  if (t.dataset && "errDismiss" in t.dataset) {
+    const card = t.closest(".errcard") as HTMLElement | null;
+    if (card?.dataset.id) dismissedErrIds.add(card.dataset.id);
+    renderError(STATE.jobs);
     return;
   }
-  if (t.id === "errDetails") {
-    const pre = $("#errFull");
-    pre.textContent = $("#errbar").dataset.full || "";
-    pre.classList.toggle("show");
+  if (t.dataset && "errDetails" in t.dataset) {
+    const card = t.closest(".errcard") as HTMLElement | null;
+    card?.querySelector(".errfull")?.classList.toggle("show");
     return;
   }
   if (t.id === "btnStatusSel") {
