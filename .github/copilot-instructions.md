@@ -107,6 +107,14 @@ UI → Controller → (JobQueue · Store · BeelineApp) → Parsing → AdbDevic
 
 ## Domain notes
 
+- **Expected data volume**: design and review every aggregate/render path for a power user's
+  lifetime — **several thousand rides** and **tens of thousands of km** ridden. This is the
+  target scale, not an edge case: totals, filters, stats, the map and the route-frequency
+  heatmap must stay responsive at that size. Concretely — never materialise per-metre points
+  for the whole dataset at once (the heatmap densifies only the visible viewport for exactly
+  this reason), keep per-ride work O(1)-ish, and prefer culling/caching over recomputing the
+  full set on every interaction. When adding a feature that scans all rides, sanity-check its
+  cost against thousands of tracks before considering it done.
 - **Ride keys** are human dates like `"Sat Jun 13 2026 at 14:22"`; months are `"2026-06"` / `"June 2026"`.
 - **Timing profiles** (`PROFILES`: `safe`/`normal`/`fast`/`turbo`) trade robustness for speed; `turbo` skips upload-verification reads (optimistic) and is reconciled by a later Check.
 - **Job coalescing**: consecutive `upload`/`status`/`download-gpx` tasks merge into one sweep — preserve this when touching `JobQueue`.

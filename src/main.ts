@@ -20,7 +20,7 @@ import { emptyFilters, filtersActive, visibleRides, type Filters, type TriState 
 import { ridesWithTracks, nearestRides, ridesInLatLngBox, dateRange, filterRidesByRange, type DateRange, type LatLngBox, type PixelPoint, type ProjectedTrack, type RideTrack } from "./mapview";
 import { autoGranularity, bucketRide, compareRideKeysDesc, rideShortLabel, trimmedSpeed, type Granularity } from "./parsing";
 import { computeStats, type PeriodRecord } from "./stats";
-import { buildHeatPoints } from "./heatmap";
+import { buildHeatPoints, spacingForZoom, BASE_SPACING_M, type HeatBounds } from "./heatmap";
 import "leaflet.heat";
 import { idbBackend, memoryBackend } from "./kv";
 import { Store } from "./store";
@@ -901,6 +901,77 @@ function setMapExpanded(on: boolean): void {
 let freqHeatMap: L.Map | null = null;
 let freqHeatLayer: L.Layer | null = null;
 let lastHeatSig = "";
+/** Track-set signature: when this changes we re-scan and re-fit; view changes alone don't. */
+let lastHeatDataSig = "";
+/** Tracks behind the current heat layer, kept so a pan/zoom can rebuild without a re-scan. */
+let lastHeatTracks: RideTrack[] = [];
+
+/** On-screen pixel gap we aim to keep between heat points; half the glow radius keeps them merged. */
+function freqHeatSpacing(radius: number): number {
+  if (!freqHeatMap) return BASE_SPACING_M;
+  const zoom = freqHeatMap.getZoom();
+  const lat = freqHeatMap.getCenter().lat;
+  return spacingForZoom(zoom, lat, radius / 2);
+}
+
+/** Current padded viewport as heat bounds, so off-screen track segments are culled. */
+function freqHeatBounds(): HeatBounds | undefined {
+  if (!freqHeatMap) return undefined;
+  // Pad beyond the view so a small pan before the next rebuild doesn't reveal gaps.
+  const b = freqHeatMap.getBounds().pad(0.3);
+  return {
+    minLat: b.getSouth(),
+    minLon: b.getWest(),
+    maxLat: b.getNorth(),
+    maxLon: b.getEast(),
+  };
+}
+
+/**
+ * Cache key for the heat layer: a finer spacing at high zoom only renders the
+ * visible slice, so the key must include both the zoom *and* the viewport (a pan
+ * exposes different segments) alongside the track set.
+ */
+function freqHeatSig(tracks: ReadonlyArray<RideTrack>): string {
+  if (!freqHeatMap) return "0#" + tracks.map((t) => t.key).join("|");
+  const zoom = Math.round(freqHeatMap.getZoom());
+  const c = freqHeatMap.getCenter();
+  // Center to ~3 decimals (~100 m) is enough to detect a meaningful pan.
+  const view = `${zoom}@${c.lat.toFixed(3)},${c.lng.toFixed(3)}`;
+  return `${view}#` + tracks.map((t) => t.key).join("|");
+}
+
+/** (Re)build the heat layer from `lastHeatTracks` for the current zoom/viewport. */
+function buildFreqHeatLayer(): void {
+  if (!freqHeatMap) return;
+  if (freqHeatLayer) {
+    freqHeatMap.removeLayer(freqHeatLayer);
+    freqHeatLayer = null;
+  }
+  const radius = STATE.settings.heatRadius;
+  const spacing = freqHeatSpacing(radius);
+  // Scale weight by spacing so a finer (zoomed-in) resample deposits the same glow
+  // energy per metre as the 30 m baseline — denser points must not over-saturate.
+  const weight = spacing / BASE_SPACING_M;
+  const pts = buildHeatPoints(lastHeatTracks, spacing, weight, freqHeatBounds());
+  if (pts.length) {
+    freqHeatLayer = L.heatLayer(pts as [number, number, number][], {
+      radius,
+      blur: radius + 2,
+      minOpacity: 0.25,
+      gradient: { 0.0: "#1e3a8a", 0.4: "#22d3ee", 0.7: "#facc15", 1.0: "#f97316" },
+    }).addTo(freqHeatMap);
+  }
+}
+
+/** Re-render the cached heat layer after a pan/zoom, without re-scanning rides. */
+function redrawFreqHeatmap(): void {
+  if (!freqHeatMap) return;
+  const sig = freqHeatSig(lastHeatTracks);
+  if (sig === lastHeatSig) return; // same view & tracks — nothing to rebuild
+  lastHeatSig = sig;
+  buildFreqHeatLayer();
+}
 
 /** Whole hours-and-minutes label for a duration, e.g. "12h 30m" or "45m". */
 function fmtDuration(totalSec: number): string {
@@ -1003,28 +1074,24 @@ function mountFreqHeatmap(rides: RideView[], hidden: number, fit: boolean): void
       className: "map-tiles",
     }).addTo(freqHeatMap);
     freqHeatMap.setView([20, 0], 2); // sane default until the first track is drawn
+    // Heat-point spacing is geographic but the glow radius is in pixels, so zooming
+    // in spreads the points until they bead. Rebuild after each pan/zoom so spacing
+    // re-adapts and only the visible slice is densified (moveend covers both).
+    freqHeatMap.on("moveend", () => redrawFreqHeatmap());
   }
 
-  const sig = tracks.map((t) => t.key).join("|");
   const radius = STATE.settings.heatRadius;
   const blur = radius + 2;
-  if (sig !== lastHeatSig) {
-    lastHeatSig = sig;
-    if (freqHeatLayer) {
-      freqHeatMap.removeLayer(freqHeatLayer);
-      freqHeatLayer = null;
-    }
-    const pts = buildHeatPoints(tracks);
-    if (pts.length) {
-      freqHeatLayer = L.heatLayer(pts as [number, number, number][], {
-        radius,
-        blur,
-        minOpacity: 0.25,
-        gradient: { 0.0: "#1e3a8a", 0.4: "#22d3ee", 0.7: "#facc15", 1.0: "#f97316" },
-      }).addTo(freqHeatMap);
-      const all = tracks.flatMap((t) => t.points) as L.LatLngExpression[];
-      if (all.length && fit) freqHeatMap.fitBounds(L.latLngBounds(all), { padding: [24, 24] });
-    }
+  const dataSig = tracks.map((t) => t.key).join("|");
+  if (dataSig !== lastHeatDataSig) {
+    lastHeatDataSig = dataSig;
+    lastHeatTracks = tracks;
+    const all = tracks.flatMap((t) => t.points) as L.LatLngExpression[];
+    // Fit first so the layer (and its cache key) reflect the final viewport; the
+    // moveend fitBounds fires then finds the sig unchanged and skips a rebuild.
+    if (all.length && fit) freqHeatMap.fitBounds(L.latLngBounds(all), { padding: [24, 24] });
+    lastHeatSig = freqHeatSig(tracks);
+    buildFreqHeatLayer();
   } else if (freqHeatLayer) {
     // Track set unchanged — a thickness tweak only needs the layer's radius/blur
     // updated in place, avoiding a full point rebuild or a bounds re-fit.

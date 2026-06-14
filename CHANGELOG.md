@@ -17,7 +17,26 @@ humans and the assistant can read this file as a compressed history of decisions
 
 ---
 
-## Locale-correct number ingestion: one parser, normalized into app state
+## Zoom-adaptive route-frequency heatmap (no more beads)
+
+- **What:** The Stats heatmap resampled tracks at a fixed 30 m, but `L.heatLayer`'s
+  radius/blur are in pixels — so zooming in spread the points past the glow and they
+  broke into visible dots. Spacing is now keyed to the current zoom/latitude/glow
+  radius via `metresPerPixel`/`spacingForZoom` ([src/heatmap.ts](src/heatmap.ts)),
+  clamped 1–30 m. To afford the 1 m floor without densifying every off-screen
+  kilometre, `buildHeatPoints` gained viewport culling (`HeatBounds` +
+  `segIntersectsBounds`, bbox overlap so crossing segments still count), and each
+  sample's weight is scaled by `spacing/30` so a finer resample deposits the same
+  glow energy per metre (no over-saturation). [src/main.ts](src/main.ts) feeds the
+  padded map bounds + scaled weight and rebuilds on `moveend` (pan *and* zoom);
+  the cache splits into a track-set key (re-scan/re-fit) and a view key (relayer).
+- **Why:** Heat-point spacing must track on-screen scale, not stay fixed in metres,
+  and the only way to keep that affordable at high zoom is to render just the
+  visible slice — so the corridor glow stays continuous at every zoom, with the
+  frequency gradient and performance intact.
+
+---
+
 
 - **What:** Removed the duplicate, buggy `parseKm` in [src/filter.ts](src/filter.ts) that
   blind-stripped commas (`"13,5km"` → `135`) and routed the whole app through the single
