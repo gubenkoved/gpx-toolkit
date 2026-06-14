@@ -42,7 +42,9 @@ function memoryStorage(): Storage {
 }
 
 let controller!: Controller;
-let isDemo = true;
+// Starts false so the first paint matches the offline boot; activate() sets the
+// real value once a controller is wired up.
+let isDemo = false;
 let unsubscribe: (() => void) | null = null;
 let unsubscribeGpx: (() => void) | null = null;
 
@@ -96,6 +98,7 @@ async function goDemo(): Promise<void> {
   activate(c, true);
   try {
     await c.connect();
+    toast("Demo mode — exploring with a simulated phone. Click Exit demo to leave.");
   } catch {
     /* demo connect never fails */
   }
@@ -780,26 +783,35 @@ function renderConn(): void {
   const demoBtn = $<HTMLButtonElement>("#btnDemo");
   const disconnectBtn = $<HTMLButtonElement>("#btnDisconnect");
   const notice = $("#demoNotice");
+  // The Demo button only pops (accent outline) in offline mode where it's the
+  // primary call to action; everywhere else it's a quiet ghost button.
+  demoBtn.classList.remove("ghost", "accent");
   if (isDemo) {
     el.textContent = "demo";
     el.className = "cstate demo";
     connectBtn.style.display = "";
+    demoBtn.classList.add("ghost");
     demoBtn.style.display = "none";
-    disconnectBtn.style.display = "none";
+    // Reuse the disconnect slot as an explicit way out of demo, back to offline.
+    disconnectBtn.textContent = "Exit demo";
+    disconnectBtn.style.display = "";
     notice.classList.remove("hidden");
   } else if (STATE.connected) {
     el.textContent = STATE.device || "connected";
     el.className = "cstate on";
     connectBtn.style.display = "none";
+    demoBtn.classList.add("ghost");
     demoBtn.style.display = "none";
+    disconnectBtn.textContent = "Disconnect";
     disconnectBtn.style.display = "";
     notice.classList.add("hidden");
   } else {
     // Offline: no phone, but we still show the user's stored rides. Offer both
-    // "Connect phone" and an explicit "Demo" entry.
+    // "Connect phone" and a gently highlighted "Demo" entry.
     el.textContent = "not connected";
     el.className = "cstate off";
     connectBtn.style.display = "";
+    demoBtn.classList.add("accent");
     demoBtn.style.display = "";
     disconnectBtn.style.display = "none";
     notice.classList.add("hidden");
@@ -1128,7 +1140,7 @@ function importRides(file: File): void {
  * phone is never touched. Guarded by a single confirm().
  */
 async function resetEverything(): Promise<void> {
-  if (!confirm("Erase all locally stored rides, settings, and the remembered phone? This cannot be undone and returns the app to demo mode. Nothing on your phone is deleted.")) {
+  if (!confirm("Erase all locally stored rides, settings, and the remembered phone? This cannot be undone and returns the app to offline mode. Nothing on your phone is deleted.")) {
     return;
   }
   controller.reset(); // clear the active controller's cache + job queue
@@ -1206,7 +1218,9 @@ document.addEventListener("click", (e) => {
   }
   if (t.id === "btnConnect") return void goReal();
   if (t.id === "btnDemo") return void goDemo();
-  if (t.id === "btnDisconnect") return void leaveReal();
+  // The disconnect slot doubles as "Exit demo": from demo just drop to offline,
+  // from a real device also forget it so we don't auto-reconnect next load.
+  if (t.id === "btnDisconnect") return void (isDemo ? goOffline() : leaveReal());
   if (t.id === "btnImport") return void ($("#importFile") as HTMLInputElement).click();
   if (t.id === "btnExport") return exportRides();
   if (t.id === "btnReset") return void resetEverything();
