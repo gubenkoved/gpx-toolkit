@@ -1968,8 +1968,34 @@ function importRides(file: File): void {
       const n = controller.importJson(String(reader.result));
       toast(`Imported — ${n} new ride${n === 1 ? "" : "s"}.`);
     } catch (err) {
-      toast(`Import failed: ${(err as Error).message}`, true);
+      const e = err as Error;
+      // Log full context to devtools — the toast is space-constrained, so dump the
+      // whole error (with its stack) plus the state that most often explains a
+      // failure here: whether a controller was even wired up yet (imports during
+      // the boot/mode-switch window hit an undefined controller), the mode, and
+      // the file we tried to read.
+      console.error("[importRides] import failed", {
+        error: e,
+        name: e?.name,
+        message: e?.message,
+        controllerReady: controller != null,
+        isDemo,
+        file: { name: file.name, size: file.size, type: file.type },
+        resultLength: typeof reader.result === "string" ? reader.result.length : null,
+      });
+      const label = e?.name ? `${e.name} — ${e.message}` : e?.message;
+      toast(`Import failed: ${label}`, true);
     }
+  };
+  reader.onerror = () => {
+    // A failed *read* (vs. parse) would otherwise be silent — no onload, no catch.
+    console.error("[importRides] file read failed", {
+      error: reader.error,
+      name: reader.error?.name,
+      message: reader.error?.message,
+      file: { name: file.name, size: file.size, type: file.type },
+    });
+    toast(`Couldn't read ${file.name}: ${reader.error?.message ?? "unknown read error"}`, true);
   };
   reader.readAsText(file);
 }
