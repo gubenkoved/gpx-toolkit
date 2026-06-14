@@ -1302,19 +1302,29 @@ span.caret.open::before {
 .stats {
   display: none;
   margin-top: 8px;
-  padding: 9px 11px;
+  padding: 8px 11px;
   background: var(--bg);
   border: 1px solid var(--line);
   border-radius: 9px;
-  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-  gap: 7px 18px;
-  font-size: 12px;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 6px 14px;
+  font-size: 11.5px;
   color: var(--muted);
 }
 .stats.open {
   display: grid;
 }
-.stats b {
+/* Compact stacked variant: muted label on its own line above the bold value,
+   with a smaller font and tighter columns so more stats fit per row. */
+.stats .stat {
+  min-width: 0;
+}
+.stats .stat .k {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+}
+.stats .stat .v {
   color: var(--text);
   font-weight: 600;
   font-size: 13px;

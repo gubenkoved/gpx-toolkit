@@ -1763,7 +1763,9 @@ function fmtStats(r: RideView): string {
   add("Elapsed time", st["Elapsed time"] != null, st["Elapsed time"]);
   add("Elevation gain", st["Elevation gain"] != null, fmtElevation(r.elevation_gain_m));
   add("Elevation loss", st["Elevation loss"] != null, fmtElevation(r.elevation_loss_m));
-  return rows.map(([k, v]) => `<div>${k}<br><b>${escHtml(v)}</b></div>`).join("");
+  return rows
+    .map(([k, v]) => `<div class="stat"><span class="k">${k}</span><span class="v">${escHtml(v)}</span></div>`)
+    .join("");
 }
 function bars(up: number, pe: number, total: number): string {
   if (!total) return "";

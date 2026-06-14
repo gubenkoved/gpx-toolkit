@@ -17,6 +17,15 @@ humans and the assistant can read this file as a compressed history of decisions
 
 ---
 
+## Condense the ride-detail stats grid
+- **What:** Reworked the expanded ride-detail stats (Distance / speeds / times /
+  elevation) into a tighter grid — semantic `.stat`/`.k`/`.v` markup replacing the
+  old `label<br><b>value</b>`, with smaller fonts, tighter gaps and narrower
+  `minmax(120px,1fr)` columns so more stats pack per row.
+- **Why:** The old grid was over-tall, especially on narrow screens where it fell
+  to ~2 columns of stacked pairs. The compact stacked layout shortens the panel
+  and fits more per row without losing the label/value readability.
+
 ## Drop the per-card "gps" badge in Beeline mode
 - **What:** The `gps` ride-card badge is now hidden when the source is the Beeline
   account; the ADB path keeps it. The GPS filter chip is left untouched.
