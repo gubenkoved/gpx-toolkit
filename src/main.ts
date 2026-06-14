@@ -1700,7 +1700,11 @@ function queueBadge(key: string): string {
 function deletedBadge(): string {
   return `<span class="badge deleted" title="This ride is no longer on your phone — it was deleted in the Beeline app.">deleted</span>`;
 }
-/** Marks a ride whose rough route preview is already downloaded and ready to draw. */
+/**
+ * Marks a ride whose rough route preview is already downloaded and ready to draw.
+ * ADB-only: in Beeline mode every ride carries its track, so the badge would be
+ * constant noise (the GPS filter still finds the rare track-less one-offs).
+ */
 function gpsBadge(): string {
   return `<span class="badge gps" title="Route preview available — expand details to see the map.">gps</span>`;
 }
@@ -2308,7 +2312,7 @@ function render(): void {
         el.innerHTML = `
           <input type="checkbox" class="chk" data-key="${r.key}" ${selected.has(r.key) ? "checked" : ""}>
           <div class="rmain">
-            <div class="rtitle"><span class="rname"><span class="rtitle-text">${r.title || "Ride"}</span>${r.location ? `<span class="rtitle-loc">${r.location}</span>` : ""}</span> ${badge(r.status)} ${r.track ? gpsBadge() : ""} ${r.deleted ? deletedBadge() : ""} ${queueBadge(r.key)}</div>
+            <div class="rtitle"><span class="rname"><span class="rtitle-text">${r.title || "Ride"}</span>${r.location ? `<span class="rtitle-loc">${r.location}</span>` : ""}</span> ${badge(r.status)} ${!beelineMode() && r.track ? gpsBadge() : ""} ${r.deleted ? deletedBadge() : ""} ${queueBadge(r.key)}</div>
             <div class="rmeta">${r.key} · ${summaryDistance} · ${summaryDuration}
               <a href="#" data-stats="${r.key}">${so ? "hide" : "details"}</a></div>
             ${so ? detailsBlock(r) : ""}

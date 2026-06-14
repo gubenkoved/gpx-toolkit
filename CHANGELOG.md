@@ -17,6 +17,13 @@ humans and the assistant can read this file as a compressed history of decisions
 
 ---
 
+## Drop the per-card "gps" badge in Beeline mode
+- **What:** The `gps` ride-card badge is now hidden when the source is the Beeline
+  account; the ADB path keeps it. The GPS filter chip is left untouched.
+- **Why:** Beeline rides always arrive with their full track, so the badge was on
+  nearly every card and carried no signal. The filter stays so the rare track-less
+  one-offs are still findable on demand.
+
 ## Beeline account as a new ride source (v0.2.0)
 - **What:** Added a **Beeline cloud account** source alongside the legacy ADB phone, behind a
   new `RideSource` seam ([source.ts](src/source.ts)) the Controller drives instead of talking to
