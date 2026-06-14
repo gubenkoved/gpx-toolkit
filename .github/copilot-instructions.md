@@ -94,6 +94,19 @@ decisions and values, so the "why" matters more than the "what".
   - **Why:** 1–2 lines — the motivation / decision / value behind it.
   ```
 
+## Committing
+
+When a logical change is finished and its acceptance checks pass (`npm run build` + `npm test`
+green, CHANGELOG updated), **offer to commit it yourself** rather than leaving it to the user.
+
+- **Match the established commit style** (see `git log`): a single concise, lowercase,
+  imperative subject line, no trailing period, no body, no Conventional-Commits prefix
+  (e.g. `compact state & selection actions into menus`, `more resilient error handling`).
+- **One commit per logical change.** Stage the related files and commit; don't bundle
+  unrelated work.
+- **Commit, don't push.** Pushing is a shared/irreversible action — leave `git push` to the
+  user unless they explicitly ask.
+
 ## Architecture / module map
 
 UI → Controller → (JobQueue · Store · BeelineApp) → Parsing → AdbDevice (real or demo).
