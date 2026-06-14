@@ -141,11 +141,19 @@
 </main>
 
 <div class="job" id="job">
-  <span class="spin"></span>
-  <span class="msg" id="jobMsg"></span>
-  <span class="qcount" id="qcount"></span>
-  <button class="small ghost" id="btnClear">Clear queue</button>
-  <button class="small" id="btnCancel">Stop</button>
+  <div class="job-list" id="jobList"></div>
+  <div class="job-head">
+    <span class="spin"></span>
+    <div class="job-now">
+      <span class="job-title" id="jobTitle"></span>
+      <span class="msg" id="jobMsg"></span>
+    </div>
+    <span class="qcount" id="qcount"></span>
+    <button class="small ghost job-toggle" id="btnQueueToggle" aria-expanded="true"></button>
+    <button class="small ghost" id="btnClear">Clear queue</button>
+    <button class="small" id="btnCancel">Stop</button>
+  </div>
+  <div class="job-bar" id="jobBar"><div class="job-bar-fill" id="jobBarFill"></div></div>
 </div>
 <div class="toast" id="toast"></div>
 

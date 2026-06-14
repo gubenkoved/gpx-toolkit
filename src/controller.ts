@@ -249,6 +249,9 @@ export class Controller {
     const app = await this.appFor();
     let uploaded = 0;
     let removed = 0;
+    // Seed live progress so the queue panel shows "0 of N" the moment work starts;
+    // each processed ride bumps `done` below.
+    task.progress = { done: 0, total: task.keys.length };
     const details = await app.processTargets(
       new Set(task.keys),
       doUpload,
@@ -257,6 +260,7 @@ export class Controller {
         // Persist and surface each ride's status the moment it is read/uploaded.
         this.persistDetail(d);
         if (d.stravaStatus === "uploaded") uploaded++;
+        if (task.progress) task.progress.done++;
       },
       (missing) => {
         // Searched the whole list and never found these → deleted on the phone.
@@ -298,6 +302,8 @@ export class Controller {
     const saveToDisk = task.payload.saveToDisk === true;
     let removed = 0;
     const failures: string[] = [];
+    // Seed live progress so the queue panel shows "0 of N" while the sweep runs.
+    task.progress = { done: 0, total: task.keys.length };
     const files = await app.downloadGpx(
       new Set(task.keys),
       (msg) => report(msg),
@@ -321,6 +327,7 @@ export class Controller {
         }
         // Only hand the full file to the UI when the user actually asked to save it.
         if (saveToDisk) this.emitGpx(file);
+        if (task.progress) task.progress.done++;
       },
       (missing) => {
         for (const key of missing) if (this.store.markDeleted(key)) removed++;

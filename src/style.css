@@ -117,9 +117,9 @@ details.help kbd { background: var(--line); border-radius: 4px; padding: 1px 5px
    app's flat dark panels. */
 .job { position: fixed; left: 50%; bottom: 22px; z-index: 50;
   width: min(680px, calc(100% - 40px));
-  display: flex; align-items: center; gap: 12px;
+  display: flex; flex-direction: column;
   background: linear-gradient(180deg, #243047, #1a2233);
-  border: 1px solid #3a5a8c; border-radius: var(--radius); padding: 10px 8px 10px 16px;
+  border: 1px solid #3a5a8c; border-radius: var(--radius); padding: 0;
   box-shadow: 0 14px 40px rgba(0,0,0,.55), 0 0 0 1px rgba(76,141,255,.18),
     0 0 24px rgba(76,141,255,.28);
   opacity: 0; pointer-events: none;
@@ -131,17 +131,45 @@ details.help kbd { background: var(--line); border-radius: 4px; padding: 1px 5px
 @keyframes jobGlow {
   50% { box-shadow: 0 14px 40px rgba(0,0,0,.55), 0 0 0 1px rgba(76,141,255,.30),
     0 0 34px rgba(76,141,255,.45); } }
+.job-head { display: flex; align-items: center; gap: 12px; padding: 10px 8px 10px 16px; }
 .job .spin { width: 17px; height: 17px; border-radius: 50%; flex: 0 0 auto;
   border: 2px solid rgba(76,141,255,.25); border-top-color: var(--blue);
   animation: spin .8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
-.job .msg { flex: 1; color: #eaf1ff; font-size: 13px; font-weight: 500; min-width: 0;
+/* current activity: a bold title ("Checking 3 of 12 rides") over a muted live
+   message line that names the specific ride/step the runner is on. */
+.job-now { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.job-title { color: #eaf1ff; font-size: 13px; font-weight: 600; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.job .msg { color: #adc2e8; font-size: 12px; min-width: 0;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .qcount { font-size: 12px; color: #cfe0ff; background: rgba(76,141,255,.16);
-  border: 1px solid rgba(76,141,255,.35); border-radius: 20px; padding: 2px 9px; }
+  border: 1px solid rgba(76,141,255,.35); border-radius: 20px; padding: 2px 9px;
+  flex: 0 0 auto; white-space: nowrap; }
+.job-toggle { flex: 0 0 auto; }
 .job button { background: rgba(255,255,255,.06); border-color: rgba(255,255,255,.14); }
 .job button:hover:not(:disabled) { background: rgba(255,255,255,.12);
   border-color: rgba(255,255,255,.22); }
+/* determinate progress bar pinned to the pill's bottom edge (known totals only) */
+.job-bar { height: 3px; margin: 0 2px 2px; border-radius: 3px;
+  background: rgba(255,255,255,.08); overflow: hidden; }
+.job-bar-fill { height: 100%; width: 0;
+  background: linear-gradient(90deg, var(--blue), #7db1ff); transition: width .25s ease; }
+/* "Up next": the still-queued items, so the whole pipeline is visible at a glance */
+.job-list { display: none; flex-direction: column; gap: 2px;
+  padding: 8px 10px 4px; max-height: 168px; overflow: auto;
+  border-bottom: 1px solid rgba(255,255,255,.08); }
+.job-list.show { display: flex; }
+.job-item { display: flex; align-items: center; gap: 9px;
+  padding: 5px 6px; border-radius: 8px; background: rgba(255,255,255,.03); }
+.ji-dot { width: 7px; height: 7px; border-radius: 50%; flex: 0 0 auto;
+  background: rgba(76,141,255,.5); border: 1px solid rgba(76,141,255,.7); }
+.ji-text { flex: 1; min-width: 0; color: #dbe6f7; font-size: 12.5px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ji-x { flex: 0 0 auto; width: 22px; height: 22px; line-height: 1; padding: 0;
+  border-radius: 6px; background: rgba(255,255,255,.05);
+  border: 1px solid rgba(255,255,255,.14); color: #cdd9ec; font-size: 15px; cursor: pointer; }
+.ji-x:hover { background: rgba(255,90,80,.18); border-color: #6e2c27; color: #ffd9d2; }
 
 .errbar { display: none; align-items: center; gap: 11px; margin: 0 0 16px;
   padding: 10px 13px; border-radius: var(--radius);

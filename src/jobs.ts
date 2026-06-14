@@ -23,6 +23,8 @@ export interface TaskSnapshot {
   kind: string;
   label: string;
   count: number;
+  /** Per-ride progress while running (done / total). null until a runner sets it. */
+  progress: { done: number; total: number } | null;
   status: TaskStatus;
   message: string;
   created_at: number;
@@ -43,6 +45,10 @@ export interface JobsSnapshot {
 export class Task {
   status: TaskStatus = "queued";
   message = "";
+  // Live per-ride progress (done / total) set by the runner as each ride completes,
+  // so the UI can show an accurate "3 of 12" instead of just a spinner. null while
+  // queued or for kinds (scan) whose total isn't known up front.
+  progress: { done: number; total: number } | null = null;
   created_at: number = Date.now() / 1000;
   started_at: number | null = null;
   finished_at: number | null = null;
@@ -62,6 +68,7 @@ export class Task {
       kind: this.kind,
       label: this.label,
       count: this.keys.length,
+      progress: this.progress ? { ...this.progress } : null,
       status: this.status,
       message: this.message,
       created_at: this.created_at,

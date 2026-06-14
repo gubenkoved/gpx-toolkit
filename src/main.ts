@@ -188,6 +188,10 @@ const openStats = new Set<string>();
 // "sel" for the selection toolbar. Kept at module scope (like openStats/selected) so
 // it survives the frequent re-renders the job ticker triggers.
 let openMenu: string | null = null;
+// Whether the queue panel's "Up next" list is expanded. Module-scope so it
+// survives the frequent re-renders the job ticker triggers; starts open so the
+// pending work is visible by default.
+let queueExpanded = true;
 let preset = "month";
 let statGran: Granularity | "auto" = "auto";
 let statMetric: "distance" | "speed" = "distance";
@@ -964,18 +968,92 @@ function render(): void {
 function renderJob(): void {
   const jobs = STATE.jobs;
   const cur = jobs.current;
-  const queued = (jobs.queue || []).length;
-  const busy = !!cur || queued > 0;
+  const queue = jobs.queue || [];
+  // A month/year "Check" is ONE task carrying many ride keys, so counting tasks
+  // would show "1 queued" for a 12-ride batch. Count the actual rides subject to
+  // the operation instead (running + waiting, deduped via active_keys). Scans have
+  // no ride keys, so each pending/running scan counts as a single item.
+  const queuedTasks = queue.length;
+  const rideCount = new Set(jobs.active_keys || []).size;
+  const scanCount = [cur, ...queue].filter((t) => t && t.kind === "scan").length;
+  const total = rideCount + scanCount;
+  const busy = !!cur || queuedTasks > 0;
   $("#job").classList.toggle("show", busy);
   document.body.classList.toggle("job-active", busy);
-  if (cur) $("#jobMsg").textContent = `${cur.kind}: ${cur.message || "working\u2026"}`;
-  else if (busy) $("#jobMsg").textContent = "queued\u2026";
+
+  // -- current activity: what is being done right now -----------------------
+  const titleEl = $("#jobTitle");
+  const msgEl = $("#jobMsg");
+  const bar = $("#jobBar") as HTMLElement;
+  if (cur) {
+    titleEl.textContent = taskTitle(cur);
+    msgEl.textContent = cur.message || "working\u2026";
+    const p = cur.progress;
+    if (p && p.total > 0) {
+      bar.style.display = "";
+      ($("#jobBarFill") as HTMLElement).style.width = `${Math.round((p.done / p.total) * 100)}%`;
+    } else {
+      bar.style.display = "none";
+    }
+  } else if (busy) {
+    titleEl.textContent = "Starting\u2026";
+    msgEl.textContent = "waiting for the next item\u2026";
+    bar.style.display = "none";
+  } else {
+    bar.style.display = "none";
+  }
+
+  // -- queued-ride count badge ----------------------------------------------
   const qc = $("#qcount");
-  qc.textContent = queued ? `${queued} queued` : "";
-  qc.style.display = queued ? "" : "none";
-  ($("#btnClear") as HTMLElement).style.display = queued ? "" : "none";
+  qc.textContent = total ? `${total} ride${total === 1 ? "" : "s"} queued` : "";
+  qc.style.display = total ? "" : "none";
+
+  // -- the rest of the queue: what is to be done ----------------------------
+  const toggle = $("#btnQueueToggle") as HTMLElement;
+  toggle.style.display = queuedTasks ? "" : "none";
+  toggle.textContent = `${queueExpanded ? "\u25be" : "\u25b8"} Up next (${queuedTasks})`;
+  toggle.setAttribute("aria-expanded", String(queueExpanded));
+  const list = $("#jobList");
+  const showList = queueExpanded && queuedTasks > 0;
+  list.classList.toggle("show", showList);
+  list.innerHTML = showList ? queue.map(queueItemHtml).join("") : "";
+
+  // Clear only drops not-yet-started tasks, so keep its visibility tied to the queue.
+  ($("#btnClear") as HTMLElement).style.display = queuedTasks ? "" : "none";
   renderError(jobs);
 }
+
+// Human verb for each task kind, used in the queue panel ("Checking", "Uploading"…).
+const TASK_VERB: Record<string, string> = {
+  scan: "Scanning",
+  status: "Checking",
+  upload: "Uploading",
+  "download-gpx": "Downloading GPX",
+};
+
+type JobTask = NonNullable<AppState["jobs"]["current"]>;
+
+/** One-line description of a task: verb + what it acts on (a ride count, or the
+ *  scan window). The running task also shows live "done of total" progress. */
+function taskTitle(t: JobTask): string {
+  const verb = TASK_VERB[t.kind] || t.kind;
+  if (t.kind === "scan") return t.label ? `${verb} ${t.label}` : verb;
+  const p = t.progress;
+  if (p && p.total > 0) return `${verb} ${p.done} of ${p.total} ride${p.total === 1 ? "" : "s"}`;
+  return `${verb} ${t.count} ride${t.count === 1 ? "" : "s"}`;
+}
+
+/** A waiting-queue row: verb + count, with a per-item remove button. */
+function queueItemHtml(t: JobTask): string {
+  const verb = TASK_VERB[t.kind] || t.kind;
+  const desc = t.kind === "scan" ? (t.label ? `${verb} ${t.label}` : verb) : `${verb} ${t.count} ride${t.count === 1 ? "" : "s"}`;
+  return `<div class="job-item">
+    <span class="ji-dot"></span>
+    <span class="ji-text">${escHtml(desc)}</span>
+    <button class="ji-x" data-cancel="${t.id}" title="Remove from queue" aria-label="Remove from queue">\u00d7</button>
+  </div>`;
+}
+
 
 function shortError(text: string): string {
   if (!text) return "";
@@ -1227,6 +1305,14 @@ document.addEventListener("click", (e) => {
   if (t.id === "btnScan") return doScan();
   if (t.id === "btnCancel") return run(() => controller.cancel(null));
   if (t.id === "btnClear") return run(() => controller.clear());
+  if (t.id === "btnQueueToggle") {
+    queueExpanded = !queueExpanded;
+    renderJob();
+    return;
+  }
+  if (t.dataset && t.dataset.cancel) {
+    return run(() => controller.cancel(parseInt(t.dataset.cancel!, 10)));
+  }
   if (t.id === "errDismiss") {
     dismissedErrId = parseInt($("#errbar").dataset.id || "0", 10);
     $("#errbar").classList.remove("show");

@@ -17,6 +17,10 @@ humans and the assistant can read this file as a compressed history of decisions
 
 ---
 
+## Make the work queue legible: ride-accurate counts + an "Up next" panel
+- **What:** Reworked the floating job pill into a small queue panel. The queued-count badge now counts **rides** (running + waiting, deduped via `active_keys`) instead of *tasks*, so a 12-ride month Check reads "12 rides queued" rather than the misleading "1 queued"; scans still count as one item. The running task shows an accurate, live **"Checking 3 of 12 rides"** title (backed by a new `progress {done,total}` field on `Task`/`TaskSnapshot`, incremented per ride in `doTargets`/`doDownloadGpx`) over the existing message line that names the specific ride/step, plus a thin determinate progress bar. An expandable **"Up next"** list reveals every still-queued task with a per-item remove (×) that calls `controller.cancel(id)`.
+- **Why:** A month/year operation is a single coalesced task carrying many ride keys, so the old "N queued" (task count) badge undercounted the real work and the queue was otherwise invisible — you couldn't see what was running, how far along it was, or what was lined up behind it. Surfacing ride-level counts, per-task progress, and the pending list gives honest, at-a-glance visibility into the whole pipeline without breaking the single-worker coalescing model.
+
 ## Make demo mode obvious to enter and exit
 - **What:** Added an explicit **Exit demo** control (reusing the header disconnect slot) that drops back to offline; made the **Demo** button a prominent accent button when no phone is connected; show a toast when entering demo; stopped the status pill from flashing "demo" on load (it now boots showing "not connected"); and corrected the Reset copy that wrongly claimed it returns to "demo mode" (it goes offline).
 - **Why:** Demo mode was confusing — there was no clear way out, entry was silent, and the UI/copy implied the app booted in demo when it actually boots offline. These changes make the demo ↔ offline transition discoverable and the messaging honest.
