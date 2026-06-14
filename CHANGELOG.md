@@ -17,6 +17,10 @@ humans and the assistant can read this file as a compressed history of decisions
 
 ---
 
+## Widen the Map and Stats views beyond main's 940px column
+- **What:** Added a `@media (min-width: 1000px)` breakout so `#mapView` and `#statsView` grow to `min(96vw, 1200px)` (centred via `margin-left` math), while `main` and the view tabs stay at 940px. Full-screen Expand is explicitly reset back to normal flow.
+- **Why:** Inside main's 940px column the all-rides map column shrank to ~648px and even basemap labels were cropped; the Explore list is fine at 940px so only the two map-heavy views break out. Centring uses margin (not `transform: translateX`) so no transformed ancestor hijacks the containing block of the full-screen map's `position: fixed` `.map-wrap`.
+
 ## Add Biome (format + lint) and a CI gate that runs type-check + lint + tests
 
 - **What:** Adopted Biome 2.5 as the formatter and linter (`biome.json`), reformatted the

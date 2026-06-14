@@ -1281,6 +1281,28 @@ body:has(#mapFilter:not(.hidden)) .job-handle {
   display: none;
 }
 
+/* The Explore list is happy inside main's 940px column, but the map-heavy Map
+   and Stats views need more horizontal room — at 940px the all-rides map column
+   shrinks to ~648px and even basemap labels get cropped. Let just those two
+   views break out of main to ~1200px on wide enough viewports, while keeping
+   main (and the view tabs inside it) at 940px so the tabs don't shift when you
+   switch views. Centre via margin math rather than `transform: translateX`,
+   because a transformed ancestor would become the containing block for the
+   full-screen map's `position: fixed` .map-wrap and break Expand. */
+@media (min-width: 1000px) {
+  #mapView:not(.hidden),
+  #statsView:not(.hidden) {
+    width: min(96vw, 1200px);
+    margin-left: calc(50% - min(48vw, 600px));
+  }
+  /* Full-screen map owns the viewport via fixed .map-wrap; keep #mapView itself
+     in normal flow so the breakout math never interferes. */
+  body.map-expanded #mapView:not(.hidden) {
+    width: auto;
+    margin-left: 0;
+  }
+}
+
 /* -- stats view (totals / records / route-frequency heatmap) -------------- */
 .stats-empty {
   color: var(--muted);
