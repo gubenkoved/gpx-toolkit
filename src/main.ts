@@ -842,6 +842,7 @@ function applyView(): void {
   document.getElementById("statsView")?.classList.toggle("hidden", !isStats);
   document.getElementById("scanbar")?.classList.toggle("hidden", isMap || isStats);
   if (!isMap && document.body.classList.contains("map-expanded")) setMapExpanded(false);
+  if (!isStats && document.body.classList.contains("heat-expanded")) setHeatExpanded(false);
   if (!isMap && mapAreaSelect.isArmed()) mapAreaSelect.setMode(false);
   if (!isStats && heatAreaSelect.isArmed()) heatAreaSelect.setMode(false);
   document.querySelectorAll<HTMLButtonElement>("#viewTabs .vtab").forEach((b) => {
@@ -865,11 +866,20 @@ function setView(v: ViewName): void {
 /** Toggle the Map view between inline and full-screen; resize Leaflet to match. */
 function setMapExpanded(on: boolean): void {
   document.body.classList.toggle("map-expanded", on);
-  const btn = document.getElementById("btnMapExpand");
-  if (btn) btn.textContent = on ? "⤡ Exit full screen" : "⤢ Expand";
+  // The button is icon-only (maximize ↔ minimize swaps via CSS on aria-pressed).
+  document.getElementById("btnMapExpand")?.setAttribute("aria-pressed", on ? "true" : "false");
   // The container changed size; let Leaflet re-measure to match.
   requestAnimationFrame(() => {
     allRidesMap?.invalidateSize();
+  });
+}
+
+/** Toggle the Stats heatmap between inline and full-screen; resize Leaflet to match. */
+function setHeatExpanded(on: boolean): void {
+  document.body.classList.toggle("heat-expanded", on);
+  document.getElementById("btnHeatExpand")?.setAttribute("aria-pressed", on ? "true" : "false");
+  requestAnimationFrame(() => {
+    freqHeatMap?.invalidateSize();
   });
 }
 
@@ -2153,6 +2163,10 @@ document.addEventListener("click", (e) => {
     setMapExpanded(!document.body.classList.contains("map-expanded"));
     return;
   }
+  if (t.id === "btnHeatExpand") {
+    setHeatExpanded(!document.body.classList.contains("heat-expanded"));
+    return;
+  }
   if (t.id === "btnMapSelect") {
     mapAreaSelect.setMode(!mapAreaSelect.isArmed());
     return;
@@ -2504,10 +2518,11 @@ window.addEventListener("beforeunload", (e) => {
   }
 });
 
-// Esc leaves the full-screen map.
+// Esc leaves the full-screen map or heatmap.
 window.addEventListener("keydown", (e) => {
-  if (e.key === "Escape" && document.body.classList.contains("map-expanded"))
-    setMapExpanded(false);
+  if (e.key !== "Escape") return;
+  if (document.body.classList.contains("map-expanded")) setMapExpanded(false);
+  if (document.body.classList.contains("heat-expanded")) setHeatExpanded(false);
 });
 
 /** Show the build version in the header; hover reveals commit + build date. */

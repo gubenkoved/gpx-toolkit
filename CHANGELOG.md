@@ -17,6 +17,17 @@ humans and the assistant can read this file as a compressed history of decisions
 
 ---
 
+## Icon-only map/heatmap controls + heatmap full screen
+- **What:** Replaced the Map/heatmap floating buttons' visible Unicode glyphs
+  (`⤢ Expand` / `▢ Select area` / `✕ Cancel`) with icon-only square buttons drawn
+  from crisp inline SVG, swapping glyphs via CSS on `aria-pressed`/`.active`; gave
+  the Stats heatmap its own Expand button mirroring the Map view's pseudo-fullscreen
+  (`body.heat-expanded .freq-wrap`, Esc/view-switch exit). `createAreaSelect` now
+  drives `aria-pressed`/`aria-label` instead of overwriting the button's content.
+- **Why:** Raw Unicode glyphs render inconsistently across fonts/DPI and looked off;
+  icon-only SVG buttons keep one unified control vocabulary across both maps, and the
+  heatmap deserved the same full-screen affordance the Map view already had.
+
 ## Declutter the job/queue status bar
 - **What:** Collapsed the secondary "Clear queue" and "Hide" controls into square
   icon buttons, let the live message wrap to two lines (instead of a one-line

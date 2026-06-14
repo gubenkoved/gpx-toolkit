@@ -25,15 +25,15 @@ export interface AreaSelectOptions {
   getMap: () => L.Map | null;
   /** The drawable tracks to hit-test against, resolved fresh on each gesture. */
   getTracks: () => RideTrack[];
-  /** The "Select area" toggle button (its label/active state is managed here). */
+  /** The "Select area" toggle button (its armed/active state is managed here). */
   button: HTMLElement | null;
   /** Receives the selected ride keys: a box-drag yields all crossing it, a click the nearest one, a miss `[]`. */
   onSelect: (keys: string[]) => void;
   /** How close (screen px) a single click must land to "hit" a track. */
   clickPx?: number;
-  /** Button label while idle. */
+  /** Accessible label/tooltip while idle. */
   idleLabel?: string;
-  /** Button label while armed. */
+  /** Accessible label/tooltip while armed. */
   armedLabel?: string;
 }
 
@@ -51,8 +51,8 @@ const DRAG_THRESHOLD_PX = 4;
 
 export function createAreaSelect(opts: AreaSelectOptions): AreaSelect {
   const clickPx = opts.clickPx ?? 8;
-  const idleLabel = opts.idleLabel ?? "▢ Select area";
-  const armedLabel = opts.armedLabel ?? "✕ Cancel";
+  const idleLabel = opts.idleLabel ?? "Select area";
+  const armedLabel = opts.armedLabel ?? "Cancel selection";
 
   let armed = false;
   let dragStart: PixelPoint | null = null;
@@ -95,8 +95,11 @@ export function createAreaSelect(opts: AreaSelectOptions): AreaSelect {
   function setMode(on: boolean): void {
     armed = on;
     if (opts.button) {
+      // The button is icon-only (its glyph swaps via CSS on `.active`); reflect the
+      // armed state to assistive tech with aria-pressed + the matching label.
       opts.button.classList.toggle("active", on);
-      opts.button.textContent = on ? armedLabel : idleLabel;
+      opts.button.setAttribute("aria-pressed", on ? "true" : "false");
+      opts.button.setAttribute("aria-label", on ? armedLabel : idleLabel);
     }
     const map = opts.getMap();
     const c = map?.getContainer();

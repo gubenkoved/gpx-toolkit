@@ -76,7 +76,7 @@ describe("createAreaSelect", () => {
     document.body.innerHTML = "";
   });
 
-  it("toggles the button label/class and map panning when armed/disarmed", () => {
+  it("toggles the button state/class and map panning when armed/disarmed", () => {
     const map = fakeMap();
     const button = document.createElement("button");
     const sel: AreaSelect = createAreaSelect({
@@ -91,7 +91,8 @@ describe("createAreaSelect", () => {
     sel.setMode(true);
     expect(sel.isArmed()).toBe(true);
     expect(button.classList.contains("active")).toBe(true);
-    expect(button.textContent).toBe("✕ Cancel");
+    expect(button.getAttribute("aria-pressed")).toBe("true");
+    expect(button.getAttribute("aria-label")).toBe("Cancel selection");
     expect(map.container.classList.contains("selecting")).toBe(true);
     expect(map.dragging.disable).toHaveBeenCalled();
     expect(map.boxZoom.disable).toHaveBeenCalled();
@@ -99,7 +100,8 @@ describe("createAreaSelect", () => {
     sel.setMode(false);
     expect(sel.isArmed()).toBe(false);
     expect(button.classList.contains("active")).toBe(false);
-    expect(button.textContent).toBe("▢ Select area");
+    expect(button.getAttribute("aria-pressed")).toBe("false");
+    expect(button.getAttribute("aria-label")).toBe("Select area");
     expect(map.container.classList.contains("selecting")).toBe(false);
     expect(map.dragging.enable).toHaveBeenCalled();
   });

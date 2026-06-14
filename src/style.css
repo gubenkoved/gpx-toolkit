@@ -1513,11 +1513,6 @@ body:has(#mapFilter:not(.hidden)) .job-handle {
   height: calc(100vh - 430px);
   min-height: 360px;
 }
-/* The Stats view has no Expand button above the area-select toggle, so it sits at
-   the top-right corner (the heatmap's zoom control is top-left, out of the way). */
-.freq-wrap .map-select {
-  top: 10px;
-}
 /* Matching rides for the heatmap's area-select, full-width below the map. Reuses
    the Map view's `.ms-matched` card styling; collapses when nothing is selected. */
 .heat-matched:not(:empty) {
@@ -1596,13 +1591,17 @@ body:has(#mapFilter:not(.hidden)) .job-handle {
   top: 10px;
   right: 10px;
   z-index: 500;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
   background: rgba(20, 23, 29, 0.92);
   border: 1px solid var(--line);
   color: var(--text);
   border-radius: 8px;
-  padding: 6px 11px;
-  font-size: 12.5px;
-  font-weight: 600;
+  cursor: pointer;
   backdrop-filter: blur(6px);
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
 }
@@ -1619,13 +1618,16 @@ body:has(#mapFilter:not(.hidden)) .job-handle {
   top: 50px;
   right: 10px;
   z-index: 500;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
   background: rgba(20, 23, 29, 0.92);
   border: 1px solid var(--line);
   color: var(--text);
   border-radius: 8px;
-  padding: 6px 11px;
-  font-size: 12.5px;
-  font-weight: 600;
   cursor: pointer;
   backdrop-filter: blur(6px);
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
@@ -1638,6 +1640,26 @@ body:has(#mapFilter:not(.hidden)) .job-handle {
   background: var(--accent);
   border-color: var(--accent);
   color: #1a1206;
+}
+/* Crisp inline-SVG glyphs (no fragile Unicode); icons swap on state so the
+   buttons stay icon-only. Expand shows the maximize frame, flips to minimize
+   while full-screen; Select shows the dashed marquee, flips to an X while armed. */
+.map-expand .mi,
+.map-select .mi {
+  width: 17px;
+  height: 17px;
+  display: block;
+  pointer-events: none;
+}
+.map-expand .mi-collapse,
+.map-expand[aria-pressed="true"] .mi-expand,
+.map-select .mi-cancel,
+.map-select.active .mi-marquee {
+  display: none;
+}
+.map-expand[aria-pressed="true"] .mi-collapse,
+.map-select.active .mi-cancel {
+  display: block;
 }
 /* Crosshair while selecting; override Leaflet's own grab/pointer cursors. */
 #allRidesMap.selecting,
@@ -1813,6 +1835,20 @@ body.map-expanded .map-wrap {
   grid-template-columns: 1fr 320px;
 }
 body.map-expanded {
+  overflow: hidden;
+}
+
+/* Heatmap full-screen mirrors the Map view, sans side panel: the freq-wrap fills
+   the viewport above everything else (the matched-rides list stays below, hidden). */
+body.heat-expanded .freq-wrap {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  height: 100vh;
+  padding: 12px;
+  background: var(--bg);
+}
+body.heat-expanded {
   overflow: hidden;
 }
 
