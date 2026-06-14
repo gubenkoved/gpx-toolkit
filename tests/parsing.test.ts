@@ -119,6 +119,17 @@ describe("parseRideDetail", () => {
     expect(d.stats["Elevation gain"]).toBe("209m");
     expect(d.stats["Elevation loss"]).toBe("215m");
   });
+
+  it("never adopts a stat value as the title when the heading scrolls off (Check flow)", () => {
+    // Real dump after revealActions() swiped the sheet up: the Strava button is
+    // visible but the heading AND datetime are scrolled off the top, leaving a
+    // stat value ("20,0km/h") as the top-most text. The title must stay empty
+    // rather than become that stat, so the store keeps the previously-checked one.
+    const d = parseRideDetail(read("22_detail_scrolled_yal.xml"));
+    expect(d.title).toBe("");
+    expect(d.stravaStatus).not.toBe("unknown"); // we did reach the upload button
+    expect(d.stats["Average speed"]).toBe("20,0km/h");
+  });
 });
 
 describe("isRideDetail", () => {

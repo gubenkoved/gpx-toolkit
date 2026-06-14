@@ -17,6 +17,10 @@ humans and the assistant can read this file as a compressed history of decisions
 
 ---
 
+## Never persist a stat value as a ride title (Check on a short screen)
+- **What:** `parseRideDetail` now refuses stat-shaped text (`looksLikeStat`: distance/speed/duration/elevation values + stat labels) and action-button labels as the title, and the store scrubs such titles on load. Added a real scrolled-detail fixture (`22_detail_scrolled_yal.xml`) + parsing/store tests.
+- **Why:** The Check flow swipes the detail sheet up to reveal the Strava button; on the YAL-L21 that pushes the heading *and* datetime off the top, so the top-most remaining text is a stat value (`20,0km/h`). The old title fallback persisted that as the ride title. Now the title stays empty when the heading is off-screen (the store keeps the scan-seeded "Morning ride"), and previously-corrupted titles self-heal on the next load.
+
 ## Stamp the source phone on each ride
 - **What:** Added `serial()` to the `AdbDevice` contract (WebUsbAdb returns its USB serial — the private field was renamed `serial`→`serialNumber` to free the method name; DemoAdb returns `demo-serial`). `RideRecord` gained `device_model`/`device_serial` (blank by default, string-coerced on load for legacy records, optional in `UpsertFields`). The Controller caches the model + serial on `connect()` and a new `deviceFields()` helper stamps them onto every ride it writes — scan, detail Check, and GPX track. Added store round-trip/legacy-default tests and a controller test asserting the demo identity lands on scanned + checked rides.
 - **Why:** The cache recorded *when* a ride was read but never *which phone* it came from. With more than one device in play (e.g. the YAL-L21 alongside a Pixel), per-ride device attribution lets us later tell rides apart by source phone. Per-ride (not global) keeps the attribution precise and backfills naturally on the next scan/check.

@@ -23,6 +23,26 @@ const DATETIME_RE =
 const DISTANCE_RE = /^[\d.,]+\s*km$/;
 const DURATION_RE = /^(\d+:)?\d{1,2}:\d{2}$/;
 
+// Stat-value shapes that must never be mistaken for a ride title. When the detail
+// bottom-sheet is swiped up to reveal the Strava/komoot buttons (the Check flow),
+// the heading and datetime can scroll off the top entirely; on such a dump the
+// top-most remaining text is a stat *value* (e.g. "20,0km/h" on a comma-decimal
+// device), which a naive title fallback would otherwise persist as the title.
+const SPEED_RE = /^[\d.,]+\s*km\/h$/i;
+const ELEVATION_RE = /^[\d.,]+\s*(m|ft|feet|metres|meters)$/i;
+const STAT_LABEL_SET = new Set<string>([...DETAIL_STAT_LABELS, "Elevation"]);
+
+/** True when `text` is a stat value/label, never a ride title. */
+export function looksLikeStat(text: string): boolean {
+  return (
+    STAT_LABEL_SET.has(text) ||
+    DISTANCE_RE.test(text) ||
+    DURATION_RE.test(text) ||
+    SPEED_RE.test(text) ||
+    ELEVATION_RE.test(text)
+  );
+}
+
 // Strava/komoot button label states.
 const STRAVA_PENDING = "Upload to";
 const STRAVA_PROCESSING = "upload processing";
@@ -181,6 +201,7 @@ export function parseRideDetail(xml: string): RideDetail {
     let bestGap = Infinity;
     for (const cand of nodes) {
       if (cand === dtNode || DATETIME_RE.test(cand.text) || TITLE_SKIP.has(cand.text)) continue;
+      if (looksLikeStat(cand.text)) continue;
       const gap = dtNode.bounds.top - cand.bounds.bottom;
       if (gap < 0 || gap > 90) continue;
       const aligned = Math.abs(cand.bounds.left - dtNode.bounds.left) <= 60;
@@ -193,12 +214,16 @@ export function parseRideDetail(xml: string): RideDetail {
     if (best) detail.title = best.text;
   }
   if (!detail.title && nodes.length) {
-    // Fallback (no datetime parsed): topmost non-datetime, non-chrome text.
+    // Fallback (no datetime parsed, e.g. the heading scrolled off when the sheet
+    // was swiped up to reveal the upload buttons): topmost non-datetime, non-chrome
+    // text — but never a stat value/label, which would otherwise be picked as the
+    // title once the real heading is off-screen. If only stats remain, leave the
+    // title empty so the store keeps the previously-checked one.
     for (const node of [...nodes].sort((a, b) => a.bounds.top - b.bounds.top)) {
-      if (!DATETIME_RE.test(node.text) && !TITLE_SKIP.has(node.text)) {
-        detail.title = node.text;
-        break;
-      }
+      if (DATETIME_RE.test(node.text) || TITLE_SKIP.has(node.text)) continue;
+      if (looksLikeStat(node.text) || ACTION_LABELS.has(node.text)) continue;
+      detail.title = node.text;
+      break;
     }
   }
 

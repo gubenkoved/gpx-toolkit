@@ -11,7 +11,7 @@
  */
 
 import type { KeyValueStore } from "./kv";
-import { rideMonth, type StravaStatus } from "./parsing";
+import { looksLikeStat, rideMonth, type StravaStatus } from "./parsing";
 
 /** Key under which the single serialized cache blob is stored in the backend. */
 export const STORAGE_KEY = "beeline-toolkit-state";
@@ -204,8 +204,12 @@ export class Store {
     if (!rides || typeof rides !== "object") return;
     for (const [key, raw] of Object.entries(rides as Record<string, Partial<RideRecord>>)) {
       const rec: RideRecord = { ...blankRecord(key), ...raw, key };
-      if (BAD_TITLES.has(rec.title)) rec.title = ""; // scrub stale mis-parsed titles
-      if (BAD_TITLES.has(rec.title_base)) rec.title_base = "";
+      // Scrub stale mis-parsed titles: UI chrome (Heatmap/Journeys/…) and stat
+      // values/labels (e.g. "20,0km/h" captured when the detail heading scrolled
+      // off-screen during a Check). Clearing lets the next scan/check reseed a
+      // correct title instead of persisting the bad one forever.
+      if (BAD_TITLES.has(rec.title) || looksLikeStat(rec.title)) rec.title = "";
+      if (BAD_TITLES.has(rec.title_base) || looksLikeStat(rec.title_base)) rec.title_base = "";
       if (!rec.stats || typeof rec.stats !== "object") rec.stats = {};
       if (typeof rec.track !== "string") rec.track = "";
       rec.track_src_points = Number(rec.track_src_points) || 0;

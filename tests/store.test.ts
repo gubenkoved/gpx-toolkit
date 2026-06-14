@@ -47,6 +47,22 @@ describe("Store", () => {
     expect((await Store.load(backend)).rides.get("k")!.title).toBe("");
   });
 
+  it("scrubs stat-shaped titles persisted by an earlier parsing bug", async () => {
+    // The old detail parser could store a stat value as the title when the heading
+    // scrolled off-screen during a Check (e.g. "20,0km/h"). Loading must clear it
+    // so a re-scan/check reseeds a real title.
+    map.set(
+      STORAGE_KEY,
+      JSON.stringify({
+        updated_at: "x",
+        rides: { k: { key: "k", title: "20,0km/h", title_base: "209m" } },
+      }),
+    );
+    const rec = (await Store.load(backend)).rides.get("k")!;
+    expect(rec.title).toBe("");
+    expect(rec.title_base).toBe("");
+  });
+
   it("round-trips the source-phone identity (model + serial)", async () => {
     const s = await Store.load(backend);
     s.upsert("k", { device_model: "Pixel 10 Pro", device_serial: "ABC123" });
