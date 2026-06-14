@@ -200,7 +200,7 @@ let STATE: AppState = {
     busy: false,
   },
   speed: "normal",
-  settings: { trackPointsPerKm: 10, speedTrimSlowPct: 0, speedTrimFastPct: 0, heatRadius: 12 },
+  settings: { trackPointsPerKm: 20, speedTrimSlowPct: 0, speedTrimFastPct: 0, heatRadius: 12 },
   connected: false,
   device: "",
 };

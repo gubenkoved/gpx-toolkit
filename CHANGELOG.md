@@ -17,6 +17,15 @@ humans and the assistant can read this file as a compressed history of decisions
 
 ---
 
+## Denser default track preview + clearer inline number fields
+- **What:** Default rough-track density bumped 10 → 20 pts/km; inline `.custom` number
+  inputs (`last [n] days`, `Distance [min]–[max] km`, `pts/km`) now carry a subtle
+  underline that goes accent on hover/focus.
+- **Why:** 20 pts/km gives a noticeably truer route preview out of the box. The bare
+  placeholders (`n`, `min`, `max`) read as static label text — an underline signals the
+  blanks are editable without disturbing the compact inline layout. Persisted user
+  densities are untouched; only the fresh/cleared default changes.
+
 ## Errors persist until acknowledged, and one bad ride no longer stops the batch
 - **What:** Two robustness fixes. (1) Per-ride isolation: `sweepTargets()` in [src/beeline.ts](src/beeline.ts) now wraps each ride's `visit()` in try/catch with an `onError(key, reason)` channel — a throw is recorded, the list is recovered (`openJourneys`), and the sweep continues to the next ride instead of aborting; if even the recovery fails it pauses without marking anything deleted. `processTargets()` threads `onError` through, `downloadGpx()` reuses its existing `onFail` for navigation throws too, and `doTargets()` in [src/controller.ts](src/controller.ts) collects the failures and throws one aggregated, per-ride error at the end (mirroring the GPX-download pattern). (2) Persistent, stacked errors: [index.html](index.html) now renders an `#errstack` of one card per unacknowledged error; [src/main.ts](src/main.ts) `renderError()` merges failed jobs **and** standalone errors (connection/import/storage/action — now routed through a new `pushError()`), newest-first, each dismissed individually and never auto-cleared. Added [tests/upload-error.test.ts](tests/upload-error.test.ts).
 - **Why:** A failure on a single ride used to bubble out of the sweep and abandon every later ride in the batch, and standalone errors only flashed a toast that the next status message silently overwrote. Both violated the core promise that progress is resilient and that an error is never lost without the user seeing and acknowledging it.

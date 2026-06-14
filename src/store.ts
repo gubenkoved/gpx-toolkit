@@ -17,7 +17,7 @@ import { looksLikeStat, rideMonth, type StravaStatus } from "./parsing";
 export const STORAGE_KEY = "beeline-toolkit-state";
 
 /** Default rough-track density: points kept per kilometre of route. */
-export const DEFAULT_TRACK_POINTS_PER_KM = 10;
+export const DEFAULT_TRACK_POINTS_PER_KM = 20;
 const TRACK_MIN_POINTS_PER_KM = 1;
 const TRACK_MAX_POINTS_PER_KM = 100;
 

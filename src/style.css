@@ -248,11 +248,14 @@ button.small {
   min-width: 1.6ch;
   background: transparent;
   color: var(--text);
+  /* Underline so the blank reads as a fillable field, not static label text. */
   border: 0;
-  padding: 0;
+  border-bottom: 1.5px solid #3a4554;
+  padding: 0 0 1px;
   font: inherit;
   font-weight: 600;
   text-align: center;
+  transition: border-color 0.12s ease;
   -moz-appearance: textfield;
   appearance: textfield;
 }
@@ -261,8 +264,12 @@ button.small {
   -webkit-appearance: none;
   margin: 0;
 }
+.custom input:hover {
+  border-bottom-color: #55687d;
+}
 .custom input:focus {
   outline: none;
+  border-bottom-color: var(--accent);
 }
 .custom input::placeholder {
   color: var(--muted);
