@@ -176,6 +176,10 @@
       </section>
       <section class="stats-section">
         <h2 class="stats-h">Route frequency<span class="stats-sub" id="statsHeatNote"></span></h2>
+        <label class="heat-thickness trim" title="How thick each track renders on the heatmap">Thickness
+          <input type="range" id="heatRadius" min="6" max="30" step="1" value="12" />
+          <output id="heatRadiusOut">12</output>
+        </label>
         <div class="freq-wrap">
           <div id="freqHeatMap"></div>
         </div>

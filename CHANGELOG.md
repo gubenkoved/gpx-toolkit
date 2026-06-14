@@ -17,6 +17,16 @@ humans and the assistant can read this file as a compressed history of decisions
 
 ---
 
+## Heatmap thickness slider
+- **What:** added a persisted "Thickness" slider above the Stats view's route-frequency
+  heatmap that drives the `L.heatLayer` glow radius/blur (`heatRadius` in `Settings`,
+  clamped 6–30 px, default 12). Dragging it updates the existing layer in place via
+  `setOptions().redraw()` — no point rebuild or bounds re-fit.
+- **Why:** the heat glow width was hardcoded (`radius 12 / blur 14`), so dense urban
+  routes blobbed together while rural ones stayed wispy. Letting the user tune track
+  thickness makes the frequency read legible at any zoom/area, and persisting it (like
+  the trim / points-per-km sliders) keeps their preferred look across sessions.
+
 ## Filter the Explore ride list
 - **What:** Added an always-visible filter bar above the ride list that narrows the cached rides (no phone I/O) by Strava status (All/Pending/Uploaded/Other), route-preview presence, checked-details presence, deletion, source device, and a distance min/max band — all AND-combined. GPS/Details/Deleted are one-tap tri-state chips; Source is a dropdown built from the devices actually present (plus "(no device)"); a Clear button and a "N of M rides" totals hint appear while filtering, and the empty state distinguishes "no rides" from "filters hid everything". The pure predicates live in a new `src/filter.ts` (unit-tested); `RideView` now carries `device_model` (already stored per-ride) so "source" had real data to filter on.
 - **Why:** Once the cache holds many rides, finding the ones that still need work (e.g. pending + no preview, or a specific phone) meant scrolling. The filters reuse data already in `RideView`, so they stay instant and backend-free; extracting the predicates into their own module keeps `main.ts` the impure UI shell while making the matching logic testable like `parsing`/`track`/`mapview`.

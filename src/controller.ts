@@ -430,6 +430,13 @@ export class Controller {
     return v;
   }
 
+  /** Update the heatmap glow radius (px, persisted). Returns the clamped value. */
+  setHeatRadius(n: number): number {
+    const v = this.store.setHeatRadius(n);
+    this.notify();
+    return v;
+  }
+
   cancel(id: number | null): void {
     if (id === null) this.jobs.cancelAll();
     else this.jobs.cancel(id);

@@ -35,6 +35,17 @@ function clampTrimPct(n: number): number {
   return Math.max(0, Math.min(SPEED_TRIM_MAX_PCT, Math.round(n)));
 }
 
+/** Default heatmap glow radius (px): the visual "thickness" of a rendered track. */
+export const DEFAULT_HEAT_RADIUS = 12;
+const HEAT_RADIUS_MIN = 6;
+const HEAT_RADIUS_MAX = 30;
+
+/** Clamp the heatmap glow radius into [HEAT_RADIUS_MIN, HEAT_RADIUS_MAX] px. */
+function clampHeatRadius(n: number): number {
+  if (!Number.isFinite(n)) return DEFAULT_HEAT_RADIUS;
+  return Math.max(HEAT_RADIUS_MIN, Math.min(HEAT_RADIUS_MAX, Math.round(n)));
+}
+
 export interface Settings {
   /** Points kept per kilometre when simplifying a downloaded GPX into a rough track. */
   trackPointsPerKm: number;
@@ -42,10 +53,17 @@ export interface Settings {
   speedTrimSlowPct: number;
   /** Share of fastest distance (%) to drop from the average-speed view. */
   speedTrimFastPct: number;
+  /** Heatmap glow radius (px) — how thick each track renders on the route-frequency map. */
+  heatRadius: number;
 }
 
 function defaultSettings(): Settings {
-  return { trackPointsPerKm: DEFAULT_TRACK_POINTS_PER_KM, speedTrimSlowPct: 0, speedTrimFastPct: 0 };
+  return {
+    trackPointsPerKm: DEFAULT_TRACK_POINTS_PER_KM,
+    speedTrimSlowPct: 0,
+    speedTrimFastPct: 0,
+    heatRadius: DEFAULT_HEAT_RADIUS,
+  };
 }
 
 // UI chrome labels that must never be stored as a ride title.
@@ -199,6 +217,9 @@ export class Store {
       if ("speedTrimFastPct" in settings) {
         this.settings.speedTrimFastPct = clampTrimPct(Number(settings.speedTrimFastPct));
       }
+      if ("heatRadius" in settings) {
+        this.settings.heatRadius = clampHeatRadius(Number(settings.heatRadius));
+      }
     }
     const rides = (data as Partial<Persisted>)?.rides;
     if (!rides || typeof rides !== "object") return;
@@ -341,6 +362,13 @@ export class Store {
     this.settings.speedTrimFastPct = clampTrimPct(fastPct);
     this.save();
     return { slowPct: this.settings.speedTrimSlowPct, fastPct: this.settings.speedTrimFastPct };
+  }
+
+  /** Update the heatmap glow radius (px) and persist. Returns the clamped value. */
+  setHeatRadius(n: number): number {
+    this.settings.heatRadius = clampHeatRadius(n);
+    this.save();
+    return this.settings.heatRadius;
   }
 
   /**

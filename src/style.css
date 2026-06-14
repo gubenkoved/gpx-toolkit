@@ -406,6 +406,11 @@ body:has(#mapFilter:not(.hidden)) .job-handle { bottom: 74px; z-index: 501; }
   letter-spacing: .04em; }
 .stat-card .sc-sub { font-size: 12px; color: var(--text); opacity: .85;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.heat-thickness { display: inline-flex; align-items: center; gap: 8px; margin: 0 0 10px;
+  color: var(--muted); font-size: 11.5px; }
+.heat-thickness input[type="range"] { width: 120px; accent-color: var(--accent); }
+.heat-thickness output { font-family: var(--mono); font-size: 12px; color: var(--text);
+  min-width: 2.4ch; text-align: right; }
 .freq-wrap { height: calc(100vh - 430px); min-height: 360px; }
 #freqHeatMap { height: 100%; border-radius: var(--radius); overflow: hidden;
   border: 1px solid var(--line); background: var(--bg); isolation: isolate; }

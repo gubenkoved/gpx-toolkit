@@ -171,7 +171,7 @@ let STATE: AppState = {
   rides: [],
   jobs: { current: null, current_keys: [], queue: [], history: [], active_keys: [], busy: false },
   speed: "normal",
-  settings: { trackPointsPerKm: 10, speedTrimSlowPct: 0, speedTrimFastPct: 0 },
+  settings: { trackPointsPerKm: 10, speedTrimSlowPct: 0, speedTrimFastPct: 0, heatRadius: 12 },
   connected: false,
   device: "",
 };
@@ -887,7 +887,18 @@ function mountStatsView(opts: { fit?: boolean } = {}): void {
     ].join("");
   }
   syncRangeControl("stats");
+  syncHeatControl();
   mountFreqHeatmap(visible, hidden, opts.fit !== false);
+}
+
+/** Push the persisted heatmap thickness into its slider/output (skip while dragging). */
+function syncHeatControl(): void {
+  const slider = document.getElementById("heatRadius") as HTMLInputElement | null;
+  const out = document.getElementById("heatRadiusOut") as HTMLOutputElement | null;
+  if (slider && document.activeElement !== slider) {
+    slider.value = String(STATE.settings.heatRadius);
+  }
+  if (out) out.value = String(STATE.settings.heatRadius);
 }
 
 /** (Re)draw the route-frequency heatmap for the given rides; lazily creates the map. */
@@ -915,6 +926,8 @@ function mountFreqHeatmap(rides: RideView[], hidden: number, fit: boolean): void
   }
 
   const sig = tracks.map((t) => t.key).join("|");
+  const radius = STATE.settings.heatRadius;
+  const blur = radius + 2;
   if (sig !== lastHeatSig) {
     lastHeatSig = sig;
     if (freqHeatLayer) {
@@ -924,14 +937,18 @@ function mountFreqHeatmap(rides: RideView[], hidden: number, fit: boolean): void
     const pts = buildHeatPoints(tracks);
     if (pts.length) {
       freqHeatLayer = L.heatLayer(pts as [number, number, number][], {
-        radius: 12,
-        blur: 14,
+        radius,
+        blur,
         minOpacity: 0.25,
         gradient: { 0.0: "#1e3a8a", 0.4: "#22d3ee", 0.7: "#facc15", 1.0: "#f97316" },
       }).addTo(freqHeatMap);
       const all = tracks.flatMap((t) => t.points) as L.LatLngExpression[];
       if (all.length && fit) freqHeatMap.fitBounds(L.latLngBounds(all), { padding: [24, 24] });
     }
+  } else if (freqHeatLayer) {
+    // Track set unchanged — a thickness tweak only needs the layer's radius/blur
+    // updated in place, avoiding a full point rebuild or a bounds re-fit.
+    (freqHeatLayer as L.HeatLayer).setOptions({ radius, blur });
   }
   // The container is only correctly sized once its view becomes visible.
   setTimeout(() => freqHeatMap!.invalidateSize(), 0);
@@ -2023,6 +2040,12 @@ document.addEventListener("input", (e) => {
   }
   if (el.dataset.range === "map" || el.dataset.range === "stats") {
     onRangeInput(el.dataset.range as RangeView, el);
+    return;
+  }
+  if (el.id === "heatRadius") {
+    const v = parseInt(el.value, 10) || 12;
+    ($("#heatRadiusOut") as HTMLOutputElement).value = String(v);
+    run(() => controller.setHeatRadius(v));
     return;
   }
   if (el.id !== "trimSlow" && el.id !== "trimFast") return;
