@@ -28,6 +28,7 @@ function ride(over: Partial<RideView> = {}): RideView {
     track_points: 0,
     track_km: 0,
     track_bytes: 0,
+    device_model: "",
     month_key: "2026-06",
     month_label: "June 2026",
     uploaded_at: "",

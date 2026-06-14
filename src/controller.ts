@@ -33,6 +33,8 @@ export interface RideView {
   track_km: number;
   /** Size of the downloaded GPX file in bytes (0 when unknown). */
   track_bytes: number;
+  /** Phone model this ride was last scanned from ("" when never recorded). */
+  device_model: string;
   month_key: string;
   month_label: string;
   uploaded_at: string;
@@ -187,6 +189,7 @@ export class Controller {
         track_points: r.track_points,
         track_km: r.track_km,
         track_bytes: r.track_bytes,
+        device_model: r.device_model,
         month_key: monthKey(r),
         month_label: monthLabel(r),
         uploaded_at: r.uploaded_at,

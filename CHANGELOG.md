@@ -17,6 +17,10 @@ humans and the assistant can read this file as a compressed history of decisions
 
 ---
 
+## Filter the Explore ride list
+- **What:** Added an always-visible filter bar above the ride list that narrows the cached rides (no phone I/O) by Strava status (All/Pending/Uploaded/Other), route-preview presence, checked-details presence, deletion, source device, and a distance min/max band — all AND-combined. GPS/Details/Deleted are one-tap tri-state chips; Source is a dropdown built from the devices actually present (plus "(no device)"); a Clear button and a "N of M rides" totals hint appear while filtering, and the empty state distinguishes "no rides" from "filters hid everything". The pure predicates live in a new `src/filter.ts` (unit-tested); `RideView` now carries `device_model` (already stored per-ride) so "source" had real data to filter on.
+- **Why:** Once the cache holds many rides, finding the ones that still need work (e.g. pending + no preview, or a specific phone) meant scrolling. The filters reuse data already in `RideView`, so they stay instant and backend-free; extracting the predicates into their own module keeps `main.ts` the impure UI shell while making the matching logic testable like `parsing`/`track`/`mapview`.
+
 ## Let the live job pill be hidden and brought back
 - **What:** Added a **Hide** button to the status/queue pill that collapses it to a small spinner+count handle (bottom-centre, same elevated surface); clicking the handle restores the full pill. A `jobHidden` flag holds the state across the ticker's re-renders and auto-resets when work ends so the next batch reappears on its own.
 - **Why:** The pill is pinned over the content while work runs (~10 s/ride, often a long batch) and could sit in the way with no way to dismiss it. Hiding never pauses work — the handle keeps the spinner + ride count visible as a one-click affordance to bring it back, so the escape hatch stays laconic and reversible.

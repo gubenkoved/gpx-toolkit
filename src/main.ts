@@ -16,6 +16,7 @@ import { DemoAdb } from "./adb/demo";
 import { AdbError, type AdbDevice } from "./adb/types";
 import { WebUsbAdb } from "./adb/webusb";
 import { Controller, type AppState, type RideView } from "./controller";
+import { emptyFilters, filtersActive, parseKm, visibleRides, type Filters, type TriState } from "./filter";
 import { ridesWithTracks, nearestRides, dateRange, filterRidesByRange, type DateRange, type PixelPoint, type ProjectedTrack, type RideTrack } from "./mapview";
 import { autoGranularity, bucketRide, compareRideKeysDesc, parseDurationSec, rideShortLabel, trimmedSpeed, type Granularity } from "./parsing";
 import { computeStats, type PeriodRecord } from "./stats";
@@ -180,6 +181,14 @@ const selected = new Set<string>();
 const openMonths = new Set<string>();
 const openYears = new Set<string>();
 const openStats = new Set<string>();
+
+// -- Explore list filters -------------------------------------------------
+// Live, AND-combined filters applied to the cached rides before grouping. They
+// never touch the phone — just narrow what the Explore list shows. Kept at module
+// scope (like `selected`/`openStats`) so they survive the frequent re-renders the
+// job ticker triggers; folded into `stateSig()` so a change re-renders the list.
+// The predicates themselves live in ./filter (pure + unit-tested).
+const filters: Filters = emptyFilters();
 // Which GPX split-button menu is open, if any: a ride key for a per-ride button or
 // "sel" for the selection toolbar. Kept at module scope (like openStats/selected) so
 // it survives the frequent re-renders the job ticker triggers.
@@ -997,17 +1006,87 @@ function bars(up: number, pe: number, total: number): string {
   const p = Math.round((pe / total) * 100);
   return `<span class="bars"><i class="up" style="width:${u}%"></i><i class="pe" style="width:${p}%"></i></span>`;
 }
-function parseKm(s: string): number {
-  const m = (s || "").match(/([\d.,]+)\s*km/i);
-  if (!m) return 0;
-  return parseFloat(m[1].replace(/,/g, "")) || 0;
-}
 function fmtKm(v: number): string {
   return v >= 1000 ? (v / 1000).toFixed(1) + "k km" : Math.round(v) + " km";
 }
 function fmtSpeed(v: number): string {
   return v.toFixed(1) + " km/h";
 }
+
+// -- filter bar (predicates live in ./filter) -----------------------------
+
+/** Reflect the filter state in the bar: device options, chip labels, active classes. */
+function syncFilterBar(allRides: AppState["rides"]): void {
+  // Status segment.
+  document
+    .querySelectorAll<HTMLButtonElement>("#fStatus button")
+    .forEach((b) => b.classList.toggle("active", b.dataset.fstatus === filters.status));
+
+  // Tri-state chips: glyph + active styling reflect the current state.
+  const chip = (id: string, label: string, state: string, yes: string): void => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.dataset.state = state;
+    el.textContent =
+      state === "any" ? `${label}: any` : `${label} ${state === yes ? "✓" : "✕"}`;
+    el.classList.toggle("on", state !== "any");
+  };
+  chip("fGps", "GPS", filters.gps, "yes");
+  chip("fDetails", "Details", filters.details, "yes");
+  chip("fDeleted", "Deleted", filters.deleted, "only");
+
+  // Source dropdown: rebuild options from the distinct devices present.
+  const sel = $<HTMLSelectElement>("#fDevice");
+  if (sel) {
+    const models = [...new Set(allRides.map((r) => r.device_model).filter(Boolean))].sort();
+    const hasMissing = allRides.some((r) => !r.device_model);
+    const want =
+      `<option value="all">All</option>` +
+      models.map((m) => `<option value="${escHtml(m)}">${escHtml(m)}</option>`).join("") +
+      (hasMissing ? `<option value="__none__">(no device)</option>` : "");
+    if (sel.dataset.opts !== want) {
+      sel.dataset.opts = want;
+      sel.innerHTML = want;
+    }
+    // Selected value may have vanished (e.g. cache cleared) — fall back to All.
+    const valid = filters.device === "all" || models.includes(filters.device) ||
+      (filters.device === "__none__" && hasMissing);
+    if (!valid) filters.device = "all";
+    sel.value = filters.device;
+  }
+
+  // Distance inputs (don't clobber the field being typed into).
+  const min = $<HTMLInputElement>("#fDistMin");
+  const max = $<HTMLInputElement>("#fDistMax");
+  if (min && document.activeElement !== min) min.value = filters.distMin === null ? "" : String(filters.distMin);
+  if (max && document.activeElement !== max) max.value = filters.distMax === null ? "" : String(filters.distMax);
+
+  // Clear button visibility.
+  $("#fClear").classList.toggle("hidden", !filtersActive(filters));
+}
+
+/** Advance a tri-state chip one step on click. */
+function cycleChip(which: string): void {
+  const nextTri = (s: TriState): TriState => (s === "any" ? "yes" : s === "yes" ? "no" : "any");
+  if (which === "gps") filters.gps = nextTri(filters.gps);
+  else if (which === "details") filters.details = nextTri(filters.details);
+  else if (which === "deleted") {
+    filters.deleted =
+      filters.deleted === "any" ? "only" : filters.deleted === "only" ? "none" : "any";
+  }
+}
+
+/** Reset every filter to its neutral (show-all) value. */
+function clearFilters(): void {
+  filters.status = "all";
+  filters.gps = "any";
+  filters.details = "any";
+  filters.deleted = "any";
+  filters.device = "all";
+  filters.distMin = null;
+  filters.distMax = null;
+}
+
 
 /** Push persisted trim percentages into the sliders/outputs (skip a slider being dragged). */
 function syncTrimControls(): void {
@@ -1236,12 +1315,29 @@ function renderConn(): void {
 
 function render(): void {
   renderConn();
-  const rides = STATE.rides;
+  const allRides = STATE.rides;
+  const rides = visibleRides(filters, allRides);
   const jobs = STATE.jobs;
   ACTIVE = new Set(jobs.active_keys || []);
   RUNNING = new Set(jobs.current ? jobs.current_keys || [] : []);
-  ($("#empty") as HTMLElement).style.display = rides.length ? "none" : "block";
-  renderStats(rides);
+
+  // Filter bar: only useful once there are rides to narrow.
+  $("#filterbar").classList.toggle("hidden", allRides.length === 0);
+  syncFilterBar(allRides);
+
+  // Empty state: distinguish "no rides at all" from "filters hid everything".
+  const emptyEl = $("#empty") as HTMLElement;
+  if (allRides.length === 0) {
+    emptyEl.style.display = "block";
+    emptyEl.innerHTML = "Pick a range and press <b>Scan</b> to read your rides from the phone.";
+  } else if (rides.length === 0) {
+    emptyEl.style.display = "block";
+    emptyEl.innerHTML = "No rides match the current filters. <a href=\"#\" id=\"emptyClear\">Clear filters</a>";
+  } else {
+    emptyEl.style.display = "none";
+  }
+  // The inline stats panel always reflects the full (unfiltered) dataset.
+  renderStats(allRides);
 
   const byMonth = new Map<string, { label: string; rides: AppState["rides"] }>();
   for (const r of rides) {
@@ -1261,8 +1357,9 @@ function render(): void {
   const up = rides.filter((r) => r.status === "uploaded").length;
   const pe = rides.filter((r) => r.status === "pending" && !r.deleted).length;
   const del = rides.filter((r) => r.deleted).length;
+  const shown = filtersActive(filters) ? `${rides.length} of ${allRides.length} rides` : `${rides.length} rides`;
   $("#totals").textContent =
-    `${rides.length} rides · ${up} uploaded · ${pe} upload pending` +
+    `${shown} · ${up} uploaded · ${pe} upload pending` +
     (del ? ` · ${del} deleted` : "") +
     (selected.size ? ` · ${selected.size} selected` : "");
 
@@ -1555,7 +1652,9 @@ function stateSig(): string {
     "|" +
     [...openYears].sort().join(",") +
     "|" +
-    [...openStats].sort().join(",")
+    [...openStats].sort().join(",") +
+    "|" +
+    JSON.stringify(filters)
   );
 }
 
@@ -1675,6 +1774,22 @@ document.addEventListener("click", (e) => {
   }
   if (t.dataset && t.dataset.rangereset) {
     resetRange(t.dataset.rangereset as RangeView);
+    return;
+  }
+  if (t.dataset && t.dataset.fstatus) {
+    filters.status = t.dataset.fstatus as Filters["status"];
+    applyState();
+    return;
+  }
+  if (t.dataset && t.dataset.fchip) {
+    cycleChip(t.dataset.fchip);
+    applyState();
+    return;
+  }
+  if (t.id === "fClear" || t.id === "emptyClear") {
+    e.preventDefault();
+    clearFilters();
+    applyState();
     return;
   }
   if (t.dataset && t.dataset.preset) {
@@ -1889,11 +2004,23 @@ document.addEventListener("change", (e) => {
     const v = parseInt(cb.value, 10);
     if (Number.isFinite(v)) run(() => controller.setTrackPointsPerKm(v));
   }
+  if (cb.id === "fDevice") {
+    filters.device = cb.value;
+    applyState();
+  }
 });
 
 // Live outlier-trim sliders: update labels and recompute the speed view as they move.
 document.addEventListener("input", (e) => {
   const el = e.target as HTMLInputElement;
+  if (el.id === "fDistMin" || el.id === "fDistMax") {
+    const v = el.value.trim() === "" ? null : Number(el.value);
+    const km = v !== null && Number.isFinite(v) && v >= 0 ? v : null;
+    if (el.id === "fDistMin") filters.distMin = km;
+    else filters.distMax = km;
+    applyState();
+    return;
+  }
   if (el.dataset.range === "map" || el.dataset.range === "stats") {
     onRangeInput(el.dataset.range as RangeView, el);
     return;

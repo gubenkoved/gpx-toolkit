@@ -88,6 +88,19 @@ button.small { padding: 4px 10px; font-size: 12.5px; border-radius: 7px; }
 .custom input:focus { outline: none; }
 .custom input::placeholder { color: var(--muted); font-weight: 400; }
 
+/* Explore-list filter bar: a compact, always-visible row of AND-combined filters. */
+.filterbar { margin: 4px 0 14px; gap: 8px; }
+.filterbar.hidden { display: none; }
+.fchip { padding: 6px 12px; font-size: 13px; border-radius: 9px; background: var(--panel2);
+  border: 1px solid var(--line); color: var(--muted); transition: .12s ease; white-space: nowrap; }
+.fchip:hover { border-color: #333b48; }
+.fchip.on { border-color: var(--accent); background: rgba(252,82,0,.10); color: var(--text); font-weight: 600; }
+.fdevice { cursor: pointer; }
+.fdevice select { background: transparent; color: var(--text); border: 0; padding: 0;
+  font: inherit; font-weight: 600; cursor: pointer; outline: none; max-width: 16ch; }
+.fdevice select option { background: var(--panel2); color: var(--text); }
+.fdist input { width: 3.6ch; }
+
 main { padding: 18px 20px 60px; max-width: 940px; margin: 0 auto; }
 
 .notice { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);

@@ -125,6 +125,25 @@
     <div class="sp-note hidden" id="spNote"></div>
     <div class="chart" id="chart"></div>
   </div>
+    <div class="row filterbar" id="filterbar">
+      <span class="totals">Filter</span>
+      <div class="seg" id="fStatus" title="Filter by Strava upload status">
+        <button data-fstatus="all" class="active">All</button>
+        <button data-fstatus="pending">Pending</button>
+        <button data-fstatus="uploaded">Uploaded</button>
+        <button data-fstatus="other">Other</button>
+      </div>
+      <button class="fchip" id="fGps" data-fchip="gps" data-state="any" title="Filter by route-preview presence (click to cycle: any → has → missing)">GPS: any</button>
+      <button class="fchip" id="fDetails" data-fchip="details" data-state="any" title="Filter by checked-details presence (click to cycle: any → has → missing)">Details: any</button>
+      <button class="fchip" id="fDeleted" data-fchip="deleted" data-state="any" title="Filter by deletion (click to cycle: any → only deleted → hide deleted)">Deleted: any</button>
+      <label class="custom fdevice" title="Filter by the phone a ride was scanned from">Source
+        <select id="fDevice"><option value="all">All</option></select>
+      </label>
+      <label class="custom fdist" title="Filter by distance in km (leave a side blank for no bound)">Distance
+        <input id="fDistMin" type="number" min="0" step="1" inputmode="numeric" placeholder="min" />–<input id="fDistMax" type="number" min="0" step="1" inputmode="numeric" placeholder="max" /> km
+      </label>
+      <button class="small ghost hidden" id="fClear">Clear filters</button>
+    </div>
     <div id="months"></div>
     <div class="empty" id="empty">
       Pick a range and press <b>Scan</b> to read your rides from the phone.
