@@ -17,6 +17,17 @@ humans and the assistant can read this file as a compressed history of decisions
 
 ---
 
+## Aligned year/month group-header indicators
+
+- **What:** Gave the year/month header title columns (`.ytitle`/`.mtitle`) a
+  fixed width (`flex: 0 0 auto; min-width; white-space: nowrap`) in
+  [src/style.css](src/style.css) so the progress bar (`.bars`) and meta text now
+  start at the same x across every sibling row.
+- **Why:** Variable-length month labels ("May 2026" vs "September 2026") pushed the
+  bars/meta around and wrapped long names, making the list read as ragged and
+  heavy to scan. Reserving the column turns each header into aligned columns,
+  cutting the cognitive parsing load. Codified as a convention in the instructions.
+
 ## Zoom-adaptive route-frequency heatmap (no more beads)
 
 - **What:** The Stats heatmap resampled tracks at a fixed 30 m, but `L.heatLayer`'s

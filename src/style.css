@@ -237,7 +237,10 @@ body:has(#mapFilter:not(.hidden)) .job-handle { bottom: 74px; z-index: 501; }
 .yhead { display: flex; align-items: center; gap: 11px; padding: 9px 6px; cursor: pointer;
   user-select: none; border-bottom: 1px solid var(--line); margin-bottom: 10px; }
 .yhead:hover .ytitle { color: #fff; }
-.ytitle { font-weight: 700; font-size: 16px; letter-spacing: .2px; }
+/* Fixed-width title column so the progress bar + meta line up across sibling
+   year rows regardless of label length (see .mtitle for the month rationale). */
+.ytitle { font-weight: 700; font-size: 16px; letter-spacing: .2px;
+  flex: 0 0 auto; min-width: 64px; white-space: nowrap; }
 .ymeta { color: var(--muted); font-size: 12.5px; }
 .yactions { margin-left: auto; display: flex; gap: 7px; }
 .selall { width: 16px; height: 16px; accent-color: var(--accent); flex: 0 0 auto;
@@ -249,7 +252,11 @@ body:has(#mapFilter:not(.hidden)) .job-handle { bottom: 74px; z-index: 501; }
   user-select: none; }
 .mhead:hover { background: #161a21; }
 .caret { color: var(--muted); font-size: 11px; width: 10px; }
-.mtitle { font-weight: 600; }
+/* Reserve a fixed-width column for the month name. Labels vary in length
+   ("May 2026" vs "September 2026"), so without this the bar + meta shift
+   horizontally (and long names wrap) across sibling rows — heavy to scan.
+   Sized for the widest English label so every bar starts at the same x. */
+.mtitle { font-weight: 600; flex: 0 0 auto; min-width: 132px; white-space: nowrap; }
 .mmeta { color: var(--muted); font-size: 12.5px; }
 .mactions { margin-left: auto; display: flex; gap: 7px; }
 .bars { display: inline-flex; height: 6px; width: 90px; border-radius: 4px; overflow: hidden;
