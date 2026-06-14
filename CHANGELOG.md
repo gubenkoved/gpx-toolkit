@@ -11,7 +11,6 @@ humans and the assistant can read this file as a compressed history of decisions
   ## <short title>
   - **What:** one line — what changed.
   - **Why:** 1–2 lines — the motivation / decision / value behind it.
-  - **Commits:** `hash`(, `hash` …)
   ```
 - Keep it brief. Ground the "Why" in what the diff actually did, not speculation.
 - See [.github/copilot-instructions.md](.github/copilot-instructions.md) → *Changelog* for when to update this.
@@ -35,146 +34,122 @@ humans and the assistant can read this file as a compressed history of decisions
   Check buttons wasted space; "Get previews" didn't convey that it fetches GPS routes. Mostly CSS
   plus a small markup refactor — the per-ride and selection-toolbar split instances and all
   action handlers keep working.
-- **Commits:** `TODO: hash`
 
 ## Improve deletion reliability
 - **What:** Added foreground/screen guards (and demo coverage) before a ride is marked deleted.
 - **Why:** Deletion is the one irreversible action — a single stray tap can drift to another
   app/screen where an empty parse looks like "all rides gone". Verify state at this high-stakes
   point so we pause instead of deleting on a false read.
-- **Commits:** `dbdcd04`
 
 ## Smarter batch processing order
 - **What:** The sweep now commits to one direction (nearer end first, then straight across to
   the far end) and holds it until that side is spent, instead of re-deciding per target.
 - **Why:** Per-target "closest next" hopping made the processing order feel random and caused
   needless back-and-forth scrolling; a single monotonic pass is faster and predictable.
-- **Commits:** `d10894b`
 
 ## Split GPX preview vs. file-save into two modes
 - **What:** GPX flow gained an explicit preview-only mode (store rough track for the mini-map)
   vs. save mode (also hand the full GPX to the UI to write to disk); the two no longer coalesce.
 - **Why:** Only saves emit a file, so merging previews and saves in one sweep would drop or add
   downloads — keeping them distinct preserves correct per-task behavior.
-- **Commits:** `6afd753`
 
 ## Desaturate the Explore mini-maps too
 - **What:** Applied the dark/desaturated tile treatment to the Explore per-ride mini-maps.
 - **Why:** Unify the map look across the all-rides Map view and the mini-maps so colored tracks
   pop consistently against one dark basemap.
-- **Commits:** `7c96799`
 
 ## Fast-scroll fling reliability
 - **What:** Modeled "fling-deaf" devices (a fling that's counted but produces no movement) and
   tuned `fling_ms` so momentum flings register reliably on-device.
 - **Why:** A missed/ignored fling was breaking the fast-scroll path; treat it explicitly and give
   the fling enough duration to land on real hardware.
-- **Commits:** `9152c70`
 
 ## Access stored state without a phone connected
 - **What:** Allowed viewing persisted ride state in the UI when no device is attached.
 - **Why:** Reviewing previously-scanned rides shouldn't require a live phone connection.
-- **Commits:** `ea1fe08`
 
 ## Tweak GPX filename format
 - **What:** Adjusted the naming format used when saving GPX files.
 - **Why:** Produce clearer, more consistent on-disk filenames.
-- **Commits:** `8cf82d4`
 
 ## More reliable GPX download (reveal Options)
 - **What:** Reading a ride detail swipes the sheet up to expose action buttons, which hides the
   top-right "Options" header; `revealOptions` now scrolls it back into view before export.
 - **Why:** That hidden header was the exact condition that made export fail with "could not find
   Options" — restoring it makes the full export succeed.
-- **Commits:** `ea70467`
 
 ## Map mode
 - **What:** Added an all-rides Map view (`src/mapview.ts`): pick drawable tracks, render them as a
   translucent overlapping heatmap, with hover/overlap hit-testing; iterated on its visuals.
 - **Why:** Give a single spatial overview of all rides, complementing the per-ride Explore maps.
-- **Commits:** `6368f8e`, `be875f2`
 
 ## Improve smart scrolling algorithm
 - **What:** Direction is now decided authoritatively from the list's newest→oldest order vs.
   remaining target dates; added a one-stall-retry / two-stall-confirm rule before accepting an end.
 - **Why:** A single missed swipe used to end the sweep and wander off (or scroll down forever);
   treat one stall as a transient miss and stop only on a confirmed end.
-- **Commits:** `c7faba3`
 
 ## Fix map overlapping the status bar
 - **What:** Adjusted map container styling so it no longer overlays the status bar.
 - **Why:** Visual/layout correctness.
-- **Commits:** `5c2fc36`
 
 ## Record ride detail while grabbing GPX
 - **What:** A GPX export now reads and persists the ride's detail (title/stats/Strava status)
   even for a ride we never explicitly opened — just like a Check would.
 - **Why:** Avoid leaving GPX-downloaded rides with missing metadata.
-- **Commits:** `60beb21`
 
 ## Faster scrolls via momentum flings
 - **What:** Introduced quick flicks whose reach scales with travel for the coarse phase, while the
   slow controlled drag keeps its fixed 5-row step.
 - **Why:** A fling coasts several rows further than a slow drag, so reaching far-down rides is much
   faster without disturbing existing fine-step behavior.
-- **Commits:** `ed39d95`
 
 ## Show decimal point on the avg-speed chart
 - **What:** Avg-speed chart values now show one decimal.
 - **Why:** More precise readout.
-- **Commits:** `c8dbb27`
 
 ## Optimize navigation for GPX download
 - **What:** Restructured the detail-walk so a batch streams down through rides without bouncing
   back to the top between downloads; persists each ride's status immediately.
 - **Why:** Eliminate the top-reset round trips — the second download of a nearby ride now needs
   almost no extra scrolling.
-- **Commits:** `ebdd5ad`
 
 ## Backfill missing summary data from checked detail
 - **What:** When the list scan never captured a ride's distance/duration, Check now backfills those
   summary fields from the freshly read detail.
 - **Why:** So the summary, distance chart and KPIs show real numbers instead of "?" and stay
   consistent with the expanded detail.
-- **Commits:** `a94c8b4`
 
 ## Better user feedback during automation
 - **What:** More specific status/progress messages about what the device automation is doing.
 - **Why:** Surface exactly what's happening (and why) given each gesture is a slow over-the-wire
   round trip; vague counts aren't actionable.
-- **Commits:** `8ef6c6b`
 
 ## Filter outliers from avg-speed calculation
 - **What:** Average-speed computation now trims outliers before averaging (with tests).
 - **Why:** GPS noise / stops skew a naive mean; trimming yields a representative average speed.
-- **Commits:** `3aac09e`
 
 ## Simplify empty-state visual
 - **What:** Streamlined the empty-details state styling/markup.
 - **Why:** Cleaner, simpler empty state.
-- **Commits:** `01a1cdb`
 
 ## Better GPX preview extraction approach
 - **What:** Reworked rough-track extraction/storage so a downloaded GPX yields a preview track for
   the mini-map, threaded through the store and track modules.
 - **Why:** Provide a lightweight route preview without a full save, with clearer separation of the
   preview path.
-- **Commits:** `ad2dd2f`
 
 ## Explore visuals polish
 - **What:** Enhanced chart visuals, the empty-details presentation, and overall map visibility.
 - **Why:** Readability and polish of the Explore view.
-- **Commits:** `4c12774`, `6cfe04e`, `0563d53`
 
 ## Add "check without details" button
 - **What:** Added a button to check the listed rides without expanding each detail.
 - **Why:** Offer a faster, lighter check that skips the per-ride detail reads.
-- **Commits:** `3867d81`
 
 ## Average-speed chart
 - **What:** Added an average-speed chart (with supporting parsing and beeline changes).
 - **Why:** Give riders an at-a-glance speed summary across rides.
-- **Commits:** `5b475ea`
 
 ## Reliable GPX download (diff-based detection)
 - **What:** Detect the freshly-written GPX by diffing the Download folder before/after, with an
@@ -182,48 +157,40 @@ humans and the assistant can read this file as a compressed history of decisions
 - **Why:** Beeline's SAF "Save" dialog reopens at the last-used folder and names files
   unpredictably, so we can't assume a path — diffing reliably finds the new file and the `ls`
   cross-check makes failure messages conclusive.
-- **Commits:** `9d559b2`, `1217f79`, `7a7feaa`, `97c1b8a`
 
 ## Move styles into style.css
 - **What:** Extracted inline styles from `index.html` into `src/style.css`.
 - **Why:** Centralize styling in one stylesheet rather than scattering it in markup.
-- **Commits:** `8fa2946`, `42958dc`
 
 ## Add reset button
 - **What:** Added a button (and store support) to reset persisted state.
 - **Why:** Let the user clear cached ride status and start clean.
-- **Commits:** `5518b7d`
 
 ## Fix ride-name rendering
 - **What:** Fixed label rendering, including underscores in ride names being mis-rendered.
 - **Why:** Ride titles must display verbatim, not be mangled by markup/formatting.
-- **Commits:** `f4cc269`, `5900ca7`
 
 ## Android-exclusivity notice + disclaimer
 - **What:** Documented that the Beeline app must not be open elsewhere (Android exclusivity) and
   added a README disclaimer.
 - **Why:** Set correct expectations and warn about the single-active-session constraint.
-- **Commits:** `f4ccd99`, `e5b55f5`
 
 ## Surface track-extraction failures
 - **What:** Added a test pinning that a GPX we pulled but couldn't read a track from is reported as
   a real, persistent error rather than silently swallowed (ride not left with an empty track).
 - **Why:** Lock in fail-loud error handling so a broken track can't masquerade as success.
-- **Commits:** `e9da7ba`
 
 ## Preserve full ride descriptions
 - **What:** Split the fuller checked title into the scan name plus a colored location suffix;
   seed the display title from the scan name until a fuller one is checked.
 - **Why:** Keep the richer detail heading (e.g. added location) without losing the original
   short scan name.
-- **Commits:** `478f09e`
 
 ## More resilient screen detection
 - **What:** Hardened navigation to the Journeys list — a ride-detail bottom-sheet covers the
   nav bar, so while it's open only Back dismisses it; tapping the tab would hit the sheet.
 - **Why:** Avoid getting stuck or mis-tapping when a detail sheet is open; mirror real-device
   behavior so screen detection stays reliable.
-- **Commits:** `c3f98c4`
 
 ## Initial version
 - **What:** First working app — vanilla TS SPA driving the Beeline app over WebUSB ADB to batch
@@ -231,4 +198,3 @@ humans and the assistant can read this file as a compressed history of decisions
   demo ADB transports, full test suite and fixtures.
 - **Why:** Establish the backend-free, framework-free architecture and the demo/real transport
   split that the rest of the project builds on.
-- **Commits:** `c3d5e64`

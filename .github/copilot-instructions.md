@@ -5,6 +5,18 @@ A **backend-free**, framework-free browser SPA (vanilla TypeScript + DOM) that d
 Everything runs in the browser: it reads the phone's screen (uiautomator XML), taps
 buttons, and persists ride status in `LocalStorage`. There is no server and no API.
 
+## Review & challenge the request
+
+Don't implement blindly. Before acting, review the request critically and surface obviously
+suboptimal or self-contradictory decisions instead of silently complying.
+
+- **Push back when it's warranted**: if an instruction is unworkable, contradicts itself, fights
+  the existing architecture, or there's a clearly better approach, say so and explain why.
+- **Ask, don't guess**: when a request is ambiguous or a decision looks wrong, ask a focused
+  question before writing code — a short clarification beats a confident wrong implementation.
+- **Be direct, not contrarian**: only challenge real problems; once aligned, commit fully. The
+  goal is the best outcome, not deferring to whatever was asked first.
+
 ## Tech stack & commands
 
 - **TypeScript 5.6** (strict), **Vite 6** (`base: "./"`, `target: "esnext"`), **Vitest 2** + **jsdom**, **leaflet** for maps.
@@ -22,8 +34,6 @@ decisions and values, so the "why" matters more than the "what".
 
 - **One entry per logical change**, newest at the top. Squash `fixup!`-style follow-ups into the
   entry they belong to rather than adding a new one.
-- **Reference the commit hash(es)** the change lands in (add the hash once committed; if you don't
-  have it yet, leave a `TODO: hash` and fill it in after committing).
 - **Capture intent**, not just the diff: the motivation, the decision, the trade-off — the context
   the terse commit message omits. Ground it in what the change actually did.
 - **Format:**
@@ -31,7 +41,6 @@ decisions and values, so the "why" matters more than the "what".
   ## <short title>
   - **What:** one line — what changed.
   - **Why:** 1–2 lines — the motivation / decision / value behind it.
-  - **Commits:** `hash`(, `hash` …)
   ```
 
 ## Architecture / module map
