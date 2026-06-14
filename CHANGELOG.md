@@ -17,6 +17,36 @@ humans and the assistant can read this file as a compressed history of decisions
 
 ---
 
+## Persist Explore filters across reloads
+- **What:** The Explore-list filter set (`const filters` in [src/main.ts](src/main.ts)) now
+  round-trips through `localStorage` under a new `FILTERS_KEY`, just like the chosen
+  view/mode/serial already do. Added `loadFilters()` — which seeds from `emptyFilters()`
+  and **sanitizes every field** against its allowed values (status/gps/details/deleted
+  enums, device passthrough, distance bounds via `sanitizeBound`) so stale or malformed
+  storage falls back to neutral instead of corrupting the bar — and `saveFilters()`
+  (try/catch, non-fatal in private mode). `saveFilters()` is called at the five mutation
+  sites (status, chip cycle, clear, device, distance), leaving the pure `cycleChip`/
+  `clearFilters` helpers untouched.
+- **Why:** Filters reset on every refresh while view/mode/serial persisted, so a power user
+  re-applied the same "pending + missing GPS" narrowing constantly. Persisting them (with
+  strict load-time sanitization so bad data can never poison the list) lets the user resume
+  exactly where they left off.
+
+## Surface the ride selection in the header
+- **What:** Made a multi-ride selection legible at a glance in [src/main.ts](src/main.ts):
+  the batch-action buttons (`btnStatusSel` + its split caret, `btnGpxSel`, `btnGpxSaveSel`,
+  `btnUploadSel`) are now `disabled` when nothing is selected (reusing the existing
+  `button:disabled` styling) and carry a live count in their label (`Check selected (3)`);
+  selected rows get a `.rrow.sel` class (accent inset stripe + faint tint, matching the
+  `.fchip.on` accent); and the header totals' "N selected" turned into a clickable
+  `.selchip` accent pill that clears the selection. The existing `if (!selected.size)
+  return toast(…)` guards stay as defensive backups.
+- **Why:** The selected count was buried in the muted totals line and the batch buttons
+  looked identical whether or not anything was selected — clicking one just toasted "Select
+  some rides first." Disabling/labelling them makes "nothing to do here" obvious, the row
+  highlight shows *what* is selected, and the chip gives a one-click way out — all by
+  enhancing the existing controls rather than adding a parallel selection bar.
+
 ## Unify the Source filter dropdown with the bar's design language
 - **What:** Restyled the Explore-list `Source` device `<select>`: stripped the native OS arrow (`appearance: none`) and drew a CSS chevron via `.fdevice::after` reusing the `.menubtn` two-border recipe, and gave the pill the shared accent `.on` state (toggled in `syncFilterBar` when a non-"All" device is picked).
 - **Why:** The native select arrow/popup rendered off-baseline and alien next to the chips and segments, and an active device filter never turned accent-orange like the GPS/Details/Deleted chips — so it both looked ugly and read as inactive. Now it matches the rest of the filter row.

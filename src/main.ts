@@ -69,6 +69,7 @@ let unsubscribeGpx: (() => void) | null = null;
 // can silently reconnect on load using the browser's persisted WebUSB permission.
 const MODE_KEY = "beeline_uploader.mode";
 const SERIAL_KEY = "beeline_uploader.serial";
+const FILTERS_KEY = "beeline_uploader.filters";
 const rememberReal = (serial: string): void => {
   try {
     localStorage.setItem(MODE_KEY, "real");
@@ -217,7 +218,58 @@ const openStats = new Set<string>();
 // scope (like `selected`/`openStats`) so they survive the frequent re-renders the
 // job ticker triggers; folded into `stateSig()` so a change re-renders the list.
 // The predicates themselves live in ./filter (pure + unit-tested).
-const filters: Filters = emptyFilters();
+// Persisted across reloads (like the chosen view/mode) so a user's narrowing
+// survives a refresh; loadFilters sanitizes every field so stale/garbage storage
+// can never corrupt the bar.
+const STATUS_VALUES: ReadonlyArray<Filters["status"]> = [
+  "all",
+  "pending",
+  "uploaded",
+  "other",
+];
+const TRI_VALUES: ReadonlyArray<TriState> = ["any", "yes", "no"];
+const DELETED_VALUES: ReadonlyArray<Filters["deleted"]> = ["any", "only", "none"];
+
+/** A finite, non-negative number or null (for the distance bounds). */
+function sanitizeBound(v: unknown): number | null {
+  return typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : null;
+}
+
+/**
+ * Load the persisted filters, sanitizing every field against its allowed values
+ * so old or malformed storage falls back to neutral rather than corrupting the
+ * bar. The device string passes through — syncFilterBar already resets it to
+ * "all" if that device is no longer present in the cache.
+ */
+function loadFilters(): Filters {
+  const f = emptyFilters();
+  try {
+    const raw = localStorage.getItem(FILTERS_KEY);
+    if (!raw) return f;
+    const o = JSON.parse(raw) as Partial<Filters>;
+    if (STATUS_VALUES.includes(o.status as Filters["status"])) f.status = o.status!;
+    if (TRI_VALUES.includes(o.gps as TriState)) f.gps = o.gps!;
+    if (TRI_VALUES.includes(o.details as TriState)) f.details = o.details!;
+    if (DELETED_VALUES.includes(o.deleted as Filters["deleted"])) f.deleted = o.deleted!;
+    if (typeof o.device === "string") f.device = o.device;
+    f.distMin = sanitizeBound(o.distMin);
+    f.distMax = sanitizeBound(o.distMax);
+  } catch {
+    /* malformed JSON / storage disabled — fall back to neutral */
+  }
+  return f;
+}
+
+/** Persist the current filters (non-fatal if storage is unavailable). */
+function saveFilters(): void {
+  try {
+    localStorage.setItem(FILTERS_KEY, JSON.stringify(filters));
+  } catch {
+    /* private mode / storage disabled — non-fatal */
+  }
+}
+
+const filters: Filters = loadFilters();
 // Which GPX split-button menu is open, if any: a ride key for a per-ride button or
 // "sel" for the selection toolbar. Kept at module scope (like openStats/selected) so
 // it survives the frequent re-renders the job ticker triggers.
@@ -1600,10 +1652,34 @@ function render(): void {
   const shown = filtersActive(filters)
     ? `${rides.length} of ${allRides.length} rides`
     : `${rides.length} rides`;
-  $("#totals").textContent =
+  const nSel = selected.size;
+  // The "N selected" suffix doubles as a one-click "Clear selection" affordance.
+  // Everything interpolated here is static text or a number, so innerHTML is safe.
+  $("#totals").innerHTML =
     `${shown} · ${up} uploaded · ${pe} upload pending` +
     (del ? ` · ${del} deleted` : "") +
-    (selected.size ? ` · ${selected.size} selected` : "");
+    (nSel
+      ? ` · <button class="selchip" id="selClear" title="Clear selection">${nSel} selected ✕</button>`
+      : "");
+
+  // Batch actions apply to the current selection — disable + count-label them so
+  // "nothing to do" is obvious instead of a button that just toasts on click. The
+  // actions live in one split button (visible "Check selected" primary + a caret
+  // revealing Preview/Save/Upload), so the caret is disabled too when empty.
+  const selBtns: Array<[string, string]> = [
+    ["btnStatusSel", "Check selected"],
+    ["btnGpxSel", "Preview routes"],
+    ["btnGpxSaveSel", "Save .gpx files"],
+    ["btnUploadSel", "Upload selected to Strava"],
+  ];
+  for (const [id, base] of selBtns) {
+    const b = document.getElementById(id) as HTMLButtonElement | null;
+    if (!b) continue;
+    b.disabled = nSel === 0;
+    b.textContent = nSel ? `${base} (${nSel})` : base;
+  }
+  const selCaret = document.querySelector<HTMLButtonElement>('[data-splitmenu="sel"]');
+  if (selCaret) selCaret.disabled = nSel === 0;
 
   const sizeEl = $("#stateSize");
   if (sizeEl) sizeEl.textContent = fmtBytes(controller.stateBytes());
@@ -1698,7 +1774,7 @@ function render(): void {
           (r.stats && (r.stats["Elapsed time"] || r.stats["Moving time"])) ||
           "?";
         const el = document.createElement("div");
-        el.className = `rrow${r.deleted ? " deleted" : ""}`;
+        el.className = `rrow${r.deleted ? " deleted" : ""}${selected.has(r.key) ? " sel" : ""}`;
         el.dataset.key = r.key;
         el.innerHTML = `
           <input type="checkbox" class="chk" data-key="${r.key}" ${selected.has(r.key) ? "checked" : ""}>
@@ -2184,17 +2260,20 @@ document.addEventListener("click", (e) => {
   }
   if (t.dataset?.fstatus) {
     filters.status = t.dataset.fstatus as Filters["status"];
+    saveFilters();
     applyState();
     return;
   }
   if (t.dataset?.fchip) {
     cycleChip(t.dataset.fchip);
+    saveFilters();
     applyState();
     return;
   }
   if (t.id === "fClear" || t.id === "emptyClear") {
     e.preventDefault();
     clearFilters();
+    saveFilters();
     applyState();
     return;
   }
@@ -2269,6 +2348,11 @@ document.addEventListener("click", (e) => {
   if (t.dataset && "errDetails" in t.dataset) {
     const card = t.closest(".errcard") as HTMLElement | null;
     card?.querySelector(".errfull")?.classList.toggle("show");
+    return;
+  }
+  if (t.id === "selClear") {
+    selected.clear();
+    render();
     return;
   }
   if (t.id === "btnStatusSel") {
@@ -2425,6 +2509,7 @@ document.addEventListener("change", (e) => {
   }
   if (cb.id === "fDevice") {
     filters.device = cb.value;
+    saveFilters();
     applyState();
   }
 });
@@ -2437,6 +2522,7 @@ document.addEventListener("input", (e) => {
     const km = v !== null && Number.isFinite(v) && v >= 0 ? v : null;
     if (el.id === "fDistMin") filters.distMin = km;
     else filters.distMax = km;
+    saveFilters();
     applyState();
     return;
   }

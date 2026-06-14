@@ -104,6 +104,25 @@ header {
   color: var(--muted);
   font-size: 12.5px;
 }
+/* The "N selected ✕" chip in the header totals: a compact accent pill that
+   clears the selection on click. Reuses the .fchip.on accent tint so it reads as
+   "active state you can dismiss", inline with the muted totals text. */
+.selchip {
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 1px 9px;
+  border-radius: 20px;
+  border: 1px solid var(--accent);
+  background: rgba(252, 82, 0, 0.12);
+  color: var(--accent);
+  cursor: pointer;
+  white-space: nowrap;
+  vertical-align: baseline;
+}
+.selchip:hover {
+  background: rgba(252, 82, 0, 0.22);
+}
 .spacer {
   flex: 1;
 }
@@ -1132,6 +1151,16 @@ body:has(#mapFilter:not(.hidden)) .job-handle {
 }
 .rrow:hover {
   background: #161a21;
+}
+/* Selected rows: an accent inset stripe + faint tint (matching the .fchip.on
+   tint) so a multi-ride selection reads at a glance. Inset shadow, not a left
+   border, to avoid shifting the row content. */
+.rrow.sel {
+  background: rgba(252, 82, 0, 0.08);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+.rrow.sel:hover {
+  background: rgba(252, 82, 0, 0.12);
 }
 .rrow.deleted .rtitle-text {
   color: var(--muted);
