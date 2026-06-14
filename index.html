@@ -23,6 +23,7 @@
         <button class="small" id="btnConnect">Connect phone</button>
         <button class="small ghost" id="btnDemo" style="display:none">Demo</button>
         <button class="small ghost" id="btnDisconnect" style="display:none">Disconnect</button>
+        <button class="small accent" id="btnSource" title="Switch data source (Beeline account, phone, or demo)">Change source</button>
       </span>
       <span class="split">
         <button class="ghost small menubtn" data-splitmenu="state" aria-haspopup="true" aria-expanded="false" title="Local data: import, export or reset">Data</button>
@@ -46,7 +47,7 @@
     </span>
   </div>
   <div class="row scanbar" id="scanbar">
-    <span class="ctlgroup">
+    <span class="ctlgroup" id="scanPresets">
       <span class="totals">Scan</span>
       <div class="seg" id="presets">
         <button data-preset="today">Today</button>
@@ -57,9 +58,9 @@
       </div>
       <label class="custom" id="customDays">last <input id="days" type="number" min="1" inputmode="numeric" placeholder="n" /> days</label>
     </span>
-    <button class="primary" id="btnScan"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v5h-5"/></svg>Scan</button>
+    <button class="primary" id="btnScan"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v5h-5"/></svg><span class="scan-label" id="scanLabel">Scan</span></button>
     <span class="spacer"></span>
-    <span class="ctlgroup">
+    <span class="ctlgroup" id="speedGroup">
       <span class="totals" title="How fast to drive the phone. Turbo skips upload-verification reads (fastest); a later Check reconciles status.">Interaction speed</span>
       <div class="seg" id="speeds">
         <button data-speed="safe">Safe</button>
@@ -135,7 +136,7 @@
   </div>
     <div class="row filterbar" id="filterbar">
       <span class="fgroup fstatusgroup">
-        <span class="totals">Filter</span>
+        <span class="totals">Strava status</span>
         <div class="seg" id="fStatus" title="Filter by Strava upload status">
           <button data-fstatus="all" class="active">All</button>
           <button data-fstatus="pending">Pending</button>
@@ -146,6 +147,8 @@
       <span class="fgroup fchips">
         <button class="fchip" id="fGps" data-fchip="gps" data-state="any" title="Filter by route-preview presence (click to cycle: any → has → missing)">GPS: any</button>
         <button class="fchip" id="fDetails" data-fchip="details" data-state="any" title="Filter by checked-details presence (click to cycle: any → has → missing)">Details: any</button>
+        <button class="fchip" id="fDestination" data-fchip="destination" data-state="any" title="Filter by routed-destination presence (click to cycle: any → has → none)">Destination: any</button>
+        <button class="fchip" id="fNamed" data-fchip="named" data-state="any" title="Filter by a real user-given name vs the auto time-of-day name (click to cycle: any → named → unnamed)">Named: any</button>
         <button class="fchip" id="fDeleted" data-fchip="deleted" data-state="any" title="Filter by deletion (click to cycle: any → only deleted → hide deleted)">Deleted: any</button>
       </span>
       <span class="fgroup ffields">
@@ -198,7 +201,7 @@
       <section class="stats-section">
         <h2 class="stats-h">Route frequency<span class="stats-sub" id="statsHeatNote"></span></h2>
         <label class="heat-thickness trim" title="How thick each track renders on the heatmap">Thickness
-          <input type="range" id="heatRadius" min="6" max="30" step="1" value="12" />
+          <input type="range" id="heatRadius" min="2" max="30" step="1" value="12" />
           <output id="heatRadiusOut">12</output>
         </label>
         <div class="freq-wrap">
@@ -243,6 +246,54 @@
   <span id="jobHandleText"></span>
 </button>
 <div class="toast" id="toast"></div>
+
+<div class="ridemap hidden" id="rideMapModal" role="dialog" aria-modal="true" aria-label="Ride route">
+  <div class="ridemap-bar">
+    <span class="ridemap-title" id="rideMapTitle"></span>
+    <span class="ridemap-hover" id="rideMapHover"></span>
+    <span class="ridemap-est" id="rideMapEst" title="Beeline's track has no per-point timestamps, so the time/clock shown on hover is estimated — interpolated from the ride's start/end (total elapsed) time assuming an even pace, not measured from the GPS track.">~ time is estimated</span>
+    <button class="small ghost" id="btnRideMapClose" type="button" title="Close (Esc)" aria-label="Close">Close</button>
+  </div>
+  <div class="ridemap-canvas" id="rideMapBig"></div>
+</div>
+
+<div class="srcpick hidden" id="srcPick" role="dialog" aria-modal="true" aria-label="Choose a data source">
+  <div class="srcpick-card">
+    <button class="srcpick-close" id="btnPickClose" type="button" aria-label="Close" title="Close">
+      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+    </button>
+    <div class="srcpick-head">
+      <div class="brand"><span class="dot"></span><h1>Beeline Toolkit</h1></div>
+      <p class="srcpick-sub">Choose where your rides come from.</p>
+    </div>
+    <div class="srcpick-options">
+      <div class="srcopt" id="srcBeeline">
+        <div class="srcopt-main">
+          <div class="srcopt-title">Beeline account <span class="srcopt-tag">recommended</span></div>
+          <div class="srcopt-desc">Sign in to download your whole ride history at once — routes, stats and Strava status — with fast uploads and no cable.</div>
+        </div>
+        <form class="srcopt-form" id="beelineForm" autocomplete="on">
+          <input type="email" id="beelineEmail" placeholder="Email" autocomplete="username" required />
+          <input type="password" id="beelinePass" placeholder="Password" autocomplete="current-password" required />
+          <button class="primary small" type="submit" id="btnBeelineSignIn">Sign in</button>
+          <button class="ghost small" type="button" id="btnDemoBeeline" title="Explore the Beeline cloud experience with a simulated account">Try demo</button>
+          <span class="srcopt-err" id="beelineErr"></span>
+        </form>
+      </div>
+      <div class="srcopt">
+        <div class="srcopt-main">
+          <div class="srcopt-title">Connect phone <span class="srcopt-tag legacy">legacy / ADB</span></div>
+          <div class="srcopt-desc">Drive the Beeline Android app over USB (Chromium only). Works without an account, but reads one ride at a time.</div>
+        </div>
+        <span class="srcopt-actions">
+          <button class="small" id="btnPickAdb" type="button">Connect phone</button>
+          <button class="small ghost" id="btnDemoAdb" type="button" title="Explore the phone experience with a simulated device">Try demo</button>
+        </span>
+      </div>
+    </div>
+    <button class="srcpick-dismiss ghost small" id="btnPickDismiss" type="button" title="Browse your saved rides without picking a source">Skip — view saved rides</button>
+  </div>
+</div>
 
 <script type="module" src="/src/main.ts"></script>
 </body>

@@ -8,8 +8,14 @@
  * controller emits a "change" event whenever anything moves, and the UI re-renders.
  */
 
-import { type AdbDevice, AdbError, realSleep, type Sleep } from "./adb/types";
-import { BeelineApp, DEFAULT_PROFILE, type GpxFile, PROFILES } from "./beeline";
+import { AdbError } from "./adb/types";
+import {
+  DEFAULT_PROFILE,
+  type GpxFile,
+  gpxDownloadName,
+  gpxFilename,
+  PROFILES,
+} from "./beeline";
 import { JobQueue, type JobsSnapshot, type Report, type Task } from "./jobs";
 import {
   parseDurationSec,
@@ -22,8 +28,9 @@ import {
   rideShortLabel,
   sinceFromPreset,
 } from "./parsing";
+import type { RideSource, SourceFactory } from "./source";
 import { monthKey, monthLabel, type Settings, type Store, type UpsertFields } from "./store";
-import { gpxToRoughTrack } from "./track";
+import { encodedTrackToGpx, gpxToRoughTrack } from "./track";
 
 export interface RideView {
   key: string;
@@ -80,7 +87,7 @@ export interface AppState {
   device: string;
 }
 
-export type Transport = () => Promise<AdbDevice>;
+export type Transport = SourceFactory;
 
 /** A pulled GPX file handed to the UI for download. */
 export type GpxListener = (file: GpxFile) => void;
@@ -90,18 +97,14 @@ export class Controller {
   readonly jobs: JobQueue;
   speed: string = DEFAULT_PROFILE;
 
-  private app: BeelineApp | null = null;
-  private device: AdbDevice | null = null;
-  private deviceName = "";
-  private deviceSerial = "";
-  private appLock: Promise<BeelineApp> | null = null;
+  private source: RideSource | null = null;
+  private deviceLabel = "";
   private readonly listeners = new Set<() => void>();
   private readonly gpxListeners = new Set<GpxListener>();
 
   constructor(
-    private readonly transport: Transport,
+    private readonly sourceFactory: SourceFactory,
     store: Store,
-    private readonly sleep: Sleep = realSleep,
   ) {
     this.store = store;
     this.jobs = new JobQueue(
@@ -134,70 +137,50 @@ export class Controller {
   // -- connection --------------------------------------------------------
 
   get connected(): boolean {
-    return this.device !== null;
+    return this.source !== null;
   }
 
   async connect(): Promise<void> {
-    if (this.device) return;
-    const device = await this.transport();
-    this.device = device;
-    try {
-      this.deviceName = await device.model();
-    } catch {
-      this.deviceName = "device";
-    }
-    try {
-      this.deviceSerial = await device.serial();
-    } catch {
-      this.deviceSerial = "";
-    }
+    if (this.source) return;
+    const source = await this.sourceFactory();
+    source.setTiming(PROFILES[this.speed]);
+    this.source = source;
+    this.deviceLabel = source.label();
     this.notify();
   }
 
   async disconnect(): Promise<void> {
-    if (this.device) {
-      await this.device.close();
+    if (this.source) {
+      await this.source.close();
     }
-    this.device = null;
-    this.app = null;
-    this.appLock = null;
-    this.deviceName = "";
-    this.deviceSerial = "";
+    this.source = null;
+    this.deviceLabel = "";
     this.notify();
   }
 
   setSpeed(name: string): string {
     if (name in PROFILES) {
       this.speed = name;
-      if (this.app) this.app.timing = PROFILES[name];
+      this.source?.setTiming(PROFILES[name]);
     }
     return this.speed;
   }
 
-  private appFor(): Promise<BeelineApp> {
-    if (this.app) return Promise.resolve(this.app);
-    // biome-ignore lint/nursery/noMisusedPromises: presence check on the nullable in-flight init lock to coalesce concurrent callers — we return the pending promise, not await its truthiness.
-    if (this.appLock) return this.appLock;
-    this.appLock = (async () => {
-      if (!this.device) {
-        throw new AdbError("No device connected — click Connect first.");
-      }
-      this.app = await BeelineApp.create(this.device, PROFILES[this.speed], this.sleep);
-      return this.app;
-    })();
-    return this.appLock;
+  /** The connected source, or throw if nothing is connected. */
+  private sourceFor(): RideSource {
+    if (!this.source) {
+      throw new AdbError("No device connected — click Connect first.");
+    }
+    return this.source;
   }
 
   /**
-   * Identity of the phone we are currently reading from, stamped onto every ride
-   * record we write while connected so the cache records which device the info
-   * came from. Empty fields are omitted so they never overwrite a known value.
+   * Per-ride attribution stamped onto every record we write while connected, so
+   * the cache records which source (and, for ADB, which phone) the info came from.
+   * Empty fields are omitted so they never overwrite a known value.
    */
   private deviceFields(): UpsertFields {
-    const fields: UpsertFields = {};
-    if (this.deviceName && this.deviceName !== "device") fields.device_model = this.deviceName;
-    if (this.deviceSerial) fields.device_serial = this.deviceSerial;
-    return fields;
+    return this.source ? this.source.deviceFields() : {};
   }
 
   // -- state for the UI --------------------------------------------------
@@ -249,7 +232,7 @@ export class Controller {
       speed: this.speed,
       settings: { ...this.store.settings },
       connected: this.connected,
-      device: this.deviceName,
+      device: this.deviceLabel,
     };
   }
 
@@ -267,7 +250,7 @@ export class Controller {
     const days = (task.payload.days as number | null) ?? null;
     const since = sinceFromPreset(preset, days);
     const label = preset !== "custom" ? preset : `last ${days}d`;
-    const app = await this.appFor();
+    const source = this.sourceFor();
     let cancelled = false;
     const rep = (msg: string): boolean => {
       const c = report(msg);
@@ -276,7 +259,7 @@ export class Controller {
     };
     rep(`scanning (${label})…`);
     const seen = new Set<string>();
-    const { cards, complete } = await app.enumerateCatalog(rep, since, (fresh) => {
+    const { cards, complete } = await source.enumerateCatalog(rep, since, (fresh) => {
       // Persist and surface each page of rides the moment they are found.
       for (const c of fresh) {
         seen.add(c.key);
@@ -285,6 +268,9 @@ export class Controller {
           title_base: c.title,
           distance: c.distance,
           duration: c.duration,
+          // A source may already know the full record at scan time (Beeline fetches
+          // track + stats + Strava status in one request); merge those when present.
+          ...(c.fields ?? {}),
         });
       }
       this.store.save();
@@ -315,14 +301,14 @@ export class Controller {
   }
 
   private async doTargets(task: Task, report: Report, doUpload: boolean): Promise<void> {
-    const app = await this.appFor();
+    const source = this.sourceFor();
     let uploaded = 0;
     let removed = 0;
     const failures: string[] = [];
     // Seed live progress so the queue panel shows "0 of N" the moment work starts;
     // each processed ride bumps `done` below.
     task.progress = { done: 0, total: task.keys.length };
-    const details = await app.processTargets(
+    const details = await source.processTargets(
       new Set(task.keys),
       doUpload,
       (msg) => report(msg),
@@ -389,62 +375,101 @@ export class Controller {
   }
 
   private async doDownloadGpx(task: Task, report: Report): Promise<void> {
-    const app = await this.appFor();
     // Two modes: preview-only (default) just stores the rough track for the mini-map;
     // save mode additionally hands the full GPX to the UI to write to disk.
     const saveToDisk = task.payload.saveToDisk === true;
     let removed = 0;
+    let succeeded = 0;
     const failures: string[] = [];
     // Seed live progress so the queue panel shows "0 of N" while the sweep runs.
     task.progress = { done: 0, total: task.keys.length };
-    const files = await app.downloadGpx(
-      new Set(task.keys),
-      (msg) => report(msg),
-      (file) => {
-        // Keep only a rough, compressed sketch of the route — never the full GPX.
-        const rough = gpxToRoughTrack(file.bytes, this.store.settings.trackPointsPerKm);
-        if (rough.polyline) {
-          this.store.upsert(file.key, {
-            ...this.deviceFields(),
-            track: rough.polyline,
-            track_src_points: rough.srcPoints,
-            track_points: rough.keptPoints,
-            track_km: rough.km,
-            track_bytes: file.bytes.length,
-          });
-          this.store.save();
-          this.notify();
+
+    // Rides that already carry their FULL route in the cache (Beeline-sourced) can
+    // be exported entirely locally — no device, no network, no sign-in. Split those
+    // out and synthesize their GPX from the stored track; only the rest need the
+    // source. This is why GPX export works in Beeline's offline, cached-rides mode.
+    const remote: string[] = [];
+    for (const key of task.keys) {
+      const rec = this.store.rides.get(key);
+      if (rec && rec.source === "beeline" && rec.track) {
+        const title = rec.title || rec.title_base || "";
+        const xml = encodedTrackToGpx(rec.track, title || rideShortLabel(key) || key);
+        if (xml) {
+          if (saveToDisk) {
+            this.emitGpx({
+              key,
+              filename: gpxFilename(key),
+              downloadName: gpxDownloadName(key, title),
+              bytes: new TextEncoder().encode(xml),
+            });
+          }
+          succeeded++;
         } else {
-          // We pulled the file but couldn't read a GPS track out of it. Don't store a
-          // bogus empty track; record it so the task surfaces a real, persistent error.
-          failures.push(`${file.key}: couldn't extract a GPS track from the downloaded GPX`);
+          failures.push(`${rideShortLabel(key) || key}: no route track to export`);
         }
-        // Only hand the full file to the UI when the user actually asked to save it.
-        if (saveToDisk) this.emitGpx(file);
         if (task.progress) task.progress.done++;
-      },
-      (missing) => {
-        for (const key of missing) if (this.store.markDeleted(key)) removed++;
-        if (removed) {
-          this.store.save();
-          this.notify();
-        }
-      },
-      (key, reason) => failures.push(`${key}: ${reason}`),
-      // Capture the ride's detail read during the export so a GPX download on a
-      // ride we never opened still records its title/stats/Strava status.
-      (detail) => this.persistDetail(detail),
-    );
+      } else {
+        remote.push(key);
+      }
+    }
+
+    // Only touch the source for rides that still need a real download (ADB pulls the
+    // GPX off the phone; rides without a cached full track). When every requested
+    // ride was handled locally, we never call sourceFor() — so no spurious
+    // "No device connected" in a source-less mode.
+    if (remote.length) {
+      const source = this.sourceFor();
+      const files = await source.downloadGpx(
+        new Set(remote),
+        (msg) => report(msg),
+        (file) => {
+          // Keep only a rough, compressed sketch of the route — never the full GPX.
+          const rough = gpxToRoughTrack(file.bytes, this.store.settings.trackPointsPerKm);
+          if (rough.polyline) {
+            this.store.upsert(file.key, {
+              ...this.deviceFields(),
+              track: rough.polyline,
+              track_src_points: rough.srcPoints,
+              track_points: rough.keptPoints,
+              track_km: rough.km,
+              track_bytes: file.bytes.length,
+            });
+            this.store.save();
+            this.notify();
+          } else {
+            // We pulled the file but couldn't read a GPS track out of it. Don't store a
+            // bogus empty track; record it so the task surfaces a real, persistent error.
+            failures.push(`${file.key}: couldn't extract a GPS track from the downloaded GPX`);
+          }
+          // Only hand the full file to the UI when the user actually asked to save it.
+          if (saveToDisk) this.emitGpx(file);
+          if (task.progress) task.progress.done++;
+        },
+        (missing) => {
+          for (const key of missing) if (this.store.markDeleted(key)) removed++;
+          if (removed) {
+            this.store.save();
+            this.notify();
+          }
+        },
+        (key, reason) => failures.push(`${key}: ${reason}`),
+        // Capture the ride's detail read during the export so a GPX download on a
+        // ride we never opened still records its title/stats/Strava status.
+        (detail) => this.persistDetail(detail),
+      );
+      succeeded += files.length;
+    }
+
     const suffix = removed ? `, ${removed} deleted` : "";
     const noun = saveToDisk ? "GPX file" : "preview";
-    report(`downloaded ${files.length} ${noun}${files.length === 1 ? "" : "s"}${suffix}`);
+    report(`downloaded ${succeeded} ${noun}${succeeded === 1 ? "" : "s"}${suffix}`);
 
     if (failures.length) {
       // Fail the task so the UI shows a persistent, acknowledgeable error with full
       // per-ride detail under "Details" — not a status message that just blinks past.
       const header = `${failures.length} of ${task.keys.length} GPX download${
         task.keys.length === 1 ? "" : "s"
-      } failed (${files.length} succeeded):`;
+      } failed (${succeeded} succeeded):`;
       throw new Error([header, ...failures.map((f) => `  • ${f}`)].join("\n"));
     }
   }
@@ -501,6 +526,13 @@ export class Controller {
   /** Update the heatmap glow radius (px, persisted). Returns the clamped value. */
   setHeatRadius(n: number): number {
     const v = this.store.setHeatRadius(n);
+    this.notify();
+    return v;
+  }
+
+  /** Update how many Beeline uploads run at once (persisted). Returns the clamped value. */
+  setBeelineUploadConcurrency(n: number): number {
+    const v = this.store.setBeelineUploadConcurrency(n);
     this.notify();
     return v;
   }

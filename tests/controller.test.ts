@@ -2,16 +2,17 @@ import { describe, expect, it, vi } from "vitest";
 
 import { DemoAdb } from "../src/adb/demo";
 import type { AdbDevice } from "../src/adb/types";
+import { PROFILES } from "../src/beeline";
 import { Controller } from "../src/controller";
 import { memoryBackend } from "../src/kv";
+import { AdbRideSource } from "../src/source";
 import { Store } from "../src/store";
 
 function makeController(device: AdbDevice): Controller {
   // near-instant sleep so polling/scroll waits don't slow the suite
   return new Controller(
-    async () => device,
+    () => AdbRideSource.create(device, PROFILES.normal, async () => {}),
     new Store(memoryBackend()),
-    async () => {},
   );
 }
 
@@ -66,9 +67,8 @@ describe("Controller + DemoAdb (real orchestration, no phone)", () => {
     const device = new DemoAdb();
     const store = new Store(memoryBackend());
     const c = new Controller(
-      async () => device,
+      () => AdbRideSource.create(device, PROFILES.normal, async () => {}),
       store,
-      async () => {},
     );
     await c.connect();
 
@@ -93,9 +93,8 @@ describe("Controller + DemoAdb (real orchestration, no phone)", () => {
     const device = new DemoAdb();
     const store = new Store(memoryBackend());
     const c = new Controller(
-      async () => device,
+      () => AdbRideSource.create(device, PROFILES.normal, async () => {}),
       store,
-      async () => {},
     );
     await c.connect();
 
@@ -378,9 +377,8 @@ describe("Controller + DemoAdb (real orchestration, no phone)", () => {
     // them ONCE, at the boundary, into the numeric fields the rest of the app uses.
     const store = new Store(memoryBackend());
     const c = new Controller(
-      async () => new DemoAdb(),
+      () => AdbRideSource.create(new DemoAdb(), PROFILES.normal, async () => {}),
       store,
-      async () => {},
     );
     const key = "Fri May 30 2025 at 08:45";
     store.upsert(key, {
@@ -413,9 +411,8 @@ describe("Controller + DemoAdb (real orchestration, no phone)", () => {
     // single source of truth regardless of the source phone's locale.
     const store = new Store(memoryBackend());
     const c = new Controller(
-      async () => new DemoAdb(),
+      () => AdbRideSource.create(new DemoAdb(), PROFILES.normal, async () => {}),
       store,
-      async () => {},
     );
     store.upsert("comma", {
       distance: "13,5km",

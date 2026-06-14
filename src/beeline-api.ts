@@ -1,0 +1,414 @@
+/**
+ * Beeline cloud-backend client (the non-ADB ride source).
+ *
+ * Reverse-engineered from a real traffic capture of the Beeline Velo 2 Android
+ * app. Where the ADB path drives the phone UI one ride at a time (~10 s/ride),
+ * this talks to the same Firebase backend the app uses and pulls the *entire*
+ * ride history — with inline route polylines and Strava status — in a single
+ * request.
+ *
+ * Three endpoints carry the whole flow:
+ *
+ *   1. AUTH   — Firebase Auth REST (Google Identity Toolkit)
+ *        POST {IDENTITY}/verifyPassword?key=<API_KEY>
+ *        headers X-Android-Package / X-Android-Cert  (the key is app-restricted)
+ *        body {email,password,returnSecureToken:true}
+ *        -> { idToken, refreshToken, localId (=uid), expiresIn }
+ *
+ *   2. RIDES  — Firebase Realtime Database REST
+ *        GET {RTDB}/rides/<uid>.json?auth=<idToken>
+ *        -> { "<rideId>": { polyline, totalDistance, averageSpeed, topSpeed,
+ *                           movingTime, duration, start, end, strava_activity,
+ *                           ... }, ... }     (one shot, ~2000 rides)
+ *
+ *   3. UPLOAD — Firebase Callable Cloud Function
+ *        POST {FUNCTIONS}/uploadRideToStrava
+ *        header Authorization: Bearer <idToken>
+ *        body   {"data":{"rideId":"<rideId>"}}
+ *      Progress is written back to rides/<uid>/<rideId>/strava_activity, which we
+ *      re-read to observe the upload reaching a terminal state.
+ *
+ * Browser-friendly: all four endpoints send permissive CORS headers (the auth
+ * endpoint even allows the X-Android-* headers from a web origin), so this runs
+ * entirely in the SPA with no backend proxy. Only `fetch` is used.
+ */
+
+import type { StravaStatus } from "./parsing";
+import { beelineRideKey } from "./parsing";
+import type { RideSource, UpsertFields } from "./store";
+import { decodePolyline, trackLengthKm } from "./track";
+
+// -- backend constants (from the capture; not secrets — they live in the APK) --
+const FIREBASE_API_KEY = "AIzaSyDS48dtvbuXhM5mWwygLY7CM5kpFbe6L0U";
+const RTDB_BASE = "https://beeline-e46ed.firebaseio.com";
+const FUNCTIONS_BASE = "https://us-central1-beeline-e46ed.cloudfunctions.net";
+const IDENTITY_BASE = "https://www.googleapis.com/identitytoolkit/v3/relyingparty";
+const ANDROID_PACKAGE = "co.beeline";
+const ANDROID_CERT = "8DB76C76142E30EEF0D04F5BF738A4BAA6049642";
+
+/** Raised for any Beeline backend failure (auth rejected, network, HTTP error). */
+export class BeelineError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "BeelineError";
+  }
+}
+
+/** An authenticated session: a short-lived id token plus the user's uid. */
+export interface BeelineSession {
+  idToken: string;
+  uid: string;
+  email: string;
+  /** Epoch ms after which `idToken` is expired (the app re-prompts rather than refreshing). */
+  expiresAt: number;
+}
+
+/**
+ * The subset of a Beeline ride record we consume. The backend stores far more
+ * (device firmware, elevation series, …); we read only what the app needs. All
+ * fields are optional because older/partial rides omit many of them.
+ */
+export interface RawBeelineRide {
+  /**
+   * User-set ride name (e.g. "Let's go sailing"). Present ONLY on rides the user
+   * has explicitly named in the Beeline app — the backend has no auto-title, so for
+   * unnamed rides this is absent and we synthesize a time-of-day name instead.
+   */
+  name?: string;
+  /** Route shape as a Google-encoded polyline (precision 5). */
+  polyline?: string;
+  /** Total distance in METRES. */
+  totalDistance?: number;
+  /** Average speed in METRES PER SECOND. */
+  averageSpeed?: number;
+  /** Top speed in METRES PER SECOND. */
+  topSpeed?: number;
+  /** Moving time in MILLISECONDS. */
+  movingTime?: number;
+  /** Elapsed time in MILLISECONDS. */
+  duration?: number;
+  /** Ride start as epoch MILLISECONDS (the unique-key anchor). */
+  start?: number;
+  /** Ride end as epoch MILLISECONDS. */
+  end?: number;
+  /** Total ascent in METRES (present only on some rides). */
+  totalElevationGain?: number;
+  /** Total descent in METRES (present only on some rides). */
+  totalElevationLoss?: number;
+  /** Highest point in METRES (present only on some rides). */
+  maxElevation?: number;
+  /**
+   * Routed destination, if the ride navigated to one (~⅓ of rides). The reverse-
+   * geocoded `address` is the only place information Beeline gives us — the backend
+   * stores no ride title — so we build the card's location label from it.
+   */
+  destination?: {
+    address?: {
+      /** POI name, when the destination is a named place ("Juniper Networks"). */
+      name?: string;
+      /** City / town ("Amsterdam"). */
+      locality?: string;
+      /** Municipality / borough ("Amstelveen"). */
+      subAdministrativeArea?: string;
+      /** Province / state ("Noord-Holland"). */
+      administrativeArea?: string;
+    };
+  };
+  /** Strava upload bookkeeping; absent until an upload is first attempted. */
+  strava_activity?: {
+    id?: number;
+    upload_id?: number;
+    stravaUploadStatus?: { status?: string; timestamp?: number };
+  };
+}
+
+// -- small fetch helper -----------------------------------------------------
+
+async function request<T>(
+  method: string,
+  url: string,
+  opts: { headers?: Record<string, string>; body?: unknown } = {},
+): Promise<T> {
+  let resp: Response;
+  try {
+    resp = await fetch(url, {
+      method,
+      headers: {
+        Accept: "application/json",
+        ...(opts.body !== undefined
+          ? { "Content-Type": "application/json; charset=utf-8" }
+          : {}),
+        ...opts.headers,
+      },
+      body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
+    });
+  } catch (err) {
+    // Network/DNS/CORS failure — fetch rejects without a response.
+    throw new BeelineError(`network error talking to Beeline: ${(err as Error).message}`);
+  }
+  if (!resp.ok) {
+    const detail = await resp.text().catch(() => "");
+    throw new BeelineError(
+      `Beeline ${method} ${shortUrl(url)} failed: HTTP ${resp.status} ${detail.slice(0, 300)}`,
+    );
+  }
+  const text = await resp.text();
+  return (text ? JSON.parse(text) : {}) as T;
+}
+
+/** Strip the query string (which carries the auth token) from a URL for error messages. */
+function shortUrl(url: string): string {
+  const q = url.indexOf("?");
+  return q >= 0 ? url.slice(0, q) : url;
+}
+
+// -- 1. auth ----------------------------------------------------------------
+
+interface SignInResponse {
+  idToken: string;
+  refreshToken: string;
+  localId: string;
+  email: string;
+  expiresIn: string;
+}
+
+/** Sign in with Beeline (Firebase) email + password, returning a session. */
+export async function signIn(email: string, password: string): Promise<BeelineSession> {
+  const res = await request<SignInResponse>(
+    "POST",
+    `${IDENTITY_BASE}/verifyPassword?key=${FIREBASE_API_KEY}`,
+    {
+      headers: { "X-Android-Package": ANDROID_PACKAGE, "X-Android-Cert": ANDROID_CERT },
+      body: { email, password, returnSecureToken: true },
+    },
+  );
+  return {
+    idToken: res.idToken,
+    uid: res.localId,
+    email: res.email || email,
+    expiresAt: Date.now() + (Number(res.expiresIn) || 3600) * 1000,
+  };
+}
+
+// -- 2. rides ---------------------------------------------------------------
+
+/** Fetch the entire ride history for a session in one request (keyed by push-id). */
+export async function fetchRides(
+  session: BeelineSession,
+): Promise<Record<string, RawBeelineRide>> {
+  const url = `${RTDB_BASE}/rides/${session.uid}.json?auth=${encodeURIComponent(session.idToken)}`;
+  const data = await request<Record<string, RawBeelineRide> | null>("GET", url);
+  return data ?? {};
+}
+
+/** Re-read one ride's Strava bookkeeping node (used to observe an upload settling). */
+export async function fetchStravaActivity(
+  session: BeelineSession,
+  pushId: string,
+): Promise<RawBeelineRide["strava_activity"]> {
+  const url =
+    `${RTDB_BASE}/rides/${session.uid}/${pushId}/strava_activity.json` +
+    `?auth=${encodeURIComponent(session.idToken)}`;
+  return request<RawBeelineRide["strava_activity"]>("GET", url);
+}
+
+// -- 3. strava upload -------------------------------------------------------
+
+/** Kick off the server-side Strava upload for a ride (fire-and-forget; async). */
+export async function uploadRideToStrava(
+  session: BeelineSession,
+  pushId: string,
+): Promise<void> {
+  await request("POST", `${FUNCTIONS_BASE}/uploadRideToStrava`, {
+    headers: { Authorization: `Bearer ${session.idToken}` },
+    body: { data: { rideId: pushId } },
+  });
+}
+
+// -- status mapping ---------------------------------------------------------
+
+/** Strava upload-status strings the backend writes that mean "done, on Strava". */
+const UPLOADED_STATES = new Set(["availableOnStrava", "finishedUploading"]);
+/** Strings that mean an upload is mid-flight. */
+const PROCESSING_STATES = new Set(["startedUploading", "uploading", "processing"]);
+/** Strings that mean the upload failed and the ride can be retried. */
+const FAILED_STATES = new Set(["uploadFailed", "error", "failed"]);
+
+/** Map a ride's `strava_activity` node to the app's canonical StravaStatus. */
+export function stravaStatusOf(ride: RawBeelineRide): StravaStatus {
+  const act = ride.strava_activity;
+  if (!act) return "pending"; // never uploaded → eligible to upload
+  const status = act.stravaUploadStatus?.status ?? "";
+  if (UPLOADED_STATES.has(status)) return "uploaded";
+  if (PROCESSING_STATES.has(status)) return "processing";
+  if (FAILED_STATES.has(status)) return "pending"; // failed → retryable
+  // Has a strava_activity but an unrecognised/empty status: if a Strava id is
+  // present the ride is effectively on Strava, otherwise leave it pending.
+  return act.id ? "uploaded" : "pending";
+}
+
+/** True once a ride's Strava status has reached a terminal (non-processing) state. */
+export function isTerminalStatus(status: StravaStatus): boolean {
+  return status === "uploaded" || status === "pending";
+}
+
+// -- formatting (numbers → the canonical strings RideView re-parses) --------
+//
+// RideRecord stores localized strings (distance/duration/stats) and the
+// Controller derives numbers from them via the canonical locale-aware parsers.
+// Beeline gives us real numbers, so we format them ONCE here into unambiguous
+// period-decimal strings that those parsers round-trip exactly — keeping a single
+// RideView code path for both sources.
+
+const MPS_TO_KMH = 3.6;
+
+function pad2(n: number): string {
+  return String(n).padStart(2, "0");
+}
+
+/** Seconds → "H:MM:SS" (with hours) or "M:SS" — the shape parseDurationSec accepts. */
+function formatDuration(totalSec: number): string {
+  const s = Math.max(0, Math.round(totalSec));
+  const hh = Math.floor(s / 3600);
+  const mm = Math.floor((s % 3600) / 60);
+  const ss = s % 60;
+  return hh > 0 ? `${hh}:${pad2(mm)}:${pad2(ss)}` : `${mm}:${pad2(ss)}`;
+}
+
+/**
+ * A Strava-style time-of-day ride name from a start instant (local wall-clock).
+ * Beeline's backend stores NO ride title (the app generates one client-side), so
+ * without this every ride would render as a bare "Ride". This mirrors the naming
+ * Strava itself applies to uploaded activities, so titles read naturally.
+ */
+function timeOfDayName(startMs: number): string {
+  const h = new Date(startMs).getHours();
+  if (h < 5) return "Night ride";
+  if (h < 12) return "Morning ride";
+  if (h < 17) return "Afternoon ride";
+  if (h < 21) return "Evening ride";
+  return "Night ride";
+}
+
+/**
+ * True when `name` is one of our auto-generated time-of-day fallback names (see
+ * `timeOfDayName`) rather than a real, user-given ride title. Kept next to the
+ * generator so the two stay in lockstep — used to filter "named" rides.
+ */
+export function isSynthesizedRideName(name: string): boolean {
+  return /^(Morning|Afternoon|Evening|Night) ride$/.test(name.trim());
+}
+
+/**
+ * The most specific human place for a ride's routed destination, or "" when the
+ * ride has no destination (a free ride) or no usable address. Prefers a named POI,
+ * then city, then municipality, then province — the reverse-geocoded address is the
+ * only location data Beeline provides, and only for rides that navigated somewhere.
+ */
+function destinationPlace(raw: RawBeelineRide): string {
+  const a = raw.destination?.address;
+  if (!a) return "";
+  return a.name || a.locality || a.subAdministrativeArea || a.administrativeArea || "";
+}
+
+// -- ride mapping -----------------------------------------------------------
+
+/** Outcome of mapping one Beeline ride: its date-derived key + fields to upsert. */
+export interface MappedBeelineRide {
+  key: string;
+  fields: UpsertFields;
+}
+
+/**
+ * Map one raw Beeline ride (and its push-id) into a store key + UpsertFields.
+ *
+ * The key is derived from `start` in the same "Wed Jun 3 2026 at 19:04" shape the
+ * ADB path uses, so all month/stats/filter machinery works unchanged. The inline
+ * polyline is kept in FULL as the `track` (no simplification): unlike the ADB path,
+ * which keeps only a rough sketch of a heavy downloaded GPX, the Beeline polyline is
+ * already compact and is the only route data we get, so there's nothing to gain by
+ * thinning it. `source`/`source_id` mark the ride as Beeline-sourced and carry the
+ * push-id needed to upload it later.
+ *
+ * Returns null when the ride has no parseable start time (no usable key).
+ */
+export function mapBeelineRide(
+  pushId: string,
+  raw: RawBeelineRide,
+  sourceLabel: string,
+): MappedBeelineRide | null {
+  if (!raw.start || !Number.isFinite(raw.start)) return null;
+  const key = beelineRideKey(raw.start);
+  if (!key) return null;
+
+  const fields: UpsertFields = {
+    source: "beeline" as RideSource,
+    source_id: pushId,
+    device_model: sourceLabel,
+    strava_status: stravaStatusOf(raw),
+    stats: {},
+  };
+
+  // Distance (metres → km string).
+  if (typeof raw.totalDistance === "number" && raw.totalDistance > 0) {
+    const km = raw.totalDistance / 1000;
+    fields.distance = `${km.toFixed(2)} km`;
+    (fields.stats as Record<string, string>).Distance = fields.distance;
+  }
+  // Speeds (m/s → km/h string).
+  if (typeof raw.averageSpeed === "number" && raw.averageSpeed > 0) {
+    (fields.stats as Record<string, string>)["Average speed"] =
+      `${(raw.averageSpeed * MPS_TO_KMH).toFixed(1)} km/h`;
+  }
+  if (typeof raw.topSpeed === "number" && raw.topSpeed > 0) {
+    (fields.stats as Record<string, string>)["Max speed"] =
+      `${(raw.topSpeed * MPS_TO_KMH).toFixed(1)} km/h`;
+  }
+  // Times (ms → duration strings).
+  if (typeof raw.movingTime === "number" && raw.movingTime > 0) {
+    (fields.stats as Record<string, string>)["Moving time"] = formatDuration(
+      raw.movingTime / 1000,
+    );
+  }
+  if (typeof raw.duration === "number" && raw.duration > 0) {
+    const elapsed = formatDuration(raw.duration / 1000);
+    fields.duration = elapsed;
+    (fields.stats as Record<string, string>)["Elapsed time"] = elapsed;
+  }
+  // Elevation (metres → m string), when present.
+  if (typeof raw.totalElevationGain === "number" && raw.totalElevationGain > 0) {
+    (fields.stats as Record<string, string>)["Elevation gain"] =
+      `${Math.round(raw.totalElevationGain)} m`;
+  }
+  if (typeof raw.totalElevationLoss === "number" && raw.totalElevationLoss > 0) {
+    (fields.stats as Record<string, string>)["Elevation loss"] =
+      `${Math.round(raw.totalElevationLoss)} m`;
+  }
+
+  // Title. Prefer the user's own ride name when they set one ("Let's go sailing")
+  // — that's their explicit, precious label. Otherwise Beeline has no title, so we
+  // synthesize a Strava-style time-of-day name ("Morning ride"). Either way it's
+  // the `title_base` (shown in bold); when the ride navigated to a place, the
+  // reverse-geocoded destination is appended so the controller can render it as a
+  // muted location suffix ("Let's go sailing, Strand IJburg").
+  const userName = typeof raw.name === "string" ? raw.name.trim() : "";
+  const base = userName || timeOfDayName(raw.start);
+  const place = destinationPlace(raw);
+  fields.title_base = base;
+  fields.title = place ? `${base}, ${place}` : base;
+
+  // Route track: keep the FULL inline polyline. It's already compact and is the
+  // only route data Beeline gives us, so we store it verbatim (no simplification)
+  // and let the renderers sample it as needed.
+  if (raw.polyline) {
+    const pts = decodePolyline(raw.polyline);
+    if (pts.length >= 2) {
+      fields.track = raw.polyline;
+      fields.track_src_points = pts.length;
+      fields.track_points = pts.length;
+      fields.track_km = trackLengthKm(pts);
+    }
+  }
+
+  return { key, fields };
+}

@@ -149,6 +149,37 @@ describe("matchesFilters — gps / details tri-states", () => {
       false,
     );
   });
+
+  it("destination yes/no keys off the location (routed-destination) suffix", () => {
+    expect(
+      matchesFilters(f({ destination: "yes" }), ride({ location: ", Strand IJburg" })),
+    ).toBe(true);
+    expect(matchesFilters(f({ destination: "yes" }), ride({ location: "" }))).toBe(false);
+    expect(matchesFilters(f({ destination: "no" }), ride({ location: "" }))).toBe(true);
+    expect(
+      matchesFilters(f({ destination: "no" }), ride({ location: ", Springharbor" })),
+    ).toBe(false);
+    // Whitespace-only location counts as "no destination".
+    expect(matchesFilters(f({ destination: "yes" }), ride({ location: "   " }))).toBe(false);
+  });
+
+  it("named yes/no keys off a real title vs the auto time-of-day name", () => {
+    // Real user-given names are "named".
+    expect(matchesFilters(f({ named: "yes" }), ride({ title: "Let's go sailing" }))).toBe(
+      true,
+    );
+    expect(matchesFilters(f({ named: "no" }), ride({ title: "Let's go sailing" }))).toBe(
+      false,
+    );
+    // The synthesized time-of-day names do NOT qualify as named.
+    for (const auto of ["Morning ride", "Afternoon ride", "Evening ride", "Night ride"]) {
+      expect(matchesFilters(f({ named: "yes" }), ride({ title: auto }))).toBe(false);
+      expect(matchesFilters(f({ named: "no" }), ride({ title: auto }))).toBe(true);
+    }
+    // An empty title is unnamed.
+    expect(matchesFilters(f({ named: "yes" }), ride({ title: "" }))).toBe(false);
+    expect(matchesFilters(f({ named: "no" }), ride({ title: "" }))).toBe(true);
+  });
 });
 
 describe("matchesFilters — deleted", () => {

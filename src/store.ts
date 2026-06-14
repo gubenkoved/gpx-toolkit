@@ -16,6 +16,9 @@ import { looksLikeStat, rideMonth, type StravaStatus } from "./parsing";
 /** Key under which the single serialized cache blob is stored in the backend. */
 export const STORAGE_KEY = "beeline-toolkit-state";
 
+/** Where a ride's data originated. "" is the legacy value (ADB, pre-multi-source). */
+export type RideSource = "" | "adb" | "beeline";
+
 /** UTF-8 byte length of a string (so multi-byte ride titles count their real size). */
 function byteLength(s: string): number {
   return new TextEncoder().encode(s).length;
@@ -42,13 +45,24 @@ function clampTrimPct(n: number): number {
 
 /** Default heatmap glow radius (px): the visual "thickness" of a rendered track. */
 export const DEFAULT_HEAT_RADIUS = 12;
-const HEAT_RADIUS_MIN = 6;
+const HEAT_RADIUS_MIN = 2;
 const HEAT_RADIUS_MAX = 30;
 
 /** Clamp the heatmap glow radius into [HEAT_RADIUS_MIN, HEAT_RADIUS_MAX] px. */
 function clampHeatRadius(n: number): number {
   if (!Number.isFinite(n)) return DEFAULT_HEAT_RADIUS;
   return Math.max(HEAT_RADIUS_MIN, Math.min(HEAT_RADIUS_MAX, Math.round(n)));
+}
+
+/** Default number of Beeline Strava uploads to run concurrently. */
+export const DEFAULT_BEELINE_CONCURRENCY = 4;
+const BEELINE_CONCURRENCY_MIN = 1;
+const BEELINE_CONCURRENCY_MAX = 8;
+
+/** Clamp the Beeline upload concurrency into [MIN, MAX]. */
+function clampConcurrency(n: number): number {
+  if (!Number.isFinite(n)) return DEFAULT_BEELINE_CONCURRENCY;
+  return Math.max(BEELINE_CONCURRENCY_MIN, Math.min(BEELINE_CONCURRENCY_MAX, Math.round(n)));
 }
 
 export interface Settings {
@@ -60,6 +74,8 @@ export interface Settings {
   speedTrimFastPct: number;
   /** Heatmap glow radius (px) — how thick each track renders on the route-frequency map. */
   heatRadius: number;
+  /** How many Beeline Strava uploads run at once (ADB uploads are always serial). */
+  beelineUploadConcurrency: number;
 }
 
 function defaultSettings(): Settings {
@@ -68,6 +84,7 @@ function defaultSettings(): Settings {
     speedTrimSlowPct: 0,
     speedTrimFastPct: 0,
     heatRadius: DEFAULT_HEAT_RADIUS,
+    beelineUploadConcurrency: DEFAULT_BEELINE_CONCURRENCY,
   };
 }
 
@@ -111,6 +128,10 @@ export interface RideRecord {
   device_model: string;
   /** USB serial of the phone this ride was last read from. Empty when unknown. */
   device_serial: string;
+  /** Where this ride came from: "" (legacy/ADB), "adb", or "beeline". */
+  source: RideSource;
+  /** Source-native id: the Beeline push-id (needed for upload/status). "" for ADB. */
+  source_id: string;
   last_seen: string;
   uploaded_at: string;
   /** True when the ride was known locally but has since vanished from the phone. */
@@ -134,6 +155,8 @@ function blankRecord(key: string): RideRecord {
     track_bytes: 0,
     device_model: "",
     device_serial: "",
+    source: "",
+    source_id: "",
     last_seen: "",
     uploaded_at: "",
     deleted: false,
@@ -169,6 +192,8 @@ export interface UpsertFields {
   track_bytes?: number;
   device_model?: string;
   device_serial?: string;
+  source?: RideSource;
+  source_id?: string;
 }
 
 export class Store {
@@ -187,10 +212,14 @@ export class Store {
   /**
    * @param backend durable key/value store (IndexedDB in production).
    * @param onError surfaced when a background write fails (e.g. quota exceeded).
+   * @param storageKey backend key for this profile's blob (lets ADB/Beeline/demo
+   *        keep separate, non-colliding caches). Defaults to the legacy key so the
+   *        existing single-profile data keeps loading unchanged.
    */
   constructor(
     private readonly backend: KeyValueStore,
     private readonly onError?: (message: string) => void,
+    private readonly storageKey: string = STORAGE_KEY,
   ) {
     // Seed the size hint for stores built directly (e.g. demo mode); Store.load()
     // refreshes again after ingesting any persisted payload.
@@ -200,11 +229,12 @@ export class Store {
   static async load(
     backend: KeyValueStore,
     onError?: (message: string) => void,
+    storageKey: string = STORAGE_KEY,
   ): Promise<Store> {
-    const store = new Store(backend, onError);
+    const store = new Store(backend, onError, storageKey);
     let raw: string | null = null;
     try {
-      raw = await backend.get(STORAGE_KEY);
+      raw = await backend.get(storageKey);
     } catch {
       /* storage unavailable — start empty */
     }
@@ -235,6 +265,11 @@ export class Store {
       if ("heatRadius" in settings) {
         this.settings.heatRadius = clampHeatRadius(Number(settings.heatRadius));
       }
+      if ("beelineUploadConcurrency" in settings) {
+        this.settings.beelineUploadConcurrency = clampConcurrency(
+          Number(settings.beelineUploadConcurrency),
+        );
+      }
     }
     const rides = (data as Partial<Persisted>)?.rides;
     if (!rides || typeof rides !== "object") return;
@@ -254,6 +289,8 @@ export class Store {
       rec.track_bytes = Number(rec.track_bytes) || 0;
       if (typeof rec.device_model !== "string") rec.device_model = "";
       if (typeof rec.device_serial !== "string") rec.device_serial = "";
+      rec.source = rec.source === "adb" || rec.source === "beeline" ? rec.source : "";
+      if (typeof rec.source_id !== "string") rec.source_id = "";
       rec.deleted = rec.deleted === true; // coerce missing/odd values to a real boolean
       this.rides.set(key, rec);
     }
@@ -303,7 +340,7 @@ export class Store {
     this.dirty = false;
     const payload = JSON.stringify(this.serialize());
     this.cachedBytes = byteLength(payload);
-    return this.backend.set(STORAGE_KEY, payload).catch((err: unknown) => {
+    return this.backend.set(this.storageKey, payload).catch((err: unknown) => {
       const full = err instanceof DOMException && err.name === "QuotaExceededError";
       this.onError?.(
         full
@@ -333,6 +370,8 @@ export class Store {
     if (fields.track_bytes != null) rec.track_bytes = fields.track_bytes;
     if (fields.device_model) rec.device_model = fields.device_model;
     if (fields.device_serial) rec.device_serial = fields.device_serial;
+    if (fields.source) rec.source = fields.source;
+    if (fields.source_id) rec.source_id = fields.source_id;
     if (fields.strava_status && fields.strava_status !== "unknown") {
       if (fields.strava_status === "uploaded" && rec.strava_status !== "uploaded") {
         rec.uploaded_at = nowIso();
@@ -390,6 +429,13 @@ export class Store {
     return this.settings.heatRadius;
   }
 
+  /** Update the Beeline upload concurrency and persist. Returns the clamped value. */
+  setBeelineUploadConcurrency(n: number): number {
+    this.settings.beelineUploadConcurrency = clampConcurrency(n);
+    this.save();
+    return this.settings.beelineUploadConcurrency;
+  }
+
   /**
    * Wipe all cached rides and restore default settings, removing the persisted
    * payload from storage. Local browser state only — this never touches the phone.
@@ -403,7 +449,7 @@ export class Store {
       clearTimeout(this.saveTimer);
       this.saveTimer = null;
     }
-    void this.backend.del(STORAGE_KEY).catch(() => {
+    void this.backend.del(this.storageKey).catch(() => {
       /* storage unavailable — non-fatal, the in-memory state is already cleared */
     });
     this.refreshSize();

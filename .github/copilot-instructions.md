@@ -1,9 +1,30 @@
 # Beeline Toolkit — Copilot instructions
 
-A **backend-free**, framework-free browser SPA (vanilla TypeScript + DOM) that drives the
-**Beeline Velo 2** Android app over **WebUSB ADB** to batch-upload rides to **Strava**.
-Everything runs in the browser: it reads the phone's screen (uiautomator XML), taps
-buttons, and persists ride status in `LocalStorage`. There is no server and no API.
+A **backend-free**, framework-free browser SPA (vanilla TypeScript + DOM) that batch-uploads
+**Beeline Velo 2** rides to **Strava**. It reads rides from one of two **sources** behind a
+common `RideSource` seam ([src/source.ts](../src/source.ts)):
+
+- **Beeline account** (preferred) — talks to Beeline's own Firebase cloud backend over
+  `fetch` ([src/beeline-api.ts](../src/beeline-api.ts) + [src/beeline-source.ts](../src/beeline-source.ts)):
+  one request returns the **whole** history (routes, stats, Strava status); uploads run
+  server-side and **concurrently**. CORS-friendly, no proxy, any modern browser.
+- **Phone (ADB)** — the legacy path: drives the real Beeline Android app over **WebUSB ADB**
+  (reads uiautomator XML, taps buttons), one ride at a time. Android + Chromium only.
+
+Each source has a demo (`DemoAdb` for phone; [src/beeline-demo.ts](../src/beeline-demo.ts)
+for the account). Everything runs in the browser; ride state is cached **per source** in
+IndexedDB (a separate `Store` key per profile). There is no server.
+
+### Beeline credentials — never store the password
+
+The Beeline password is used **once** at sign-in to get a short-lived in-memory token; it is
+**never persisted** (and neither is the token — it's gone on reload). Only the email + "last
+used Beeline" flag are remembered. On reload the app enters an **offline, cached-rides** mode
+and only re-prompts for the password when an action actually needs the account (Re-sync,
+upload) — so the user's **password manager** injects it on demand (`withBeelineAccess` defers
+the action behind a focused re-auth picker; the deferred action runs once sign-in succeeds).
+Preserve this: don't add password persistence, and keep cloud actions gated through
+`withBeelineAccess`.
 
 ## Review & challenge the request
 
@@ -71,8 +92,9 @@ Hard rules:
 ## Tech stack & commands
 
 - **TypeScript 5.6** (strict), **Vite 6** (`base: "./"`, `target: "esnext"`), **Vitest 2** + **jsdom**, **leaflet** for maps.
+- Beeline-account source: plain `fetch` to Beeline's Firebase backend (CORS-friendly, no proxy).
 - ADB transport: [`@yume-chan/adb`](https://github.com/yume-chan/ya-webadb) (Tango) — Chromium-only, secure-context only.
-- `npm run dev` — Vite dev server (boots in demo mode with sample rides).
+- `npm run dev` — Vite dev server (boots into the source picker; each source has a demo).
 - `npm run build` — `tsc --noEmit` type-check **then** `vite build`. Always type-check before considering a change done.
 - `npm test` / `npm run test:watch` — Vitest.
 
@@ -109,17 +131,23 @@ green, CHANGELOG updated), **offer to commit it yourself** rather than leaving i
 
 ## Architecture / module map
 
-UI → Controller → (JobQueue · Store · BeelineApp) → Parsing → AdbDevice (real or demo).
+UI → Controller → RideSource → (BeelineApi · BeelineApp/AdbDevice) ; + JobQueue · Store.
+The Controller is source-agnostic: it drives a `RideSource` (scan/check/upload/GPX) and
+never touches a concrete backend. `main.ts` picks the source (Beeline / phone / demo).
 
 | File | Responsibility | Key symbols |
 |------|----------------|-------------|
-| [index.html](../index.html) | App shell, markup, styles | — |
-| [src/main.ts](../src/main.ts) | UI entry: DOM render + event wiring, demo ↔ real mode switch | `activate()`, `goDemo()`, `goReal()`, `applyState()` |
+| [index.html](../index.html) | App shell, markup, styles, source picker | — |
+| [src/main.ts](../src/main.ts) | UI entry: render + wiring, source picker, re-auth gating | `activate()`, `goBeeline()`, `goBeelineOffline()`, `goReal()`, `goDemoAdb()`/`goDemoBeeline()`, `withBeelineAccess()`, `showPicker()` |
 | [src/controller.ts](../src/controller.ts) | Orchestration + app state; scan/check/upload/cancel | `Controller`, `state()`, `onChange()`, `runTask()` |
+| [src/source.ts](../src/source.ts) | `RideSource` seam + legacy phone adapter | `RideSource`, `SourceFactory`, `AdbRideSource` |
+| [src/beeline-api.ts](../src/beeline-api.ts) | Beeline cloud backend client + ride mapping | `signIn()`, `fetchRides()`, `uploadRideToStrava()`, `mapBeelineRide()`, `BeelineSession` |
+| [src/beeline-source.ts](../src/beeline-source.ts) | Account `RideSource` over the API (concurrent uploads) | `BeelineRideSource`, `BeelineApi`, `runPool()` |
+| [src/beeline-demo.ts](../src/beeline-demo.ts) | Simulated Beeline backend for the account demo | `demoBeelineDeps()`, `DEMO_BEELINE_EMAIL` |
 | [src/beeline.ts](../src/beeline.ts) | Beeline app automation (the "what to tap") | `BeelineApp`, `Geometry`, `PROFILES` |
-| [src/parsing.ts](../src/parsing.ts) | uiautomator XML → ride data | `parseJourneysList()`, `parseRideDetail()` |
+| [src/parsing.ts](../src/parsing.ts) | uiautomator XML → ride data; ride-key helpers | `parseJourneysList()`, `parseRideDetail()`, `rideDatetime()`, `beelineRideKey()` |
 | [src/jobs.ts](../src/jobs.ts) | Single-worker background queue with coalescing | `JobQueue`, `Task`, `TaskSnapshot` |
-| [src/store.ts](../src/store.ts) | LocalStorage status cache (Python `rides.json`-compatible) | `Store`, `RideRecord`, `upsert()` |
+| [src/store.ts](../src/store.ts) | Per-source IndexedDB cache (Python `rides.json`-compatible) | `Store` (keyed per profile), `RideRecord` (`source`/`source_id`), `upsert()` |
 | [src/track.ts](../src/track.ts) | GPS track decode/simplify/render | `extractTrack()`, `simplify()` (Douglas–Peucker), encoded polylines |
 | [src/mapview.ts](../src/mapview.ts) | Map-view geometry: pick drawable tracks + hover/overlap hit-testing | `ridesWithTracks()`, `nearestRides()`, `RideTrack`, `ProjectedTrack` |
 | [src/adb/types.ts](../src/adb/types.ts) | Transport-agnostic device contract | `AdbDevice`, `AdbError`, `shellQuote()` |

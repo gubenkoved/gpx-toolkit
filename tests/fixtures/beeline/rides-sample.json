@@ -1,0 +1,111 @@
+{
+  "demo-uploaded-0001": {
+    "activityType": "bicycle",
+    "app_version": "3.3.3300",
+    "start": 1748503125000,
+    "end": 1748509725000,
+    "totalDistance": 42000.0,
+    "averageSpeed": 7.0,
+    "topSpeed": 11.5,
+    "movingTime": 6000000,
+    "duration": 6600000,
+    "totalElevationGain": 320.0,
+    "totalElevationLoss": 305.0,
+    "polyline": "oucsFre`vDo@KsA_@oAQmBa@_Ck@e@n@Ol@uCGsA^eCJOtAsAx@aCp@m@xAaDp@oCl@QvCAlCuArBsC`Bs@nCS`Do@xCZbDAzCc@fDe@lDJbDL`DPzCGzDPbDj@xBUxFHjEDxEz@rCQdGGdFfBpClA~Cd@nEf@bEFhE`BzC^fD`AtCfC`CxA~Bh@vBr@~AtB~AjBlAlExAlDz@lAp@pCd@~DRzBN`B@dBKzCWlCc@`Cq@lA_AvBgAlCqAvB}AfEoBzDmCfAmBNuBnAmCjBwCnCiDjAeDMaDNuDp@wDIoExAmD`@_Em@cFHkET_Ej@oDGgEiAoFz@mC_AuEgA}EkAkFy@uE}@}Es@gDy@gD{@iCg@cA}AeEmAkC}@aAqAoBsAaBkAeAkAy@}AoAgBsAeBiA{Ae@o@b@y@Dm@NkBQmCg@}B_@sB[iB]eAhAeBS",
+    "strava_activity": {
+      "id": 1500000001,
+      "upload_id": 1600000001,
+      "stravaUploadStatus": {
+        "status": "availableOnStrava",
+        "timestamp": 1752444493089
+      }
+    },
+    "destination": {
+      "address": {
+        "country": "Atlantis",
+        "administrativeArea": "North Province",
+        "subAdministrativeArea": "Bayshire",
+        "locality": "Springharbor",
+        "name": "Old Harbour Cafe"
+      }
+    }
+  },
+  "demo-pending-0002": {
+    "activityType": "bicycle",
+    "app_version": "3.3.3300",
+    "start": 1668245890000,
+    "end": 1668245912000,
+    "totalDistance": 0,
+    "averageSpeed": 0,
+    "topSpeed": 0,
+    "movingTime": 482,
+    "duration": 21106,
+    "polyline": "_ocsF~jbvDcBnA"
+  },
+  "demo-failed-0003": {
+    "activityType": "bicycle",
+    "app_version": "3.3.3300",
+    "start": 1690741413000,
+    "end": 1690741419000,
+    "totalDistance": 0,
+    "averageSpeed": 0,
+    "topSpeed": 0,
+    "movingTime": 0,
+    "duration": 5557,
+    "polyline": "_ocsF~jbvDcBnA",
+    "strava_activity": {
+      "stravaUploadStatus": {
+        "status": "uploadFailed",
+        "timestamp": 1781445060137
+      }
+    },
+    "destination": {
+      "address": {
+        "country": "Atlantis",
+        "administrativeArea": "North Province",
+        "subAdministrativeArea": "Lakeside",
+        "locality": "Lakeside"
+      }
+    }
+  },
+  "demo-processing-0004": {
+    "activityType": "bicycle",
+    "app_version": "3.3.3300",
+    "start": 1680594268000,
+    "end": 1680596089000,
+    "totalDistance": 11000.0,
+    "averageSpeed": 6.0,
+    "topSpeed": 9.0,
+    "movingTime": 1711000,
+    "duration": 1821000,
+    "polyline": "wvcsFpa}uDoImB}LkC}Lu@}L`@gLpD{LvEoLnH}KjKeJbPyIhQoHxScHlT{FvTiDjVeBxYi@f[Zt\\nB|]jEf]fFhZxHrYpJrWjJnSlMpRtNtO~P`NdSjKrRtFbTjChR?rOsC~PsFrRuHhN_NvM_QvLuSzJcWxIqX`HmZdFgYhDu]xBy]DqYUi\\sAe[eDuXuEoWmGmUiGgU_J_QoIuOkLkKmJeJmJaG{LsCeLaAyINoJ`BaKbD",
+    "strava_activity": {
+      "stravaUploadStatus": {
+        "status": "startedUploading",
+        "timestamp": 1680596364586
+      }
+    },
+    "destination": {
+      "address": {
+        "country": "Atlantis",
+        "administrativeArea": "North Province",
+        "subAdministrativeArea": "Riverton",
+        "locality": "Riverton",
+        "name": "Tech Campus"
+      }
+    }
+  },
+  "demo-notrack-0005": {
+    "activityType": "bicycle",
+    "app_version": "3.3.3300",
+    "start": 1731920754000,
+    "strava_activity": {
+      "id": 1800000001,
+      "upload_id": 2000000001,
+      "stravaUploadStatus": {
+        "status": "availableOnStrava",
+        "timestamp": 1781453865373
+      }
+    }
+  }
+}

@@ -109,6 +109,13 @@ export interface RideCard {
   distance: string;
   duration: string;
   tapY: number; // vertical centre to tap to open this ride
+  /**
+   * Optional richer fields a source already knows at scan time (the Beeline source
+   * fetches full records — track, stats, Strava status — in one request, so it can
+   * persist everything from the scan). The ADB source omits this; its cards carry
+   * only the list-card summary and details are filled in by later Check/GPX passes.
+   */
+  fields?: import("./store").UpsertFields;
 }
 
 export function parseJourneysList(xml: string): RideCard[] {
@@ -391,6 +398,43 @@ export function rideDatetime(key: string): Date | null {
     return null;
   }
   return dt;
+}
+
+// Weekday/month abbreviations for building a ride key from an instant. Index
+// order matches Date.getDay()/getMonth(), and the month abbreviations are exactly
+// the keys of MONTH_ABBR so beelineRideKey() round-trips through rideDatetime().
+const WEEKDAY_ABBR = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const MONTH_ABBR_LIST = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
+];
+
+/**
+ * Build a ride key (e.g. "Wed Jun 3 2026 at 19:04") from an epoch-millis instant,
+ * the inverse of `rideDatetime`. Used by the Beeline source, whose rides carry a
+ * `start` timestamp rather than a phone-rendered datetime line. The instant is
+ * read in the browser's LOCAL timezone — matching how `rideDatetime` rebuilds a
+ * local Date — so the key round-trips and all month/stats bucketing agrees.
+ * Returns "" when the timestamp is not a finite number.
+ */
+export function beelineRideKey(startMs: number): string {
+  if (!Number.isFinite(startMs)) return "";
+  const dt = new Date(startMs);
+  const wd = WEEKDAY_ABBR[dt.getDay()];
+  const mon = MONTH_ABBR_LIST[dt.getMonth()];
+  const hh = String(dt.getHours()).padStart(2, "0");
+  const mm = String(dt.getMinutes()).padStart(2, "0");
+  return `${wd} ${mon} ${dt.getDate()} ${dt.getFullYear()} at ${hh}:${mm}`;
 }
 
 /**

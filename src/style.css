@@ -249,6 +249,11 @@ button.small {
 .cstate.off {
   color: var(--muted);
 }
+.cstate.err {
+  color: #ff6a6a;
+  border-color: #5a2330;
+  background: #2a1117;
+}
 
 .scanbar {
   margin-top: 11px;
@@ -1469,6 +1474,19 @@ span.caret.open::before {
      floating bottom status pill (.job). */
   isolation: isolate;
 }
+/* Wrapper so the floating "expand" button can overlay the mini-map corner. */
+.rmapwrap {
+  position: relative;
+  margin-top: 8px;
+}
+.rmapwrap .rmap {
+  margin-top: 0;
+}
+/* Reuse the .map-expand floating-button look; it only ever shows the maximize
+   icon here (a one-shot "open full-screen", not a toggle). */
+.rmap-expand {
+  z-index: 600;
+}
 .rmap .leaflet-container {
   height: 100%;
   width: 100%;
@@ -1503,6 +1521,73 @@ span.caret.open::before {
 }
 .rmaphint b {
   color: var(--text);
+}
+
+/* --- Full-screen single-ride route map ------------------------------------
+   Opened from a ride mini-map's expand button. A fixed overlay (below the source
+   picker at z-80) with a top bar (title · hover readout · close) over a big
+   interactive Leaflet map. */
+.ridemap {
+  position: fixed;
+  inset: 0;
+  z-index: 75;
+  display: flex;
+  flex-direction: column;
+  background: #05070a;
+}
+.ridemap.hidden {
+  display: none;
+}
+body.ridemap-open {
+  overflow: hidden;
+}
+.ridemap-bar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 14px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+}
+.ridemap-title {
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 50%;
+}
+.ridemap-hover {
+  flex: 1 1 auto;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+/* Quiet disclosure that the hover time is an estimate (Beeline has no per-point
+   GPS timestamps). Hidden until the ride actually has a time to estimate from. */
+.ridemap-est {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 12px;
+  font-style: italic;
+  white-space: nowrap;
+  cursor: help;
+  border-bottom: 1px dotted var(--line);
+}
+.ridemap-est.hidden {
+  display: none;
+}
+.ridemap-canvas {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.ridemap-canvas .leaflet-container {
+  height: 100%;
+  width: 100%;
+  background: #05070a;
+}
+/* Same dark, desaturated basemap treatment as the other maps so the orange track pops. */
+.ridemap-canvas .leaflet-tile-pane {
+  filter: grayscale(85%) brightness(0.6) contrast(1.1);
 }
 .rdetailhint {
   margin-top: 8px;
@@ -2194,6 +2279,7 @@ body.heat-expanded {
   border-radius: 10px;
   font-size: 13px;
   display: none;
+  cursor: pointer;
   box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4);
 }
 .toast.err {
@@ -2410,4 +2496,206 @@ body.job-active .toast {
     grid-template-columns: 1fr;
     grid-template-rows: 1fr minmax(0, 38vh);
   }
+}
+
+/* --- Source picker --------------------------------------------------------
+   Full-screen modal shown on first load (no remembered profile) and whenever the
+   user clicks "Source". Reuses the app's dark panel vocabulary; each option is a
+   panel row with a single primary action, the Beeline one carrying an inline form. */
+.srcpick {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(5, 7, 10, 0.78);
+  backdrop-filter: blur(3px);
+  overflow: auto;
+}
+.srcpick.hidden {
+  display: none;
+}
+.srcpick-card {
+  width: min(560px, 100%);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 22px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.55);
+}
+.srcpick-head .brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.srcpick-sub {
+  color: var(--muted);
+  margin: 8px 0 18px;
+}
+.srcpick-options {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.srcopt {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px;
+  background: var(--panel2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+.srcopt-main {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.srcopt-title {
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.srcopt-tag {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--accent);
+  border: 1px solid var(--accent-dim);
+  border-radius: 999px;
+  padding: 1px 8px;
+}
+.srcopt-tag.legacy {
+  color: var(--muted);
+  border-color: var(--line);
+}
+.srcopt-desc {
+  color: var(--muted);
+  font-size: 13px;
+  margin-top: 4px;
+}
+.srcopt-actions {
+  display: flex;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+/* The Beeline option stacks its description above an inline sign-in form. */
+#srcBeeline {
+  flex-direction: column;
+  align-items: stretch;
+}
+.srcopt-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+.srcopt-form input {
+  flex: 1 1 180px;
+  min-width: 0;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--text);
+  padding: 8px 10px;
+  font: inherit;
+}
+.srcopt-form input:focus {
+  outline: none;
+  border-color: var(--accent-dim);
+}
+.srcopt-err {
+  flex: 1 0 100%;
+  color: var(--accent);
+  font-size: 13px;
+  min-height: 0;
+}
+.srcopt-err:empty {
+  display: none;
+}
+.srcpick-dismiss {
+  display: block;
+  margin: 16px auto 0;
+}
+/* Close affordance (top-right of the card) so the picker is always escapable. */
+.srcpick-card {
+  position: relative;
+}
+.srcpick-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  cursor: pointer;
+}
+.srcpick-close:hover {
+  color: var(--text);
+  border-color: var(--muted);
+}
+.srcpick-close svg {
+  width: 16px;
+  height: 16px;
+}
+/* Re-auth mode: the user already has a Beeline profile and only needs to re-enter
+   their password (which a password manager can inject), so collapse the picker to
+   just the Beeline sign-in — hide the other sources, the in-card demo shortcut, and
+   the "recommended" tag (pointless when it's the only option shown). */
+.srcpick.reauth .srcopt:not(#srcBeeline),
+.srcpick.reauth #btnDemoBeeline,
+.srcpick.reauth #srcBeeline .srcopt-tag,
+.srcpick.reauth .srcpick-dismiss {
+  display: none;
+}
+
+/* --- Beeline (account) mode chrome ----------------------------------------
+   The cloud source has no phone to pace, no cable to manage, no time-window scan,
+   a single device, and full (not simplified) tracks, so hide the phone-only
+   controls when a Beeline account is the source: the interaction-speed profile,
+   the scan presets/custom-days (only a full "Re-sync" applies), the per-phone
+   "Source" ride filter, the rough-track "Track detail" density control (the
+   downloaded polyline is kept verbatim, nothing to thin), and the "Details"
+   filter (every Beeline ride arrives fully detailed, so it never narrows). */
+body[data-src="beeline"] #speedGroup,
+body[data-src="beeline"] #scanPresets,
+body[data-src="beeline"] #trackPointsBox,
+body[data-src="beeline"] #fDetails,
+body[data-src="beeline"] .fdevice {
+  display: none;
+}
+/* With the presets/speed gone, the scan bar's only control is "Re-sync", which we
+   hoist into the header's connection cluster (see placeScanButton) — so a lone
+   button no longer claims its own second row. Drop the now-empty bar, and shrink
+   the hoisted Re-sync to sit among the small header controls. */
+body[data-src="beeline"] #scanbar {
+  display: none;
+}
+body[data-src="beeline"] #btnScan {
+  padding: 4px 11px;
+  font-size: 12.5px;
+  border-radius: 7px;
+}
+body[data-src="beeline"] #btnScan svg {
+  width: 14px;
+  height: 14px;
+}
+/* The "Destination" filter is the inverse: a routed destination is a Beeline-only
+   concept (the ADB path never records one), so the chip is hidden everywhere except
+   Beeline mode, where filtering routed vs. free rides is genuinely useful. The
+   "Named" filter is likewise Beeline-only: only there do we synthesize the auto
+   "<time> ride" names, so "named vs unnamed" is a meaningful, unambiguous split. */
+#fDestination,
+#fNamed {
+  display: none;
+}
+body[data-src="beeline"] #fDestination,
+body[data-src="beeline"] #fNamed {
+  display: inline-block;
 }

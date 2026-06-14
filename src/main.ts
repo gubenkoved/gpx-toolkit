@@ -13,9 +13,10 @@ import "leaflet/dist/leaflet.css";
 import L from "leaflet";
 
 import { DemoAdb } from "./adb/demo";
-import { type AdbDevice, AdbError } from "./adb/types";
+import { type AdbDevice, AdbError, realSleep } from "./adb/types";
 import { WebUsbAdb } from "./adb/webusb";
 import { type AreaSelect, createAreaSelect } from "./areaselect";
+import { DEFAULT_PROFILE, PROFILES } from "./beeline";
 import { type AppState, Controller, type RideView } from "./controller";
 import {
   emptyFilters,
@@ -37,14 +38,18 @@ import {
   bucketRide,
   compareRideKeysDesc,
   type Granularity,
+  rideDatetime,
   rideShortLabel,
   trimmedSpeed,
 } from "./parsing";
 import { computeStats, type PeriodRecord } from "./stats";
 import "leaflet.heat";
+import { DEMO_BEELINE_EMAIL, demoBeelineDeps } from "./beeline-demo";
+import { BeelineRideSource, type BeelineSourceDeps } from "./beeline-source";
 import { idbBackend, memoryBackend } from "./kv";
+import { AdbRideSource, type SourceFactory } from "./source";
 import { Store } from "./store";
-import { decodePolyline } from "./track";
+import { cumulativeKm, decodePolyline } from "./track";
 
 const $ = <T extends HTMLElement = HTMLElement>(sel: string): T =>
   document.querySelector(sel) as T;
@@ -62,8 +67,19 @@ let controller!: Controller;
 // Starts false so the first paint matches the offline boot; activate() sets the
 // real value once a controller is wired up.
 let isDemo = false;
+// Which data source is active. Drives the streamlined Beeline chrome (via the
+// body[data-src] attribute) and the "Source" switcher. "offline" = no source yet.
+let currentSource: SourceKind = "offline";
 let unsubscribe: (() => void) | null = null;
 let unsubscribeGpx: (() => void) | null = null;
+
+type SourceKind = "beeline" | "adb" | "demo" | "offline";
+
+/** True when the active source is a Beeline account (real or demo). */
+const beelineMode = (): boolean => currentSource === "beeline";
+
+/** IndexedDB key for the Beeline account profile (kept separate from the ADB cache). */
+const BEELINE_STORAGE_KEY = "beeline-toolkit-state:beeline";
 
 // Remember, across visits, that the user chose a real phone (and which one) so we
 // can silently reconnect on load using the browser's persisted WebUSB permission.
@@ -101,28 +117,254 @@ const rememberedSerial = (): string | undefined => {
   }
 };
 
-function activate(next: Controller, demo: boolean): void {
+// Which data source the user last chose ("beeline" | "adb"); demo/offline aren't
+// persisted. Beeline can't auto-sign-in (we never store the password), so a
+// remembered Beeline profile just re-opens the picker with the email prefilled.
+const PROFILE_KEY = "beeline_uploader.profile";
+const BEELINE_EMAIL_KEY = "beeline_uploader.beeline_email";
+const rememberProfile = (profile: "beeline" | "adb", email = ""): void => {
+  try {
+    localStorage.setItem(PROFILE_KEY, profile);
+    if (profile === "beeline" && email) localStorage.setItem(BEELINE_EMAIL_KEY, email);
+  } catch {
+    /* non-fatal */
+  }
+};
+const forgetProfile = (): void => {
+  try {
+    localStorage.removeItem(PROFILE_KEY);
+  } catch {
+    /* non-fatal */
+  }
+};
+const rememberedProfile = (): string | null => {
+  try {
+    return localStorage.getItem(PROFILE_KEY);
+  } catch {
+    return null;
+  }
+};
+const rememberedEmail = (): string => {
+  try {
+    return localStorage.getItem(BEELINE_EMAIL_KEY) ?? "";
+  } catch {
+    return "";
+  }
+};
+
+function activate(next: Controller, demo: boolean, source: SourceKind): void {
   if (unsubscribe) unsubscribe();
   if (unsubscribeGpx) unsubscribeGpx();
   controller = next;
   isDemo = demo;
+  currentSource = source;
+  document.body.dataset.src = source;
+  placeScanButton(source === "beeline");
   unsubscribe = controller.onChange(applyState);
   unsubscribeGpx = controller.onGpx(saveGpxFile);
   applyState();
 }
 
-async function goDemo(): Promise<void> {
+/**
+ * In Beeline mode the scan bar's only live control is "Re-sync" (the phone-only
+ * presets/speed/custom-days are all hidden), so giving it a whole second header
+ * row is wasteful — hoist Re-sync up into the header's connection cluster and let
+ * the body[data-src="beeline"] CSS drop the now-empty bar. Any other source puts
+ * it back in the scan bar in its original slot (just before the trailing spacer).
+ */
+function placeScanButton(beeline: boolean): void {
+  const btn = document.getElementById("btnScan");
+  if (!btn) return;
+  if (beeline) {
+    document.querySelector(".conn")?.prepend(btn);
+  } else {
+    const bar = document.getElementById("scanbar");
+    const spacer = bar?.querySelector(".spacer");
+    if (bar && spacer) bar.insertBefore(btn, spacer);
+  }
+}
+
+// -- source picker ----------------------------------------------------------
+
+// A cloud action deferred until the user (re)authenticates to Beeline. Set when a
+// signed-out Beeline session triggers something needing the account (Re-sync,
+// upload); run once sign-in succeeds, then cleared.
+let afterBeelineSignIn: (() => void) | null = null;
+
+/**
+ * Show the data-source picker, prefilling the remembered Beeline email if any.
+ * In `reauth` mode it presents ONLY the Beeline sign-in (the user already has a
+ * profile and just needs to re-enter the password — which a password manager can
+ * inject), with focused copy and the password field focused.
+ */
+function showPicker(opts: { reauth?: boolean } = {}): void {
+  const picker = document.getElementById("srcPick");
+  if (!picker) return;
+  const reauth = opts.reauth === true;
+  picker.classList.toggle("reauth", reauth);
+
+  const email = rememberedEmail();
+  const emailInput = document.getElementById("beelineEmail") as HTMLInputElement | null;
+  if (email && emailInput && !emailInput.value) emailInput.value = email;
+
+  const sub = picker.querySelector(".srcpick-sub");
+  if (sub) {
+    sub.textContent = reauth
+      ? "Sign in to your Beeline account to sync."
+      : "Choose where your rides come from.";
+  }
+
+  setBeelineError("");
+  picker.classList.remove("hidden");
+  if (reauth) {
+    const pass = document.getElementById("beelinePass") as HTMLInputElement | null;
+    pass?.focus();
+  }
+}
+
+function hidePicker(): void {
+  const picker = document.getElementById("srcPick");
+  picker?.classList.add("hidden");
+  picker?.classList.remove("reauth");
+  // Dismissing the prompt abandons any action that was waiting on sign-in.
+  afterBeelineSignIn = null;
+}
+
+function setBeelineError(message: string): void {
+  const el = document.getElementById("beelineErr");
+  if (el) el.textContent = message;
+}
+
+/**
+ * Run a cloud action that needs a live Beeline connection. When the Beeline
+ * account is the active source but we're signed out (the offline, cached-rides
+ * state — we never store the password), defer the action and prompt for the
+ * password so a password manager can inject it; the action runs once sign-in
+ * succeeds. In every other case (connected, demo, or a non-Beeline source) it
+ * runs immediately.
+ */
+function withBeelineAccess(action: () => void): void {
+  if (beelineMode() && !STATE.connected && !isDemo) {
+    afterBeelineSignIn = action;
+    showPicker({ reauth: true });
+    return;
+  }
+  action();
+}
+
+/** Build an ADB ride source from a device getter (closure captures serial, etc.). */
+function adbSourceFactory(getDevice: () => Promise<AdbDevice>): SourceFactory {
+  return async () => {
+    const device = await getDevice();
+    return AdbRideSource.create(device, PROFILES[DEFAULT_PROFILE], realSleep);
+  };
+}
+
+/** Build a Beeline ride source factory bound to a (real or demo) backend. */
+function beelineSourceFactory(
+  email: string,
+  password: string,
+  store: Store,
+  deps?: BeelineSourceDeps,
+): SourceFactory {
+  return () =>
+    BeelineRideSource.create(
+      email,
+      password,
+      () => store.settings.beelineUploadConcurrency,
+      deps,
+    );
+}
+
+/** ADB demo: a simulated phone exercising the UI-scraping mechanics. */
+async function goDemoAdb(): Promise<void> {
   const c = new Controller(
-    async () => new DemoAdb({ latencyMs: 110 }),
+    adbSourceFactory(async () => new DemoAdb({ latencyMs: 110 })),
     new Store(memoryBackend()),
   );
-  activate(c, true);
+  activate(c, true, "demo");
   try {
     await c.connect();
-    toast("Demo mode — exploring with a simulated phone. Click Exit demo to leave.");
+    toast("Demo (phone) — a simulated Android phone over ADB. Click Exit demo to leave.");
   } catch {
     /* demo connect never fails */
   }
+}
+
+/**
+ * Beeline demo: a simulated cloud account exercising the Beeline mechanics —
+ * one-shot history download and server-side Strava uploads observed by polling.
+ */
+async function goDemoBeeline(): Promise<void> {
+  const store = new Store(memoryBackend());
+  const factory = beelineSourceFactory(DEMO_BEELINE_EMAIL, "demo", store, demoBeelineDeps());
+  const c = new Controller(factory, store);
+  activate(c, true, "beeline");
+  try {
+    await c.connect();
+    toast("Demo (Beeline) — a simulated cloud account. Click Exit demo to leave.");
+  } catch {
+    /* demo connect never fails */
+  }
+}
+
+/**
+ * Sign in to a real Beeline account and download the whole ride history. The
+ * password is used once for sign-in and never stored; only the email is remembered
+ * (to prefill the picker next time).
+ *
+ * Autonomy: we `activate` the controller (showing whatever Beeline rides are
+ * already cached) BEFORE attempting sign-in, so a failure to reach the account
+ * leaves the app fully usable on the last downloaded data instead of blank.
+ */
+async function goBeeline(email: string, password: string): Promise<boolean> {
+  const store = await Store.load(storageBackend, onStorageError, BEELINE_STORAGE_KEY);
+  const c = new Controller(beelineSourceFactory(email, password, store), store);
+  activate(c, false, "beeline"); // show cached rides immediately
+  try {
+    await c.connect(); // signs in; throws on bad credentials / no network
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    setBeelineError(msg);
+    // Remember the profile so a reload returns here, and surface a clear,
+    // dismissable error — but keep the cached rides on screen (autonomy).
+    rememberProfile("beeline", email);
+    pushError(
+      "Can't reach your Beeline account",
+      `${msg}\n\nShowing your last downloaded rides. Use “Change source” to sign in again and re-sync once you're back online.`,
+    );
+    return false;
+  }
+  rememberProfile("beeline", email);
+  // Capture any action that was waiting on sign-in BEFORE hidePicker() clears it.
+  const pending = afterBeelineSignIn;
+  hidePicker();
+  toast(`Signed in: ${controller.state().device}`);
+  if (pending) {
+    // The user triggered sign-in by doing something (Re-sync, upload) — run it now
+    // against the freshly connected controller instead of a blanket re-sync.
+    pending();
+  } else {
+    // A plain sign-in (from the full picker): pull the history so the user lands
+    // on a populated app.
+    controller.scan("all", null);
+  }
+  return true;
+}
+
+/**
+ * Beeline, offline: show the cached Beeline rides without an account connection
+ * (e.g. on reload — we never store the password, so we can't silently re-sign-in).
+ * The source is a stub that errors if used; any action needing the account
+ * (Re-sync, upload) prompts for the password first via `withBeelineAccess`.
+ */
+async function goBeelineOffline(): Promise<void> {
+  const store = await Store.load(storageBackend, onStorageError, BEELINE_STORAGE_KEY);
+  const factory: SourceFactory = async () => {
+    throw new AdbError("Not signed in — sign in to Beeline to sync.");
+  };
+  const c = new Controller(factory, store);
+  activate(c, false, "beeline");
 }
 
 /**
@@ -132,25 +374,27 @@ async function goDemo(): Promise<void> {
  * or a remembered phone isn't reachable — we never silently drop into demo anymore.
  */
 async function goOffline(): Promise<void> {
-  const transport = async (): Promise<AdbDevice> => {
+  const factory: SourceFactory = async () => {
     throw new AdbError("No device connected — click Connect phone first.");
   };
-  const c = new Controller(transport, await Store.load(storageBackend, onStorageError));
-  activate(c, false);
+  const c = new Controller(factory, await Store.load(storageBackend, onStorageError));
+  activate(c, false, "offline");
 }
 
 async function goReal(): Promise<void> {
   let serial = "";
-  const transport = async (): Promise<AdbDevice> => {
+  const factory = adbSourceFactory(async () => {
     const device = await WebUsbAdb.connect();
     serial = device.deviceSerial;
     return device;
-  };
-  const c = new Controller(transport, await Store.load(storageBackend, onStorageError));
-  activate(c, false);
+  });
+  const c = new Controller(factory, await Store.load(storageBackend, onStorageError));
+  activate(c, false, "adb");
   try {
     await c.connect();
     rememberReal(serial);
+    rememberProfile("adb");
+    hidePicker();
     toast(`Connected: ${controller.state().device}`);
   } catch (err) {
     pushError("Connection failed", err instanceof AdbError ? err.message : String(err));
@@ -164,14 +408,14 @@ async function goReal(): Promise<void> {
  */
 async function tryAutoReconnect(): Promise<void> {
   let serial = "";
-  const transport = async (): Promise<AdbDevice> => {
+  const factory = adbSourceFactory(async () => {
     const reconnected = await WebUsbAdb.tryReconnect(rememberedSerial());
     if (!reconnected) throw new AdbError("remembered device not available");
     serial = reconnected.deviceSerial;
     return reconnected;
-  };
-  const c = new Controller(transport, await Store.load(storageBackend, onStorageError));
-  activate(c, false);
+  });
+  const c = new Controller(factory, await Store.load(storageBackend, onStorageError));
+  activate(c, false, "adb");
   try {
     await c.connect();
     rememberReal(serial);
@@ -182,9 +426,11 @@ async function tryAutoReconnect(): Promise<void> {
   }
 }
 
-async function leaveReal(): Promise<void> {
-  forgetReal(); // stop auto-reconnecting on future loads
-  await goOffline(); // keep showing the user's stored rides, just without a phone
+async function leaveSource(): Promise<void> {
+  forgetReal(); // stop auto-reconnecting a phone on future loads
+  forgetProfile(); // forget the chosen source so the picker leads next time
+  await goOffline(); // keep showing the user's stored rides, just without a source
+  showPicker(); // let the user pick a source again
 }
 
 // --------------------------------------------------------------------------- //
@@ -201,7 +447,13 @@ let STATE: AppState = {
     busy: false,
   },
   speed: "normal",
-  settings: { trackPointsPerKm: 20, speedTrimSlowPct: 0, speedTrimFastPct: 0, heatRadius: 12 },
+  settings: {
+    trackPointsPerKm: 20,
+    speedTrimSlowPct: 0,
+    speedTrimFastPct: 0,
+    heatRadius: 12,
+    beelineUploadConcurrency: 4,
+  },
   connected: false,
   device: "",
 };
@@ -250,6 +502,8 @@ function loadFilters(): Filters {
     if (STATUS_VALUES.includes(o.status as Filters["status"])) f.status = o.status!;
     if (TRI_VALUES.includes(o.gps as TriState)) f.gps = o.gps!;
     if (TRI_VALUES.includes(o.details as TriState)) f.details = o.details!;
+    if (TRI_VALUES.includes(o.destination as TriState)) f.destination = o.destination!;
+    if (TRI_VALUES.includes(o.named as TriState)) f.named = o.named!;
     if (DELETED_VALUES.includes(o.deleted as Filters["deleted"])) f.deleted = o.deleted!;
     if (typeof o.device === "string") f.device = o.device;
     f.distMin = sanitizeBound(o.distMin);
@@ -339,15 +593,26 @@ let activeView: ViewName = readView();
 // --------------------------------------------------------------------------- //
 const mapRegistry = new Map<string, L.Map>();
 
-/** Markup for a ride's mini-map + its "rough approximation" caption. */
+/** Markup for a ride's mini-map + its caption. */
 function trackBlock(key: string, track: string): string {
+  // Beeline rides carry the FULL route polyline from the download, so there's no
+  // GPX to fetch and no "rough approximation" caveat — the map is the real track.
+  const beeline = beelineMode();
   if (!track) {
+    if (beeline) {
+      return `<div class="rmaphint">No route recorded for this ride.</div>`;
+    }
     // Details are open but we have no route yet — point the user at the GPX button.
     return `<div class="rmaphint">No map yet — press <b>GPX</b> to download this ride and draw a rough route.</div>`;
   }
   return (
+    `<div class="rmapwrap">` +
     `<div class="rmap" data-map="${esc(key)}" data-track="${esc(key)}"></div>` +
-    `<div class="rmapnote">Rough approximation only — not the full GPX.</div>`
+    `<button class="map-expand rmap-expand" data-expand="${escHtml(key)}" aria-label="Expand route" title="Open this route full-screen (Esc to exit)">` +
+    `<svg class="mi mi-expand" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M8 3H5a2 2 0 0 0-2 2v3M21 8V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3M16 21h3a2 2 0 0 0 2-2v-3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>` +
+    `</button>` +
+    `</div>` +
+    (beeline ? "" : `<div class="rmapnote">Rough approximation only — not the full GPX.</div>`)
   );
 }
 
@@ -421,6 +686,194 @@ function mountMaps(): void {
     setTimeout(() => map.invalidateSize(), 0);
     mapRegistry.set(host.dataset.map!, map);
   });
+}
+
+// --------------------------------------------------------------------------- //
+// Full-screen single-ride route map (opened from a ride's mini-map). Shows the
+// one track big and interactive; hovering the track reports how far into the ride
+// that point is. NOTE: Beeline gives us only the route geometry (lat/lon) with NO
+// per-point timestamps, so the time is an EVEN-PACE ESTIMATE (cumulative-distance
+// fraction × elapsed time) — always rendered with a "~" and an "estimated" note,
+// never as if it were a real recorded timestamp.
+// --------------------------------------------------------------------------- //
+let rideMapBig: L.Map | null = null;
+let rideMapLine: L.Polyline | null = null;
+let rideMapMarker: L.CircleMarker | null = null;
+/** Cached hover state for the open ride map, recomputed on pan/zoom/resize. */
+let rideHover: {
+  pts: [number, number][];
+  cum: number[]; // cumulative km at each point
+  totalKm: number;
+  elapsedSec: number;
+  startMs: number | null;
+  px: L.Point[]; // track points projected to container pixels (cache)
+} | null = null;
+
+/** Seconds → "H:MM:SS" / "M:SS" for the hover readout. */
+function fmtSecsShort(sec: number): string {
+  const s = Math.max(0, Math.round(sec));
+  const hh = Math.floor(s / 3600);
+  const mm = Math.floor((s % 3600) / 60);
+  const ss = s % 60;
+  const p2 = (n: number) => String(n).padStart(2, "0");
+  return hh > 0 ? `${hh}:${p2(mm)}:${p2(ss)}` : `${mm}:${p2(ss)}`;
+}
+
+/** Re-project the open track to container pixels (after a pan / zoom / resize). */
+function reprojectRideHover(): void {
+  if (!rideMapBig || !rideHover) return;
+  rideHover.px = rideHover.pts.map((p) => rideMapBig!.latLngToContainerPoint(p));
+}
+
+/** Handle a hover over the big ride map: find the nearest point along the track,
+ *  move the marker there, and report distance + estimated time into the ride. */
+function onRideMapHover(e: L.LeafletMouseEvent): void {
+  const out = document.getElementById("rideMapHover");
+  if (!rideMapBig || !rideHover || !out) return;
+  const cur = e.containerPoint;
+  const px = rideHover.px;
+  // Nearest segment in pixel space; interpolate the cumulative distance across it.
+  let best = Number.POSITIVE_INFINITY;
+  let bestKm = 0;
+  let bestLatLng: [number, number] | null = null;
+  for (let i = 1; i < px.length; i++) {
+    const a = px[i - 1];
+    const b = px[i];
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const len2 = dx * dx + dy * dy;
+    const t =
+      len2 === 0
+        ? 0
+        : Math.max(0, Math.min(1, ((cur.x - a.x) * dx + (cur.y - a.y) * dy) / len2));
+    const cx = a.x + t * dx;
+    const cy = a.y + t * dy;
+    const d = Math.hypot(cur.x - cx, cur.y - cy);
+    if (d < best) {
+      best = d;
+      bestKm = rideHover.cum[i - 1] + t * (rideHover.cum[i] - rideHover.cum[i - 1]);
+      const la = rideHover.pts[i - 1];
+      const lb = rideHover.pts[i];
+      bestLatLng = [la[0] + t * (lb[0] - la[0]), la[1] + t * (lb[1] - la[1])];
+    }
+  }
+  // Only react when the cursor is reasonably near the line (px), else clear.
+  if (best > 28 || !bestLatLng) {
+    out.textContent = "";
+    rideMapMarker?.remove();
+    rideMapMarker = null;
+    return;
+  }
+  if (!rideMapMarker) {
+    rideMapMarker = L.circleMarker(bestLatLng, {
+      radius: 6,
+      color: "#ffffff",
+      weight: 2,
+      fillColor: "#fc5200",
+      fillOpacity: 1,
+    }).addTo(rideMapBig);
+  } else {
+    rideMapMarker.setLatLng(bestLatLng);
+  }
+  const frac = rideHover.totalKm > 0 ? bestKm / rideHover.totalKm : 0;
+  const parts = [`~${bestKm.toFixed(2)} km`];
+  if (rideHover.elapsedSec > 0) {
+    parts.push(`~${fmtSecsShort(frac * rideHover.elapsedSec)} in`);
+    if (rideHover.startMs !== null) {
+      const clock = new Date(rideHover.startMs + frac * rideHover.elapsedSec * 1000);
+      const p2 = (n: number) => String(n).padStart(2, "0");
+      parts.push(`~${p2(clock.getHours())}:${p2(clock.getMinutes())}`);
+    }
+  }
+  out.textContent = parts.join(" · ");
+}
+
+/** Open the full-screen route map for one ride. */
+function openRideMap(key: string): void {
+  const ride = STATE.rides.find((r) => r.key === key);
+  if (!ride?.track) return;
+  let pts: [number, number][];
+  try {
+    pts = decodePolyline(ride.track);
+  } catch {
+    return;
+  }
+  if (pts.length < 2) return;
+
+  const modal = document.getElementById("rideMapModal");
+  const host = document.getElementById("rideMapBig");
+  if (!modal || !host) return;
+
+  // Title: the ride's name + location, then its short date.
+  const name = (ride.title || "Ride") + (ride.location || "");
+  const when = rideShortLabel(ride.key) || ride.key;
+  const titleEl = document.getElementById("rideMapTitle");
+  if (titleEl) titleEl.textContent = `${name} · ${when}`;
+  const hoverEl = document.getElementById("rideMapHover");
+  if (hoverEl) hoverEl.textContent = "";
+
+  // The "~ time is estimated" note only makes sense when we actually have a ride
+  // time to interpolate from; hide it for tracks with no usable duration.
+  const hasTime = (ride.elapsed_sec || ride.moving_sec || 0) > 0;
+  document.getElementById("rideMapEst")?.classList.toggle("hidden", !hasTime);
+
+  modal.classList.remove("hidden");
+  document.body.classList.add("ridemap-open");
+
+  // Build (or rebuild) the map fresh each open — cheap, and avoids stale layers.
+  if (rideMapBig) {
+    rideMapBig.remove();
+    rideMapBig = null;
+  }
+  const map = L.map(host, { attributionControl: true, zoomControl: true });
+  rideMapBig = map;
+  L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    maxZoom: 19,
+    attribution: "© OpenStreetMap",
+    className: "rmap-tiles",
+  }).addTo(map);
+  L.polyline(pts, { color: "#ffffff", weight: 7, opacity: 0.9 }).addTo(map);
+  rideMapLine = L.polyline(pts, { color: "#fc5200", weight: 4 }).addTo(map);
+  map.fitBounds(rideMapLine.getBounds(), { padding: [24, 24] });
+
+  const cum = cumulativeKm(pts);
+  rideHover = {
+    pts,
+    cum,
+    totalKm: cum[cum.length - 1],
+    // Prefer elapsed (wall-clock) time; fall back to moving time.
+    elapsedSec: ride.elapsed_sec || ride.moving_sec || 0,
+    startMs: rideDatetime(ride.key)?.getTime() ?? null,
+    px: [],
+  };
+  rideMapMarker = null;
+
+  setTimeout(() => {
+    map.invalidateSize();
+    reprojectRideHover();
+  }, 0);
+  map.on("move zoom resize zoomend moveend", reprojectRideHover);
+  map.on("mousemove", onRideMapHover);
+  map.on("mouseout", () => {
+    const out = document.getElementById("rideMapHover");
+    if (out) out.textContent = "";
+    rideMapMarker?.remove();
+    rideMapMarker = null;
+  });
+}
+
+/** Close the full-screen route map and release its Leaflet instance. */
+function closeRideMap(): void {
+  const modal = document.getElementById("rideMapModal");
+  modal?.classList.add("hidden");
+  document.body.classList.remove("ridemap-open");
+  if (rideMapBig) {
+    rideMapBig.remove();
+    rideMapBig = null;
+  }
+  rideMapLine = null;
+  rideMapMarker = null;
+  rideHover = null;
 }
 
 // --------------------------------------------------------------------------- //
@@ -939,7 +1392,9 @@ function setMapExpanded(on: boolean): void {
 /** Toggle the Stats heatmap between inline and full-screen; resize Leaflet to match. */
 function setHeatExpanded(on: boolean): void {
   document.body.classList.toggle("heat-expanded", on);
-  document.getElementById("btnHeatExpand")?.setAttribute("aria-pressed", on ? "true" : "false");
+  document
+    .getElementById("btnHeatExpand")
+    ?.setAttribute("aria-pressed", on ? "true" : "false");
   requestAnimationFrame(() => {
     freqHeatMap?.invalidateSize();
   });
@@ -1256,8 +1711,13 @@ function gpsBadge(): string {
  * the per-ride actions so the click handler knows which ride to act on.
  */
 function gpxSplit(scope: string, key: string): string {
-  const open = openMenu === scope;
   const dataKey = key ? ` data-key="${key}"` : "";
+  // Beeline rides already carry their full track from the download, so there's no
+  // "preview" step — just the same Save .gpx action, on its own (no split).
+  if (beelineMode()) {
+    return `<button class="small ghost" data-act="gpx-save-one"${dataKey} title="Download the full GPX and save it to disk">Save .gpx file</button>`;
+  }
+  const open = openMenu === scope;
   return (
     `<span class="split${open ? " open" : ""}">` +
     `<button class="small ghost" data-act="gpx-one"${dataKey} title="Download a rough GPS route preview (shown on the map; no file saved)">Preview route</button>` +
@@ -1338,6 +1798,8 @@ function syncFilterBar(allRides: AppState["rides"]): void {
   };
   chip("fGps", "GPS", filters.gps, "yes");
   chip("fDetails", "Details", filters.details, "yes");
+  chip("fDestination", "Destination", filters.destination, "yes");
+  chip("fNamed", "Named", filters.named, "yes");
   chip("fDeleted", "Deleted", filters.deleted, "only");
 
   // Source dropdown: rebuild options from the distinct devices present.
@@ -1383,6 +1845,8 @@ function cycleChip(which: string): void {
     s === "any" ? "yes" : s === "yes" ? "no" : "any";
   if (which === "gps") filters.gps = nextTri(filters.gps);
   else if (which === "details") filters.details = nextTri(filters.details);
+  else if (which === "destination") filters.destination = nextTri(filters.destination);
+  else if (which === "named") filters.named = nextTri(filters.named);
   else if (which === "deleted") {
     filters.deleted =
       filters.deleted === "any" ? "only" : filters.deleted === "only" ? "none" : "any";
@@ -1394,6 +1858,8 @@ function clearFilters(): void {
   filters.status = "all";
   filters.gps = "any";
   filters.details = "any";
+  filters.destination = "any";
+  filters.named = "any";
   filters.deleted = "any";
   filters.device = "all";
   filters.distMin = null;
@@ -1594,40 +2060,47 @@ function renderConn(): void {
   const connectBtn = $<HTMLButtonElement>("#btnConnect");
   const demoBtn = $<HTMLButtonElement>("#btnDemo");
   const disconnectBtn = $<HTMLButtonElement>("#btnDisconnect");
+  const sourceBtn = $<HTMLButtonElement>("#btnSource");
   const notice = $("#demoNotice");
-  // The Demo button only pops (accent outline) in offline mode where it's the
-  // primary call to action; everywhere else it's a quiet ghost button.
-  demoBtn.classList.remove("ghost", "accent");
+
+  // The source picker is now the single entry point for choosing/adding a source,
+  // so the old header "Connect phone"/"Demo" buttons are retired for one "Source"
+  // button that reopens it. (Their click handlers stay as harmless no-op paths.)
+  connectBtn.style.display = "none";
+  demoBtn.style.display = "none";
+  sourceBtn.style.display = "";
+
+  const beeline = currentSource === "beeline";
+  // The ADB "enable USB debugging" notice only makes sense for the phone source.
+  const adbDemo = isDemo && !beeline;
+
   if (isDemo) {
-    el.textContent = "demo";
+    el.textContent = beeline ? "demo · Beeline" : "demo · phone";
     el.className = "cstate demo";
-    connectBtn.style.display = "";
-    demoBtn.classList.add("ghost");
-    demoBtn.style.display = "none";
-    // Reuse the disconnect slot as an explicit way out of demo, back to offline.
     disconnectBtn.textContent = "Exit demo";
     disconnectBtn.style.display = "";
-    notice.classList.remove("hidden");
   } else if (STATE.connected) {
     el.textContent = STATE.device || "connected";
     el.className = "cstate on";
-    connectBtn.style.display = "none";
-    demoBtn.classList.add("ghost");
-    demoBtn.style.display = "none";
-    disconnectBtn.textContent = "Disconnect";
+    disconnectBtn.textContent = beeline ? "Sign out" : "Disconnect";
     disconnectBtn.style.display = "";
-    notice.classList.add("hidden");
+  } else if (beeline) {
+    // Showing cached Beeline rides without a live account — flag it in red so the
+    // "stale, can't sync right now" state is unmistakable, and offer a way back in.
+    el.textContent = "offline — not signed in";
+    el.className = "cstate err";
+    disconnectBtn.textContent = "Sign in";
+    disconnectBtn.style.display = "";
   } else {
-    // Offline: no phone, but we still show the user's stored rides. Offer both
-    // "Connect phone" and a gently highlighted "Demo" entry.
     el.textContent = "not connected";
     el.className = "cstate off";
-    connectBtn.style.display = "";
-    demoBtn.classList.add("accent");
-    demoBtn.style.display = "";
     disconnectBtn.style.display = "none";
-    notice.classList.add("hidden");
   }
+  notice.classList.toggle("hidden", !adbDemo);
+
+  // In Beeline mode the one action pulls the whole history at once: "Re-sync".
+  const scanLabel = document.getElementById("scanLabel");
+  if (scanLabel) scanLabel.textContent = beeline ? "Re-sync" : "Scan";
 }
 
 function render(): void {
@@ -1709,8 +2182,33 @@ function render(): void {
     b.disabled = nSel === 0;
     b.textContent = nSel ? `${base} (${nSel})` : base;
   }
+  // Beeline has no per-ride Check (status comes with the download) and no rough
+  // Preview (rides carry their full track), so hide those two selection actions —
+  // matching the per-ride/month menus — leaving Save .gpx + Upload.
+  const beeline = beelineMode();
+  for (const id of ["btnStatusSel", "btnGpxSel"]) {
+    const b = document.getElementById(id) as HTMLButtonElement | null;
+    if (b) b.style.display = beeline ? "none" : "";
+  }
   const selCaret = document.querySelector<HTMLButtonElement>('[data-splitmenu="sel"]');
-  if (selCaret) selCaret.disabled = nSel === 0;
+  if (selCaret) {
+    selCaret.disabled = nSel === 0;
+    // Without the fused "Check selected" primary, the caret would read as a lone
+    // icon button — promote it to a standalone labelled dropdown (the `.menubtn`
+    // style the "Data" button uses) in Beeline mode, and restore the icon caret
+    // (whose accessible name lives in its text) otherwise.
+    if (beeline) {
+      selCaret.classList.remove("caret");
+      selCaret.classList.add("menubtn");
+      selCaret.textContent = nSel
+        ? `Selected ride actions (${nSel})`
+        : "Selected ride actions";
+    } else {
+      selCaret.classList.add("caret");
+      selCaret.classList.remove("menubtn");
+      selCaret.textContent = "More selected-ride actions";
+    }
+  }
 
   const sizeEl = $("#stateSize");
   if (sizeEl) sizeEl.textContent = fmtBytes(controller.stateBytes());
@@ -1752,8 +2250,8 @@ function render(): void {
         <span class="yactions${openMenu === `ovr-y:${year}` ? " open" : ""}">
           <button class="small ghost ovr" data-splitmenu="ovr-y:${year}" aria-haspopup="true" aria-expanded="${openMenu === `ovr-y:${year}`}" title="Actions for ${year}">${KEBAB_ICON}</button>
           <span class="ovr-items">
-            ${checkSplit(`check-y:${year}`, "status-year-new", "status-year", ` data-y="${year}"`)}
-            <button class="small ghost" data-act="gpx-year-missing" data-y="${year}" title="Download rough route previews for rides that don't have one yet">Preview routes</button>
+            ${beelineMode() ? "" : checkSplit(`check-y:${year}`, "status-year-new", "status-year", ` data-y="${year}"`)}
+            ${beelineMode() ? "" : `<button class="small ghost" data-act="gpx-year-missing" data-y="${year}" title="Download rough route previews for rides that don't have one yet">Preview routes</button>`}
             <button class="small" data-act="upload-year" data-y="${year}">Upload pending to Strava</button>
           </span>
         </span>
@@ -1784,8 +2282,8 @@ function render(): void {
           <span class="mactions${openMenu === `ovr-m:${mkey}` ? " open" : ""}">
             <button class="small ghost ovr" data-splitmenu="ovr-m:${mkey}" aria-haspopup="true" aria-expanded="${openMenu === `ovr-m:${mkey}`}" title="Actions for ${m.label}">${KEBAB_ICON}</button>
             <span class="ovr-items">
-              ${checkSplit(`check-m:${mkey}`, "status-month-new", "status-month", ` data-m="${mkey}"`)}
-              <button class="small ghost" data-act="gpx-month-missing" data-m="${mkey}" title="Download rough route previews for rides that don't have one yet">Preview routes</button>
+              ${beelineMode() ? "" : checkSplit(`check-m:${mkey}`, "status-month-new", "status-month", ` data-m="${mkey}"`)}
+              ${beelineMode() ? "" : `<button class="small ghost" data-act="gpx-month-missing" data-m="${mkey}" title="Download rough route previews for rides that don't have one yet">Preview routes</button>`}
               <button class="small" data-act="upload-month" data-m="${mkey}">Upload pending to Strava</button>
             </span>
           </span>
@@ -1818,7 +2316,7 @@ function render(): void {
           <div class="rbtns${openMenu === `ovr-r:${r.key}` ? " open" : ""}">
             <button class="small ghost ovr" data-splitmenu="ovr-r:${r.key}" aria-haspopup="true" aria-expanded="${openMenu === `ovr-r:${r.key}`}" title="Ride actions">${KEBAB_ICON}</button>
             <span class="ovr-items">
-              <button class="small ghost" data-act="status-one" data-key="${r.key}">Check</button>
+              ${beelineMode() ? "" : `<button class="small ghost" data-act="status-one" data-key="${r.key}">Check</button>`}
               ${gpxSplit(r.key, r.key)}
               <button class="small accent" data-act="upload-one" data-key="${r.key}"${r.status === "uploaded" ? ' disabled title="Already uploaded to Strava"' : ""}>Upload to Strava</button>
             </span>
@@ -1946,7 +2444,10 @@ function queueItemHtml(t: JobTask): string {
 function shortError(text: string): string {
   if (!text) return "";
   const line = text.split("\n").find((l) => l.trim()) || text;
-  return line.trim();
+  // The full error is "header:\n  • per-ride detail" — when we show only this first
+  // line as a summary (toast / collapsed card), the trailing colon promises detail
+  // that isn't shown here, so drop it. The full text keeps the colon + bullets.
+  return line.trim().replace(/:$/, "");
 }
 
 function renderError(jobs: AppState["jobs"]): void {
@@ -1971,9 +2472,7 @@ function renderError(jobs: AppState["jobs"]): void {
   for (const p of pushedErrors) {
     cards.push({ id: p.id, title: p.title, full: p.full, ts: p.ts });
   }
-  const visible = cards
-    .filter((c) => !dismissedErrIds.has(c.id))
-    .sort((a, b) => b.ts - a.ts);
+  const visible = cards.filter((c) => !dismissedErrIds.has(c.id)).sort((a, b) => b.ts - a.ts);
 
   // Rebuild the stack from scratch each render; building via DOM (not innerHTML)
   // keeps user-supplied error text from being interpreted as markup.
@@ -2084,9 +2583,17 @@ function toast(msg: string, err = false): void {
   t.classList.toggle("err", !!err);
   t.style.display = "block";
   clearTimeout(t._t);
-  // Errors stay put until the next toast replaces them (or the user reads the
-  // persistent error bar and dismisses it) — they must never just blink past.
-  if (!err) t._t = window.setTimeout(() => (t.style.display = "none"), 4000);
+  // Error toasts linger longer (so they don't blink past) but must still clear on
+  // their own — the persistent, dismissable error card at the top is the durable
+  // record, so the transient toast can safely fade. Non-errors fade quickly.
+  t._t = window.setTimeout(() => (t.style.display = "none"), err ? 8000 : 4000);
+}
+
+/** Hide the transient toast immediately (e.g. the user tapped it). */
+function dismissToast(): void {
+  const t = $<HTMLElement & { _t?: number }>("#toast");
+  clearTimeout(t._t);
+  t.style.display = "none";
 }
 
 function stateSig(): string {
@@ -2122,6 +2629,13 @@ function run(fn: () => void): void {
 }
 
 function doScan(): void {
+  // Beeline has no time-window scan — "Re-sync" always pulls the whole history.
+  // When signed out (cached-rides mode), this prompts for the password first, then
+  // runs the sync once authenticated (see withBeelineAccess).
+  if (beelineMode()) {
+    withBeelineAccess(() => run(() => controller.scan("all", null)));
+    return;
+  }
   const days = parseInt(($("#days") as HTMLInputElement).value, 10);
   if (days > 0) {
     run(() => controller.scan("custom", days));
@@ -2239,6 +2753,42 @@ document.addEventListener("click", (e) => {
   if (target && target.tagName === "INPUT") return; // checkboxes handled on 'change'
   const t = (target.closest("button, a, .mhead, .yhead") as HTMLElement) || target;
 
+  // Source picker actions (modal): handle before anything else.
+  if (t.id === "btnPickAdb") {
+    hidePicker();
+    return void goReal();
+  }
+  if (t.id === "btnDemoAdb") {
+    hidePicker();
+    return void goDemoAdb();
+  }
+  if (t.id === "btnDemoBeeline") {
+    hidePicker();
+    return void goDemoBeeline();
+  }
+  if (t.id === "btnPickDismiss") {
+    hidePicker();
+    return;
+  }
+  if (t.id === "btnPickClose") {
+    hidePicker();
+    return;
+  }
+  // Click on the picker backdrop (outside the card) dismisses it.
+  if (target.id === "srcPick") {
+    hidePicker();
+    return;
+  }
+
+  // Full-screen single-ride route map: open from a mini-map's expand button, close
+  // from its bar button or by clicking the backdrop outside the canvas.
+  if (t.dataset?.expand) {
+    return openRideMap(t.dataset.expand);
+  }
+  if (t.id === "btnRideMapClose" || target.id === "rideMapModal") {
+    return closeRideMap();
+  }
+
   // Split-button: toggle its dropdown. Any click outside an open menu closes it.
   if (t.dataset?.splitmenu) {
     openMenu = openMenu === t.dataset.splitmenu ? null : t.dataset.splitmenu;
@@ -2259,7 +2809,10 @@ document.addEventListener("click", (e) => {
     render();
     // fall through so the click still triggers the chosen action
   }
-  if (openMenu !== null && !target.closest(".split, .yactions.open, .mactions.open, .rbtns.open")) {
+  if (
+    openMenu !== null &&
+    !target.closest(".split, .yactions.open, .mactions.open, .rbtns.open")
+  ) {
     openMenu = null;
     render();
     // fall through so this same click can still trigger whatever it landed on
@@ -2342,10 +2895,15 @@ document.addEventListener("click", (e) => {
     return;
   }
   if (t.id === "btnConnect") return void goReal();
-  if (t.id === "btnDemo") return void goDemo();
-  // The disconnect slot doubles as "Exit demo": from demo just drop to offline,
-  // from a real device also forget it so we don't auto-reconnect next load.
-  if (t.id === "btnDisconnect") return void (isDemo ? goOffline() : leaveReal());
+  if (t.id === "btnDemo") return void goDemoAdb();
+  if (t.id === "btnSource") return showPicker();
+  // The disconnect slot doubles as "Exit demo" and (offline Beeline) "Sign in".
+  // For an offline Beeline session, the "Sign in" affordance opens the focused
+  // re-auth prompt; otherwise we drop the source and reopen the full picker.
+  if (t.id === "btnDisconnect") {
+    if (beelineMode() && !STATE.connected && !isDemo) return showPicker({ reauth: true });
+    return void leaveSource();
+  }
   if (t.id === "btnImport") return void ($("#importFile") as HTMLInputElement).click();
   if (t.id === "btnExport") return exportRides();
   if (t.id === "btnReset") return void resetEverything();
@@ -2405,14 +2963,14 @@ document.addEventListener("click", (e) => {
       (k) => STATE.rides.find((r) => r.key === k)?.status !== "uploaded",
     );
     if (!keys.length) return toast("All selected rides are already uploaded to Strava.");
-    return run(() => controller.upload(keys));
+    return withBeelineAccess(() => run(() => controller.upload(keys)));
   }
   if (t.id === "btnUploadPending") {
     const keys = STATE.rides
       .filter((r) => r.status === "pending" && !r.deleted)
       .map((r) => r.key);
     if (!keys.length) return toast("No known pending rides. Check status first.");
-    return run(() => controller.upload(keys));
+    return withBeelineAccess(() => run(() => controller.upload(keys)));
   }
 
   const act = t.dataset?.act;
@@ -2425,7 +2983,7 @@ document.addEventListener("click", (e) => {
   if (act === "upload-one") {
     const ride = STATE.rides.find((r) => r.key === t.dataset.key);
     if (ride && ride.status === "uploaded") return toast("Already uploaded to Strava.");
-    return run(() => controller.upload([t.dataset.key!]));
+    return withBeelineAccess(() => run(() => controller.upload([t.dataset.key!])));
   }
   if (act === "status-month") {
     openMenu = null;
@@ -2439,7 +2997,7 @@ document.addEventListener("click", (e) => {
   if (act === "upload-month") {
     const keys = pendingOfMonth(t.dataset.m!);
     if (!keys.length) return toast("No known pending rides this month. Check first.");
-    return run(() => controller.upload(keys));
+    return withBeelineAccess(() => run(() => controller.upload(keys)));
   }
   if (act === "gpx-month-missing") {
     const keys = missingPreviewOfMonth(t.dataset.m!);
@@ -2458,7 +3016,7 @@ document.addEventListener("click", (e) => {
   if (act === "upload-year") {
     const keys = pendingOfYear(t.dataset.y!);
     if (!keys.length) return toast("No known pending rides this year. Check first.");
-    return run(() => controller.upload(keys));
+    return withBeelineAccess(() => run(() => controller.upload(keys)));
   }
   if (act === "gpx-year-missing") {
     const keys = missingPreviewOfYear(t.dataset.y!);
@@ -2507,13 +3065,41 @@ document.addEventListener("click", (e) => {
   }
 });
 
-// Escape closes an open split-button menu (GPX or Check).
+// Escape closes an open split-button menu (GPX or Check), or the source picker.
 document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape" && openMenu !== null) {
+  if (e.key !== "Escape") return;
+  const picker = document.getElementById("srcPick");
+  if (picker && !picker.classList.contains("hidden")) {
+    hidePicker();
+    return;
+  }
+  if (openMenu !== null) {
     openMenu = null;
     render();
   }
 });
+
+// Beeline sign-in form in the source picker.
+document.getElementById("beelineForm")?.addEventListener("submit", (e) => {
+  e.preventDefault();
+  const email = ($("#beelineEmail") as HTMLInputElement).value.trim();
+  const password = ($("#beelinePass") as HTMLInputElement).value;
+  if (!email || !password) {
+    setBeelineError("Enter your Beeline email and password.");
+    return;
+  }
+  const btn = $<HTMLButtonElement>("#btnBeelineSignIn");
+  btn.disabled = true;
+  setBeelineError("");
+  void goBeeline(email, password).finally(() => {
+    btn.disabled = false;
+    // Clear the password field whether or not sign-in succeeded.
+    ($("#beelinePass") as HTMLInputElement).value = "";
+  });
+});
+
+// Tap the toast to dismiss it immediately (handy for the longer-lived error toast).
+document.getElementById("toast")?.addEventListener("click", dismissToast);
 
 document.addEventListener("change", (e) => {
   const cb = e.target as HTMLInputElement;
@@ -2641,6 +3227,10 @@ window.addEventListener("beforeunload", (e) => {
 // Esc leaves the full-screen map or heatmap.
 window.addEventListener("keydown", (e) => {
   if (e.key !== "Escape") return;
+  if (!document.getElementById("rideMapModal")?.classList.contains("hidden")) {
+    closeRideMap();
+    return;
+  }
   if (document.body.classList.contains("map-expanded")) setMapExpanded(false);
   if (document.body.classList.contains("heat-expanded")) setHeatExpanded(false);
 });
@@ -2670,6 +3260,17 @@ document.addEventListener("visibilitychange", () => {
 });
 window.addEventListener("pagehide", () => void controller?.flush());
 
-// Boot: silently reconnect a remembered phone (no prompt), else offline (stored rides).
-if (wantsReal()) void tryAutoReconnect();
-else void goOffline();
+// Boot: pick the right starting mode.
+//  - A remembered phone (ADB) silently reconnects (no prompt).
+//  - A remembered Beeline account can't auto-sign-in (we never store the password),
+//    so we show its cached rides offline; "Change source"/"Re-sync" lead to sign-in.
+//  - Otherwise (no profile) start offline and show the source picker.
+if (wantsReal()) {
+  void tryAutoReconnect();
+} else if (rememberedProfile() === "beeline") {
+  void goBeelineOffline();
+} else {
+  void goOffline().then(() => {
+    if (!rememberedProfile()) showPicker();
+  });
+}

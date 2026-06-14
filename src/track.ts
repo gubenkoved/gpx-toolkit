@@ -46,6 +46,19 @@ export function trackLengthKm(points: LatLon[]): number {
   return km;
 }
 
+/**
+ * Cumulative distance (km) at each point: `out[i]` is the along-track distance from
+ * the start up to `points[i]` (so `out[0] === 0` and `out[last]` is the total).
+ * Lets callers map a point/segment to "how far into the ride" in one pass.
+ */
+export function cumulativeKm(points: LatLon[]): number[] {
+  const out = new Array<number>(points.length);
+  out[0] = 0;
+  for (let i = 1; i < points.length; i++)
+    out[i] = out[i - 1] + haversineKm(points[i - 1], points[i]);
+  return out;
+}
+
 /** Perpendicular distance from point `p` to the segment `a`–`b` (planar approx). */
 function segDistance(p: LatLon, a: LatLon, b: LatLon): number {
   const [py, px] = p;
@@ -161,6 +174,25 @@ export function decodePolyline(encoded: string, precision = 5): LatLon[] {
     points.push([lat / factor, lon / factor]);
   }
   return points;
+}
+
+/**
+ * Build a minimal GPX 1.1 document (a single named `<trk>`) from an encoded
+ * polyline, or null when it has fewer than two points. This is a SHAPE-only export
+ * (no timestamps/elevation) — used to save a ride's stored route to disk without
+ * any device or network, since the full track already lives in the cache.
+ */
+export function encodedTrackToGpx(encoded: string, name: string): string | null {
+  const pts = decodePolyline(encoded);
+  if (pts.length < 2) return null;
+  const esc = (s: string): string =>
+    s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const trkpts = pts.map(([lat, lon]) => `<trkpt lat="${lat}" lon="${lon}"></trkpt>`).join("");
+  return (
+    `<?xml version="1.0" encoding="UTF-8"?>` +
+    `<gpx version="1.1" creator="Beeline Toolkit" xmlns="http://www.topografix.com/GPX/1/1">` +
+    `<trk><name>${esc(name)}</name><trkseg>${trkpts}</trkseg></trk></gpx>`
+  );
 }
 
 /** Metadata about a GPX captured into a rough track. */

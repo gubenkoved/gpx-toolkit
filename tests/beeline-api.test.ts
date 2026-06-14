@@ -1,0 +1,235 @@
+import { readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { describe, expect, it } from "vitest";
+import {
+  isTerminalStatus,
+  mapBeelineRide,
+  type RawBeelineRide,
+  stravaStatusOf,
+} from "../src/beeline-api";
+import { beelineRideKey, parseKm, parseKmh, rideDatetime } from "../src/parsing";
+import { decodePolyline } from "../src/track";
+
+const FIXTURE = JSON.parse(
+  readFileSync(
+    resolve(
+      dirname(fileURLToPath(import.meta.url)),
+      "fixtures",
+      "beeline",
+      "rides-sample.json",
+    ),
+    "utf-8",
+  ),
+) as Record<string, RawBeelineRide>;
+
+const LABEL = "Beeline (rider@example.com)";
+
+// Mirror of the source's (unexported) time-of-day naming, so title assertions
+// stay correct regardless of the machine's timezone.
+function timeOfDayName(startMs: number): string {
+  const h = new Date(startMs).getHours();
+  if (h < 5) return "Night ride";
+  if (h < 12) return "Morning ride";
+  if (h < 17) return "Afternoon ride";
+  if (h < 21) return "Evening ride";
+  return "Night ride";
+}
+
+// Push-ids of the representative fixture rides (synthetic — see how the fixture
+// is generated; no real tracks or addresses).
+const UPLOADED = "demo-uploaded-0001"; // availableOnStrava, has polyline + elevation
+const PENDING = "demo-pending-0002"; // no strava_activity, zero distance
+const FAILED = "demo-failed-0003"; // uploadFailed
+const PROCESSING = "demo-processing-0004"; // startedUploading
+const NO_POLYLINE = "demo-notrack-0005"; // availableOnStrava, no polyline
+
+describe("mapBeelineRide", () => {
+  it("maps a full uploaded ride into canonical fields + a decodable track", () => {
+    const m = mapBeelineRide(UPLOADED, FIXTURE[UPLOADED], LABEL);
+    expect(m).not.toBeNull();
+    if (!m) return;
+    const f = m.fields;
+
+    // Source attribution.
+    expect(f.source).toBe("beeline");
+    expect(f.source_id).toBe(UPLOADED);
+    expect(f.device_model).toBe(LABEL);
+    expect(f.strava_status).toBe("uploaded");
+
+    // Canonical strings (period-decimal) that the RideView parsers round-trip.
+    expect(f.distance).toBe("42.00 km");
+    expect(f.stats?.Distance).toBe("42.00 km");
+    expect(f.stats?.["Average speed"]).toBe("25.2 km/h");
+    expect(f.stats?.["Max speed"]).toBe("41.4 km/h");
+    expect(f.stats?.["Moving time"]).toBe("1:40:00");
+    expect(f.stats?.["Elapsed time"]).toBe("1:50:00");
+    expect(f.duration).toBe("1:50:00");
+    expect(f.stats?.["Elevation gain"]).toBe("320 m");
+    expect(f.stats?.["Elevation loss"]).toBe("305 m");
+
+    // The strings parse back to the numbers RideView will compute from.
+    expect(parseKm(f.distance ?? "")).toBeCloseTo(42.0, 2);
+    expect(parseKmh(f.stats?.["Average speed"] ?? "")).toBeCloseTo(25.2, 1);
+
+    // Title: a time-of-day base name plus the routed destination as a location
+    // suffix (Beeline stores no title, so we synthesize one). TZ-robust: the base
+    // is the expected time-of-day name, the full title carries the destination.
+    expect(f.title_base).toBe(timeOfDayName(FIXTURE[UPLOADED].start as number));
+    expect(f.title).toBe(`${f.title_base}, Old Harbour Cafe`);
+
+    // Track: the FULL inline polyline is stored verbatim (no simplification), so
+    // it decodes to exactly the source points and matches the original string.
+    expect(f.track).toBe(FIXTURE[UPLOADED].polyline);
+    const decoded = decodePolyline(f.track ?? "");
+    expect(decoded.length).toBeGreaterThan(2);
+    expect(f.track_src_points).toBe(decoded.length);
+    expect(f.track_points).toBe(decoded.length);
+    expect(f.track_km ?? 0).toBeGreaterThan(0);
+  });
+
+  it("prefers the user-set ride name over a synthesized one (keeping the place suffix)", () => {
+    // A ride the user named in the Beeline app, with a routed destination.
+    const named: RawBeelineRide = {
+      ...FIXTURE[PROCESSING],
+      name: "Let's go sailing",
+    };
+    const m = mapBeelineRide("named-ride", named, LABEL);
+    expect(m?.fields.title_base).toBe("Let's go sailing");
+    // The destination place is still appended as the gray location suffix.
+    expect(m?.fields.title).toBe("Let's go sailing, Tech Campus");
+  });
+
+  it("ignores a blank user name and falls back to the time-of-day name", () => {
+    const blank: RawBeelineRide = { ...FIXTURE[PENDING], name: "   " };
+    const m = mapBeelineRide("blank-name", blank, LABEL);
+    expect(m?.fields.title_base).toBe(timeOfDayName(FIXTURE[PENDING].start as number));
+  });
+
+  it("treats a never-uploaded ride as pending and omits zero metrics", () => {
+    const m = mapBeelineRide(PENDING, FIXTURE[PENDING], LABEL);
+    expect(m?.fields.strava_status).toBe("pending");
+    // Zero distance/speed must not produce bogus "0.00 km" stats.
+    expect(m?.fields.distance).toBeUndefined();
+    expect(m?.fields.stats?.Distance).toBeUndefined();
+    expect(m?.fields.stats?.["Average speed"]).toBeUndefined();
+    // It still has a usable track.
+    expect(m?.fields.track).toBeTruthy();
+    // No routed destination → just the time-of-day name, no location suffix.
+    const base = timeOfDayName(FIXTURE[PENDING].start as number);
+    expect(m?.fields.title_base).toBe(base);
+    expect(m?.fields.title).toBe(base);
+  });
+
+  it("gives every ride a time-of-day name so none render as a bare 'Ride'", () => {
+    for (const id of Object.keys(FIXTURE)) {
+      const m = mapBeelineRide(id, FIXTURE[id], LABEL);
+      const base = m?.fields.title_base ?? "";
+      // Always a non-empty Strava-style name, and always a prefix of the full title.
+      expect(base).toMatch(/^(Morning|Afternoon|Evening|Night) ride$/);
+      expect(m?.fields.title?.startsWith(base)).toBe(true);
+    }
+  });
+
+  it("treats a failed upload as pending (retryable)", () => {
+    const m = mapBeelineRide(FAILED, FIXTURE[FAILED], LABEL);
+    expect(m?.fields.strava_status).toBe("pending");
+  });
+
+  it("reports an in-flight upload as processing", () => {
+    const m = mapBeelineRide(PROCESSING, FIXTURE[PROCESSING], LABEL);
+    expect(m?.fields.strava_status).toBe("processing");
+    expect(m?.fields.distance).toBe("11.00 km");
+  });
+
+  it("handles an uploaded ride with no polyline (no track, still uploaded)", () => {
+    const m = mapBeelineRide(NO_POLYLINE, FIXTURE[NO_POLYLINE], LABEL);
+    expect(m?.fields.strava_status).toBe("uploaded");
+    expect(m?.fields.track).toBeUndefined();
+    expect(m?.fields.track_points).toBeUndefined();
+  });
+
+  it("derives a date key that round-trips through rideDatetime", () => {
+    for (const id of Object.keys(FIXTURE)) {
+      const m = mapBeelineRide(id, FIXTURE[id], LABEL);
+      expect(m).not.toBeNull();
+      if (!m) continue;
+      const dt = rideDatetime(m.key);
+      expect(dt).not.toBeNull();
+      // Re-deriving the key from the parsed instant is stable.
+      expect(beelineRideKey(dt!.getTime())).toBe(m.key);
+    }
+  });
+
+  it("returns null when the ride has no start time", () => {
+    expect(mapBeelineRide("x", {}, LABEL)).toBeNull();
+    expect(mapBeelineRide("x", { start: Number.NaN }, LABEL)).toBeNull();
+  });
+});
+
+describe("beelineRideKey", () => {
+  it("formats an instant as a parseable ride key in local wall-clock time", () => {
+    const start = FIXTURE[PROCESSING].start as number;
+    const key = beelineRideKey(start);
+    const dt = new Date(start);
+    // The key carries the local wall-clock numbers (matching rideDatetime's local rebuild).
+    const parsed = rideDatetime(key);
+    expect(parsed).not.toBeNull();
+    expect(parsed?.getFullYear()).toBe(dt.getFullYear());
+    expect(parsed?.getMonth()).toBe(dt.getMonth());
+    expect(parsed?.getDate()).toBe(dt.getDate());
+    expect(parsed?.getHours()).toBe(dt.getHours());
+    expect(parsed?.getMinutes()).toBe(dt.getMinutes());
+  });
+
+  it("returns '' for a non-finite instant", () => {
+    expect(beelineRideKey(Number.NaN)).toBe("");
+  });
+});
+
+describe("stravaStatusOf", () => {
+  const cases: Array<[string, RawBeelineRide, string]> = [
+    ["no activity → pending", {}, "pending"],
+    [
+      "availableOnStrava → uploaded",
+      { strava_activity: { stravaUploadStatus: { status: "availableOnStrava" } } },
+      "uploaded",
+    ],
+    [
+      "finishedUploading → uploaded",
+      { strava_activity: { stravaUploadStatus: { status: "finishedUploading" } } },
+      "uploaded",
+    ],
+    [
+      "startedUploading → processing",
+      { strava_activity: { stravaUploadStatus: { status: "startedUploading" } } },
+      "processing",
+    ],
+    [
+      "uploadFailed → pending",
+      { strava_activity: { stravaUploadStatus: { status: "uploadFailed" } } },
+      "pending",
+    ],
+    [
+      "unknown status with id → uploaded",
+      { strava_activity: { id: 123, stravaUploadStatus: { status: "weird" } } },
+      "uploaded",
+    ],
+    [
+      "unknown status without id → pending",
+      { strava_activity: { stravaUploadStatus: { status: "weird" } } },
+      "pending",
+    ],
+  ];
+  for (const [name, ride, expected] of cases) {
+    it(name, () => {
+      expect(stravaStatusOf(ride)).toBe(expected);
+    });
+  }
+
+  it("isTerminalStatus: processing is non-terminal, others terminal", () => {
+    expect(isTerminalStatus("processing")).toBe(false);
+    expect(isTerminalStatus("uploaded")).toBe(true);
+    expect(isTerminalStatus("pending")).toBe(true);
+  });
+});

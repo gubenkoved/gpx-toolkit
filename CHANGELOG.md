@@ -17,6 +17,40 @@ humans and the assistant can read this file as a compressed history of decisions
 
 ---
 
+## Beeline account as a new ride source (v0.2.0)
+- **What:** Added a **Beeline cloud account** source alongside the legacy ADB phone, behind a
+  new `RideSource` seam ([source.ts](src/source.ts)) the Controller drives instead of talking to
+  `BeelineApp` directly — implementations `AdbRideSource` (wraps the unchanged phone automation),
+  `BeelineRideSource` ([beeline-source.ts](src/beeline-source.ts)) over a reverse-engineered
+  Firebase backend client ([beeline-api.ts](src/beeline-api.ts)), and per-source demos. A startup
+  **source picker** chooses the account (email/password), the phone, or a demo of either; each
+  profile gets its own IndexedDB namespace, and the chosen one is remembered. Bumped to 0.2.0.
+
+  The account source pulls the **entire** history — routes, stats, Strava status — in one request;
+  uploads run server-side through a bounded concurrency pool. Everything that follows is a
+  consequence of that mode:
+  - **Rides & titles:** Beeline rides derive their key from `start`, keep the **full** inline
+    polyline as their track (no simplification), and take their title from the user's own ride
+    `name` when set, else a synthesized "Morning/Afternoon/Evening/Night ride", with the routed
+    destination appended as a muted location suffix.
+  - **Credentials:** the password is used once to get a short-lived in-memory token and is **never
+    stored**; on reload the app shows cached rides offline and re-prompts (so a password manager
+    can inject it) only when an action needs the account. Re-sync reconciles against the server —
+    updating changed rides and soft-deleting removed ones while keeping their track/data.
+  - **Streamlined chrome:** in Beeline mode the phone-only controls are hidden (interaction speed,
+    scan presets, Check, per-phone Source filter, track-detail density) and "Scan" becomes
+    "Re-sync"; GPX export is a single "Save .gpx" synthesized from the cached track (works offline).
+    Added Beeline-only **Destination** and **Named** filter chips.
+  - **Explore extras:** a full-screen single-ride route map with an along-track hover readout
+    (distance + an **estimated** time/clock, clearly flagged since Beeline tracks carry no
+    per-point timestamps).
+  - **UX/fixes along the way:** clearer "Strava status" filter label, a "Change source" switcher,
+    an escapable source picker, a dismissable/auto-fading error toast, and de-PII'd test/demo data.
+- **Why:** The ADB path drives the phone UI ~10 s/ride; the Beeline backend returns the whole
+  history at once and uploads server-side, so the account source is dramatically faster and is now
+  the primary path. Keeping ADB behind the same `RideSource` interface left it as a faithful,
+  unchanged legacy fallback.
+
 ## Favicon: a route-squiggle brand mark
 - **What:** Added `public/favicon.svg` — a Strava-orange (`#fc5200`) winding ride
   track on the app's dark rounded tile, with an endpoint dot echoing the header

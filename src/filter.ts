@@ -7,6 +7,7 @@
  * "any" / null bound) is a no-op.
  */
 
+import { isSynthesizedRideName } from "./beeline-api";
 import type { RideView } from "./controller";
 
 export type TriState = "any" | "yes" | "no";
@@ -18,6 +19,10 @@ export interface Filters {
   gps: TriState;
   /** Checked-details (stats) presence. */
   details: TriState;
+  /** Routed-destination presence (Beeline rides that navigated somewhere). */
+  destination: TriState;
+  /** Real user-given name vs the auto time-of-day fallback ("Morning ride"). */
+  named: TriState;
   /** Deletion: only deleted, hide deleted, or don't care. */
   deleted: "any" | "only" | "none";
   /** Source device: "all", "__none__" (no device recorded), or a device model name. */
@@ -33,6 +38,8 @@ export function emptyFilters(): Filters {
     status: "all",
     gps: "any",
     details: "any",
+    destination: "any",
+    named: "any",
     deleted: "any",
     device: "all",
     distMin: null,
@@ -56,6 +63,8 @@ export function filtersActive(f: Filters): boolean {
     f.status !== "all" ||
     f.gps !== "any" ||
     f.details !== "any" ||
+    f.destination !== "any" ||
+    f.named !== "any" ||
     f.deleted !== "any" ||
     f.device !== "all" ||
     f.distMin !== null ||
@@ -81,6 +90,18 @@ export function matchesFilters(f: Filters, r: RideView): boolean {
   const hasDetails = !!r.stats && Object.keys(r.stats).length > 0;
   if (f.details === "yes" && !hasDetails) return false;
   if (f.details === "no" && hasDetails) return false;
+
+  // Routed-destination presence. The location suffix is set only when the ride
+  // navigated to a place, so it doubles as the "has destination" signal.
+  const hasDestination = r.location.trim().length > 0;
+  if (f.destination === "yes" && !hasDestination) return false;
+  if (f.destination === "no" && hasDestination) return false;
+
+  // Real user-given name vs the synthesized time-of-day fallback. A ride is "named"
+  // when its title is non-empty AND not one of our auto "<time> ride" names.
+  const hasName = r.title.trim().length > 0 && !isSynthesizedRideName(r.title);
+  if (f.named === "yes" && !hasName) return false;
+  if (f.named === "no" && hasName) return false;
 
   // Deletion.
   if (f.deleted === "only" && !r.deleted) return false;

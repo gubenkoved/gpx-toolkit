@@ -13,15 +13,16 @@ vi.mock("../src/track", async (importOriginal) => {
 
 import { DemoAdb } from "../src/adb/demo";
 import type { AdbDevice } from "../src/adb/types";
+import { PROFILES } from "../src/beeline";
 import { Controller } from "../src/controller";
 import { memoryBackend } from "../src/kv";
+import { AdbRideSource } from "../src/source";
 import { Store } from "../src/store";
 
 function makeController(device: AdbDevice): Controller {
   return new Controller(
-    async () => device,
+    () => AdbRideSource.create(device, PROFILES.normal, async () => {}),
     new Store(memoryBackend()),
-    async () => {},
   );
 }
 

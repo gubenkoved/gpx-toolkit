@@ -1,7 +1,7 @@
 {
   "name": "beeline-uploader-web",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   "description": "Beeline Toolkit — backend-free, Android-only Beeline companion (WebUSB ADB + LocalStorage); upload rides to Strava and more.",
   "scripts": {
