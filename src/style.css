@@ -128,11 +128,34 @@ details.help kbd { background: var(--line); border-radius: 4px; padding: 1px 5px
 .job.show { opacity: 1; pointer-events: auto;
   transform: translateX(-50%) translateY(0) scale(1);
   animation: jobGlow 2.4s ease-in-out infinite; }
+/* In the Map view the date filter floats full-width along the bottom (.map-filter,
+   z-index 500) over the same bottom-centre slot the pill occupies. Lift the pill
+   clear of the filter bar — and above it in the stack — so both stay readable.
+   Scoped to when the filter is actually shown, leaving Explore/Stats untouched. */
+body:has(#mapFilter:not(.hidden)) .job { bottom: 74px; z-index: 501; }
+/* Minimized handle: when the user hides the pill mid-run, it collapses to this
+   small spinner+count chip in the same bottom-centre slot. Click to restore the
+   full pill. Shares the pill's elevated blue surface so it still reads as live
+   work, and rides the same map-filter lift so it never sits under the filter. */
+.job-handle { position: fixed; left: 50%; bottom: 22px; z-index: 50;
+  display: none; align-items: center; gap: 9px; padding: 7px 15px 7px 12px;
+  background: linear-gradient(180deg, #243047, #1a2233);
+  border: 1px solid #3a5a8c; border-radius: 22px;
+  color: #eaf1ff; font-size: 12.5px; font-weight: 600;
+  box-shadow: 0 14px 40px rgba(0,0,0,.55), 0 0 0 1px rgba(76,141,255,.18),
+    0 0 24px rgba(76,141,255,.28);
+  opacity: 0; pointer-events: none; cursor: pointer;
+  transform: translateX(-50%) translateY(14px) scale(.98);
+  transition: opacity .18s ease, transform .18s ease; }
+.job-handle.show { display: inline-flex; opacity: 1; pointer-events: auto;
+  transform: translateX(-50%) translateY(0) scale(1); }
+.job-handle:hover { border-color: #4c8dff; }
+body:has(#mapFilter:not(.hidden)) .job-handle { bottom: 74px; z-index: 501; }
 @keyframes jobGlow {
   50% { box-shadow: 0 14px 40px rgba(0,0,0,.55), 0 0 0 1px rgba(76,141,255,.30),
     0 0 34px rgba(76,141,255,.45); } }
 .job-head { display: flex; align-items: center; gap: 12px; padding: 10px 8px 10px 16px; }
-.job .spin { width: 17px; height: 17px; border-radius: 50%; flex: 0 0 auto;
+.job .spin, .job-handle .spin { width: 17px; height: 17px; border-radius: 50%; flex: 0 0 auto;
   border: 2px solid rgba(76,141,255,.25); border-top-color: var(--blue);
   animation: spin .8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
@@ -441,8 +464,9 @@ details.help kbd { background: var(--line); border-radius: 4px; padding: 1px 5px
 .rf-track input[type="range"]:disabled::-webkit-slider-thumb { background: var(--muted); cursor: default; }
 .rf-track input[type="range"]:disabled::-moz-range-thumb { background: var(--muted); cursor: default; }
 /* Floating variant over the map; non-floating card in the Stats view. Anchored
-   low and left so it clears the top controls (zoom / Expand), the bottom-right
-   Leaflet attribution and the bottom-centre job pill. */
+   along the bottom, clear of the top controls (zoom / Expand) and the bottom-right
+   Leaflet attribution. The bottom-centre job pill lifts above this bar when shown
+   (see the body:has(#mapFilter…) rule) so the two never overlap. */
 .map-filter { position: absolute; left: 10px; right: 10px; bottom: 10px;
   z-index: 500; padding: 8px 16px;
   background: rgba(20,23,29,.92); border: 1px solid var(--line); border-radius: 10px;

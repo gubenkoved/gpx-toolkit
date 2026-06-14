@@ -17,6 +17,14 @@ humans and the assistant can read this file as a compressed history of decisions
 
 ---
 
+## Let the live job pill be hidden and brought back
+- **What:** Added a **Hide** button to the status/queue pill that collapses it to a small spinner+count handle (bottom-centre, same elevated surface); clicking the handle restores the full pill. A `jobHidden` flag holds the state across the ticker's re-renders and auto-resets when work ends so the next batch reappears on its own.
+- **Why:** The pill is pinned over the content while work runs (~10 s/ride, often a long batch) and could sit in the way with no way to dismiss it. Hiding never pauses work — the handle keeps the spinner + ride count visible as a one-click affordance to bring it back, so the escape hatch stays laconic and reversible.
+
+## Stop the Map date filter from covering the status pill
+- **What:** In the Map view the floating status/queue pill (`.job`) now lifts above the bottom date filter (`.map-filter`) whenever that filter is visible — `body:has(#mapFilter:not(.hidden)) .job` raises its `bottom` and `z-index` so it clears and stacks above the bar. Fixed the stale `.map-filter` comment that claimed it already cleared the pill.
+- **Why:** Both controls live in the bottom-centre slot and the full-width filter had the higher `z-index` (500 vs 50), so while a job ran the filter painted over the pill — hiding live progress and its Stop/Clear buttons. Lifting the pill (rather than only swapping z-index) keeps the slider *and* the pill usable, since they no longer overlap. Scoped to the inline Map view; full-screen Map intentionally stays map-over-everything.
+
 ## Read the ride title from the resting detail sheet, not the scrolled one
 - **What:** `BeelineApp.readDetail()` now dumps the bottom-sheet at its resting position first (title/datetime/stats), then reveals the upload buttons only to read the Strava status, merging the two. The demo's `renderDetail` now hides the heading + datetime once revealed, mirroring a short screen — making the existing controller/GPX tests real regression guards.
 - **Why:** The Check/GPX flow swipes the sheet up to expose the Strava button; on a short screen (YAL-L21) that scrolls the heading off the top, so the only title left was the list card's short name — the ", City" suffix the detail uniquely provides was lost. The unit tests passed because they fed the *resting* fixture directly and the demo unrealistically kept the heading visible when revealed, so neither exercised the scrolled flow the real Check uses. Reading the resting sheet is uniformly correct across screen sizes (one extra dump on tall screens where the heading would have survived).

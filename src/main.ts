@@ -188,6 +188,10 @@ let openMenu: string | null = null;
 // survives the frequent re-renders the job ticker triggers; starts open so the
 // pending work is visible by default.
 let queueExpanded = true;
+// Whether the user has minimized the live job pill to its small handle. Module-
+// scope so it survives the job ticker's re-renders; auto-resets when work ends so
+// the next batch shows itself rather than staying hidden silently.
+let jobHidden = false;
 let preset = "month";
 let statGran: Granularity | "auto" = "auto";
 let statMetric: "distance" | "speed" = "distance";
@@ -1387,7 +1391,9 @@ function renderJob(): void {
   const scanCount = [cur, ...queue].filter((t) => t && t.kind === "scan").length;
   const total = rideCount + scanCount;
   const busy = !!cur || queuedTasks > 0;
-  $("#job").classList.toggle("show", busy);
+  if (!busy) jobHidden = false; // a finished batch clears the hide so the next one reappears
+  $("#job").classList.toggle("show", busy && !jobHidden);
+  $("#jobHandle").classList.toggle("show", busy && jobHidden);
   document.body.classList.toggle("job-active", busy);
 
   // -- current activity: what is being done right now -----------------------
@@ -1416,6 +1422,9 @@ function renderJob(): void {
   const qc = $("#qcount");
   qc.textContent = total ? `${total} ride${total === 1 ? "" : "s"} queued` : "";
   qc.style.display = total ? "" : "none";
+
+  // Minimized handle mirrors the count (or the live verb when nothing is queued).
+  $("#jobHandleText").textContent = total ? `${total} ride${total === 1 ? "" : "s"}` : "Working\u2026";
 
   // -- the rest of the queue: what is to be done ----------------------------
   const toggle = $("#btnQueueToggle") as HTMLElement;
@@ -1714,6 +1723,16 @@ document.addEventListener("click", (e) => {
   if (t.id === "btnClear") return run(() => controller.clear());
   if (t.id === "btnQueueToggle") {
     queueExpanded = !queueExpanded;
+    renderJob();
+    return;
+  }
+  if (t.id === "btnJobHide") {
+    jobHidden = true;
+    renderJob();
+    return;
+  }
+  if (t.id === "jobHandle") {
+    jobHidden = false;
     renderJob();
     return;
   }

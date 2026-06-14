@@ -177,9 +177,14 @@
     <button class="small ghost job-toggle" id="btnQueueToggle" aria-expanded="true"></button>
     <button class="small ghost" id="btnClear">Clear queue</button>
     <button class="small" id="btnCancel">Stop</button>
+    <button class="small ghost job-hide" id="btnJobHide" title="Hide — work keeps running" aria-label="Hide">Hide</button>
   </div>
   <div class="job-bar" id="jobBar"><div class="job-bar-fill" id="jobBarFill"></div></div>
 </div>
+<button class="job-handle" id="jobHandle" title="Show activity" aria-label="Show activity">
+  <span class="spin"></span>
+  <span id="jobHandleText"></span>
+</button>
 <div class="toast" id="toast"></div>
 
 <script type="module" src="/src/main.ts"></script>
