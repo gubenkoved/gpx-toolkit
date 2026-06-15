@@ -79,24 +79,36 @@ describe("filtersActive", () => {
 });
 
 describe("matchesFilters — status", () => {
-  it("pending excludes uploaded and deleted-pending rides", () => {
-    expect(matchesFilters(f({ status: "pending" }), ride({ status: "pending" }))).toBe(true);
-    expect(matchesFilters(f({ status: "pending" }), ride({ status: "uploaded" }))).toBe(false);
-    expect(
-      matchesFilters(f({ status: "pending" }), ride({ status: "pending", deleted: true })),
-    ).toBe(false);
-  });
-
   it("uploaded keeps only uploaded rides", () => {
     expect(matchesFilters(f({ status: "uploaded" }), ride({ status: "uploaded" }))).toBe(true);
     expect(matchesFilters(f({ status: "uploaded" }), ride({ status: "pending" }))).toBe(false);
+    expect(matchesFilters(f({ status: "uploaded" }), ride({ status: "processing" }))).toBe(
+      false,
+    );
   });
 
-  it("other is everything that is neither pending nor uploaded", () => {
-    expect(matchesFilters(f({ status: "other" }), ride({ status: "processing" }))).toBe(true);
-    expect(matchesFilters(f({ status: "other" }), ride({ status: "unknown" }))).toBe(true);
-    expect(matchesFilters(f({ status: "other" }), ride({ status: "pending" }))).toBe(false);
-    expect(matchesFilters(f({ status: "other" }), ride({ status: "uploaded" }))).toBe(false);
+  it("processing keeps only mid-flight uploads", () => {
+    expect(matchesFilters(f({ status: "processing" }), ride({ status: "processing" }))).toBe(
+      true,
+    );
+    expect(matchesFilters(f({ status: "processing" }), ride({ status: "pending" }))).toBe(false);
+    expect(matchesFilters(f({ status: "processing" }), ride({ status: "uploaded" }))).toBe(
+      false,
+    );
+  });
+
+  it("not-uploaded is everything still eligible to upload (pending/unknown)", () => {
+    expect(matchesFilters(f({ status: "not-uploaded" }), ride({ status: "pending" }))).toBe(true);
+    expect(matchesFilters(f({ status: "not-uploaded" }), ride({ status: "unknown" }))).toBe(true);
+    expect(
+      matchesFilters(f({ status: "not-uploaded" }), ride({ status: "pending", deleted: true })),
+    ).toBe(true);
+    expect(matchesFilters(f({ status: "not-uploaded" }), ride({ status: "uploaded" }))).toBe(
+      false,
+    );
+    expect(matchesFilters(f({ status: "not-uploaded" }), ride({ status: "processing" }))).toBe(
+      false,
+    );
   });
 });
 
@@ -225,11 +237,11 @@ describe("visibleRides", () => {
   });
 
   it("combines dimensions with AND", () => {
-    // pending + has GPS → only the deleted ride 'c' has both, but status pending
-    // excludes deleted-pending, so nothing matches.
+    // not-uploaded + has GPS → 'a' is uploaded (out), 'b' has no track (out),
+    // 'c' is pending (still eligible, deletion is orthogonal) with a track → only 'c'.
     expect(
-      visibleRides(f({ status: "pending", gps: "yes" }), rides).map((r) => r.key),
-    ).toEqual([]);
+      visibleRides(f({ status: "not-uploaded", gps: "yes" }), rides).map((r) => r.key),
+    ).toEqual(["c"]);
     // has GPS + not deleted → only 'a'.
     expect(visibleRides(f({ gps: "yes", deleted: "none" }), rides).map((r) => r.key)).toEqual([
       "a",

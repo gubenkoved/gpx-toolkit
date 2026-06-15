@@ -17,6 +17,19 @@ humans and the assistant can read this file as a compressed history of decisions
 
 ---
 
+## Replace the vague "Other" Strava-status filter with explicit states
+- **What:** Reworked the Explore status segment from `All / Pending / Uploaded / Other`
+  to `All / Not uploaded / Processing / Uploaded`. The `Filters.status` union and its
+  predicate in [src/filter.ts](src/filter.ts) now use three mutually-exclusive concrete
+  buckets that partition every ride — `uploaded`, `processing` (an upload mid-flight),
+  and `not-uploaded` (pending/unknown, still eligible). Updated `STATUS_VALUES`, the
+  `#fStatus` markup, and the filter tests; the `loadFilters` sanitizer migrates stale
+  persisted `pending`/`other` values to `all`.
+- **Why:** "Other" was a catch-all that actually hid Beeline's real `processing`
+  (`startedUploading`/`uploading`) state behind a meaningless label, and the old
+  `pending` bucket folded the orthogonal deletion check into status. Naming the genuine
+  states makes each bucket self-explanatory and leaves deletion to the separate filter.
+
 ## Remove the orphaned Check / route-preview engine paths
 - **What:** Second cleanup batch after deleting the Check / Preview-route UI. Dropped
   `controller.status()` and the `"status"` `TaskKind` (renamed the shared `doTargets`

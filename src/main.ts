@@ -347,9 +347,9 @@ const openStats = new Set<string>();
 // can never corrupt the bar.
 const STATUS_VALUES: ReadonlyArray<Filters["status"]> = [
   "all",
-  "pending",
   "uploaded",
-  "other",
+  "processing",
+  "not-uploaded",
 ];
 const TRI_VALUES: ReadonlyArray<TriState> = ["any", "yes", "no"];
 const DELETED_VALUES: ReadonlyArray<Filters["deleted"]> = ["any", "only", "none"];

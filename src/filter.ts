@@ -13,8 +13,9 @@ import type { RideView } from "./controller";
 export type TriState = "any" | "yes" | "no";
 
 export interface Filters {
-  /** Strava upload status. "other" = processing/unknown (neither pending nor uploaded). */
-  status: "all" | "pending" | "uploaded" | "other";
+  /** Strava upload status. "not-uploaded" = pending/unknown (eligible to upload),
+   *  "processing" = an upload is mid-flight, "uploaded" = on Strava. */
+  status: "all" | "uploaded" | "processing" | "not-uploaded";
   /** Route-preview (encoded track) presence. */
   gps: TriState;
   /** Checked-details (stats) presence. */
@@ -73,11 +74,13 @@ export function filtersActive(f: Filters): boolean {
 
 /** Does a ride pass every active filter? (AND across all dimensions.) */
 export function matchesFilters(f: Filters, r: RideView): boolean {
-  // Strava upload status. "pending" mirrors the totals' "upload pending" count
-  // (a deleted ride is never pending work); "other" = processing/unknown.
-  if (f.status === "pending" && !(r.status === "pending" && !r.deleted)) return false;
+  // Strava upload status. The three concrete buckets partition every ride:
+  // "uploaded" (on Strava), "processing" (an upload is mid-flight), and
+  // "not-uploaded" (everything else — pending/unknown — i.e. eligible to upload).
+  // Deletion is orthogonal here; the separate `deleted` dimension handles it.
   if (f.status === "uploaded" && r.status !== "uploaded") return false;
-  if (f.status === "other" && (r.status === "pending" || r.status === "uploaded"))
+  if (f.status === "processing" && r.status !== "processing") return false;
+  if (f.status === "not-uploaded" && (r.status === "uploaded" || r.status === "processing"))
     return false;
 
   // Route-preview presence.
