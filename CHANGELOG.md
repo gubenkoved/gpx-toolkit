@@ -17,6 +17,17 @@ humans and the assistant can read this file as a compressed history of decisions
 
 ---
 
+## Privacy note on the Beeline sign-in screen
+- **What:** Added a `.srcopt-note` under the Beeline account sign-in form in the
+  source picker: serverless / runs entirely in the browser, password sent once and
+  kept only in memory (never stored, so the password manager can fill it), plus an
+  open-source line linking the GitHub repo and noting you can run it locally. Shown
+  on the full picker only — hidden in password-only re-auth mode.
+- **Why:** Reduce the friction/hesitation of typing a password into a third-party
+  web app by making the existing privacy posture (already documented in the README)
+  visible at the point of entry, and lean on the open-source/run-it-yourself angle
+  to earn trust.
+
 ## Normalize ride metrics to numbers (drop string duplication)
 - **What:** Replaced the persisted localized stat strings (`distance: "5.50 km"`,
   `duration`, and the `stats` label→string map) with a single set of normalized

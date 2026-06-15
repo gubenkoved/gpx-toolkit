@@ -2672,6 +2672,28 @@ body.job-active .toast {
 .srcopt-err:empty {
   display: none;
 }
+/* Reassurance under the sign-in form: serverless, password-in-memory-only, open
+   source. Reuses the muted .srcopt-desc vocabulary; the link takes the accent. */
+.srcopt-note {
+  flex: 1 0 100%;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 10px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.srcopt-note-ico {
+  flex: 0 0 auto;
+  width: 40px;
+  height: 40px;
+  margin-top: 2px;
+  color: var(--accent-dim);
+}
+.srcopt-note a {
+  color: var(--accent);
+}
 .srcpick-dismiss {
   display: block;
   margin: 16px auto 0;
@@ -2710,6 +2732,7 @@ body.job-active .toast {
 .srcpick.reauth .srcopt:not(#srcBeeline),
 .srcpick.reauth #btnDemoBeeline,
 .srcpick.reauth #srcBeeline .srcopt-tag,
+.srcpick.reauth #srcBeeline .srcopt-note,
 .srcpick.reauth .srcpick-dismiss {
   display: none;
 }
