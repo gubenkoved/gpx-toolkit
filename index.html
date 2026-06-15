@@ -147,7 +147,7 @@
           <svg class="mi mi-expand" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M8 3H5a2 2 0 0 0-2 2v3M21 8V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3M16 21h3a2 2 0 0 0 2-2v-3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
           <svg class="mi mi-collapse" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M8 3v3a2 2 0 0 1-2 2H3M21 8h-3a2 2 0 0 1-2-2V3M3 16h3a2 2 0 0 1 2 2v3M16 21v-3a2 2 0 0 1 2-2h3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </button>
-        <div id="mapFilter" class="range-filter map-filter hidden" title="Drag to limit the rides shown by date"></div>
+        <div id="mapFilter" class="range-filter basemap-filter hidden" title="Drag to limit the rides shown by date"></div>
       </div>
       <aside class="map-side" id="mapSide"></aside>
     </div>
@@ -158,13 +158,12 @@
       your lifetime totals, records and a route-frequency heatmap.
     </div>
     <div class="stats-body" id="statsBody">
-      <div id="statsFilter" class="range-filter stats-filter hidden" title="Drag to limit the rides counted by date"></div>
       <section class="stats-section">
-        <h2 class="stats-h">Lifetime totals</h2>
+        <h2 class="stats-h">Lifetime totals<span class="stats-flag" id="totalsFlag"></span></h2>
         <div class="stats-cards" id="statsTotals"></div>
       </section>
       <section class="stats-section">
-        <h2 class="stats-h">Records</h2>
+        <h2 class="stats-h">Records<span class="stats-flag" id="recordsFlag"></span></h2>
         <div class="stats-cards" id="statsRecords"></div>
       </section>
       <section class="stats-section">
@@ -184,6 +183,7 @@
               <svg class="mi mi-expand" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M8 3H5a2 2 0 0 0-2 2v3M21 8V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3M16 21h3a2 2 0 0 0 2-2v-3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
               <svg class="mi mi-collapse" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M8 3v3a2 2 0 0 1-2 2H3M21 8h-3a2 2 0 0 1-2-2V3M3 16h3a2 2 0 0 1 2 2v3M16 21v-3a2 2 0 0 1 2-2h3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
             </button>
+            <div id="statsFilter" class="range-filter basemap-filter hidden" title="Drag to limit the rides counted by date"></div>
           </div>
           <aside class="map-side heat-side" id="heatMatched"></aside>
         </div>

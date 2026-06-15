@@ -53,22 +53,18 @@ const TRACKS: RideTrack[] = [
   }, // near pixel (80, 80–84)
 ];
 
+/** A pointer event jsdom can dispatch: a MouseEvent carrying a `pointerId`. */
+function pointer(type: string, x: number, y: number): MouseEvent {
+  const e = new MouseEvent(type, { clientX: x, clientY: y, button: 0, bubbles: true });
+  Object.defineProperty(e, "pointerId", { value: 1, configurable: true });
+  return e;
+}
+
 /** Drive a container-pixel drag through the controller's real DOM listeners. */
 function drag(container: HTMLElement, from: [number, number], to: [number, number]): void {
-  container.dispatchEvent(
-    new MouseEvent("mousedown", {
-      clientX: from[0],
-      clientY: from[1],
-      button: 0,
-      bubbles: true,
-    }),
-  );
-  container.dispatchEvent(
-    new MouseEvent("mousemove", { clientX: to[0], clientY: to[1], bubbles: true }),
-  );
-  window.dispatchEvent(
-    new MouseEvent("mouseup", { clientX: to[0], clientY: to[1], bubbles: true }),
-  );
+  container.dispatchEvent(pointer("pointerdown", from[0], from[1]));
+  container.dispatchEvent(pointer("pointermove", to[0], to[1]));
+  container.dispatchEvent(pointer("pointerup", to[0], to[1]));
 }
 
 describe("createAreaSelect", () => {

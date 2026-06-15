@@ -17,6 +17,14 @@ humans and the assistant can read this file as a compressed history of decisions
 
 ---
 
+## Map & Stats UX polish
+- **What:** Date filter sits below the basemap (Map + Stats) so it never covers the
+  OSM credit; drag the selected span as a fixed-width window; area-select works on
+  touch; Leaflet zoom/attribution themed to match the dark UI; Stats cards restyled
+  minimal with a "filtered" hint when the date range is narrowed; misc modal/slider/
+  form fixes.
+- **Why:** Cohesive, lighter map and stats experience that also works on mobile.
+
 ## Render the all-rides Map on a canvas (perf at scale)
 - **What:** Switched `#allRidesMap` to Leaflet's canvas renderer (`preferCanvas: true`)
   so every ride track draws onto one `<canvas>` instead of one SVG `<path>` per ride,

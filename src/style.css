@@ -579,10 +579,10 @@ details.help kbd {
   transform: translateX(-50%) translateY(0) scale(1);
   animation: jobGlow 2.4s ease-in-out infinite;
 }
-/* In the Map view the date filter floats full-width along the bottom (.map-filter,
-   z-index 500) over the same bottom-centre slot the pill occupies. Lift the pill
-   clear of the filter bar — and above it in the stack — so both stay readable.
-   Scoped to when the filter is actually shown, leaving Explore/Stats untouched. */
+/* In the Map view the date filter (.basemap-filter) sits at the bottom of the map
+   column, near the same bottom-centre slot the fixed status pill occupies. Lift
+   the pill clear of the filter bar — and above it in the stack — so both stay
+   readable. Scoped to when the filter is shown, leaving Explore/Stats untouched. */
 body:has(#mapFilter:not(.hidden)) .job {
   bottom: calc(74px + var(--vv-bottom, 0px) + env(safe-area-inset-bottom, 0px));
   z-index: 501;
@@ -590,7 +590,7 @@ body:has(#mapFilter:not(.hidden)) .job {
 /* Minimized handle: when the user hides the pill mid-run, it collapses to this
    small spinner+count chip in the same bottom-centre slot. Click to restore the
    full pill. Shares the pill's elevated blue surface so it still reads as live
-   work, and rides the same map-filter lift so it never sits under the filter. */
+   work, and rides the same basemap-filter lift so it never sits under the filter. */
 .job-handle {
   position: fixed;
   left: 50%;
@@ -1749,41 +1749,60 @@ body.ridemap-open {
   font-size: 12px;
   font-weight: 400;
 }
+/* Filtered hint in a section header: only shown when the Stats date slider is
+   narrowed (JS leaves it empty otherwise, so :empty collapses it). Accent-tinted
+   so it reads as "these figures are a subset", not the lifetime total. */
+.stats-h .stats-flag {
+  color: var(--accent);
+  font-size: 11.5px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+}
+.stats-h .stats-flag:empty {
+  display: none;
+}
 .stats-cards {
   display: grid;
   gap: 10px;
   grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
 }
 .stat-card {
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  padding: 13px 15px;
+  /* Option 5 — Minimal & expressive: no card chrome; a refined large numeral
+     above a short accent underline and a small tracked-out label. The underline
+     is the only colour, giving each stat a quiet but deliberate accent. */
+  background: none;
+  border: 0;
+  border-radius: 0;
+  padding: 2px 2px 2px 0;
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  align-items: flex-start;
+  gap: 7px;
   min-width: 0;
 }
 .stat-card .sc-val {
-  font-size: 24px;
+  font-size: 27px;
   font-weight: 700;
-  line-height: 1.1;
+  line-height: 1;
   color: var(--text);
-  letter-spacing: -0.01em;
+  letter-spacing: -0.02em;
+  padding-bottom: 7px;
+  border-bottom: 2px solid var(--accent);
 }
 .stat-card .sc-label {
-  font-size: 12px;
+  font-size: 10.5px;
   color: var(--muted);
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.09em;
 }
 .stat-card .sc-sub {
   font-size: 12px;
   color: var(--text);
-  opacity: 0.85;
+  opacity: 0.75;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  max-width: 100%;
 }
 .heat-thickness {
   display: inline-flex;
@@ -1815,11 +1834,17 @@ body.ridemap-open {
   position: relative;
   height: 100%;
   min-width: 0;
+  /* Mirror the Map view's `.map-main`: a flex column so the heatmap fills the
+     space and any control (e.g. a date filter) sits in flow beneath it rather
+     than overlaying the bottom-right Leaflet attribution. Keep in lockstep. */
+  display: flex;
+  flex-direction: column;
 }
 /* The heatmap's "Selected" list sits in a side panel beside the map, mirroring the
    Map view's `.map-side`; it only fills once an area-select picks rides. */
 #freqHeatMap {
-  height: 100%;
+  flex: 1;
+  min-height: 0;
   border-radius: var(--radius);
   overflow: hidden;
   border: 1px solid var(--line);
@@ -1840,6 +1865,7 @@ body.ridemap-open {
 #freqHeatMap.selecting .leaflet-grab,
 #freqHeatMap.selecting .leaflet-interactive {
   cursor: crosshair;
+  touch-action: none;
 }
 
 /* -- all-rides heatmap (Map view) ----------------------------------------- */
@@ -1855,9 +1881,15 @@ body.ridemap-open {
   position: relative;
   height: 100%;
   min-width: 0;
+  /* Column: the map fills the space, the date filter sits directly beneath it
+     (in normal flow, not overlaying the map) so the map's bottom-right Leaflet
+     attribution stays clear. The filter is hidden until there are rides. */
+  display: flex;
+  flex-direction: column;
 }
 #allRidesMap {
-  height: 100%;
+  flex: 1;
+  min-height: 0;
   border-radius: var(--radius);
   overflow: hidden;
   border: 1px solid var(--line);
@@ -1963,11 +1995,14 @@ body.ridemap-open {
 .map-select.active .mi-cancel {
   display: block;
 }
-/* Crosshair while selecting; override Leaflet's own grab/pointer cursors. */
+/* Crosshair while selecting; override Leaflet's own grab/pointer cursors.
+   touch-action:none stops the browser hijacking the touch drag for scroll/zoom
+   so the rubber-band gesture works on mobile. */
 #allRidesMap.selecting,
 #allRidesMap.selecting .leaflet-grab,
 #allRidesMap.selecting .leaflet-interactive {
   cursor: crosshair;
+  touch-action: none;
 }
 /* The dashed rubber-band rectangle drawn during an area-select drag. */
 .map-rubber {
@@ -1977,6 +2012,56 @@ body.ridemap-open {
   border: 1.5px dashed var(--accent);
   background: rgba(255, 90, 31, 0.12);
   border-radius: 2px;
+}
+
+/* -- Leaflet control theming (all maps) -----------------------------------
+   Leaflet ships its zoom +/- and attribution controls in a stock light theme
+   that looks alien against the dark app. Re-skin them in the same floating-button
+   vocabulary as `.map-expand`/`.map-select` (translucent dark panel, app border,
+   blur). Scoped under `.leaflet-container` so every map (all-rides, heatmap,
+   full-screen ride map) is themed at once, and so these beat Leaflet's own
+   `.leaflet-touch .leaflet-bar` rules at equal specificity (leaflet.css now loads
+   before style.css). */
+.leaflet-container .leaflet-bar {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
+  background-clip: padding-box;
+}
+.leaflet-container .leaflet-bar a {
+  background: rgba(20, 23, 29, 0.92);
+  color: var(--text);
+  border-bottom: 1px solid var(--line);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+}
+.leaflet-container .leaflet-bar a:hover {
+  background: #222732;
+  color: var(--text);
+  border-bottom-color: var(--line);
+}
+.leaflet-container .leaflet-bar a:first-child {
+  border-top-left-radius: 7px;
+  border-top-right-radius: 7px;
+}
+.leaflet-container .leaflet-bar a:last-child {
+  border-bottom-left-radius: 7px;
+  border-bottom-right-radius: 7px;
+  border-bottom: none;
+}
+.leaflet-container .leaflet-bar a.leaflet-disabled {
+  background: rgba(20, 23, 29, 0.55);
+  color: var(--muted);
+}
+/* Attribution: dark translucent strip instead of Leaflet's stock white pill. */
+.leaflet-container .leaflet-control-attribution {
+  background: rgba(11, 13, 17, 0.78);
+  color: var(--muted);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+}
+.leaflet-container .leaflet-control-attribution a {
+  color: var(--accent);
 }
 
 /* -- date range filter (shared by Map + Stats views) ---------------------- */
@@ -2045,10 +2130,32 @@ body.ridemap-open {
   transform: translateY(-50%);
   border-radius: 3px;
   background: var(--accent);
+  pointer-events: none;
   left: calc(var(--rf-thumb) / 2 + var(--rf-lo, 0) * (100% - var(--rf-thumb)));
   right: calc(var(--rf-thumb) / 2 + (1 - var(--rf-hi, 1)) * (100% - var(--rf-thumb)));
 }
 .rf-track.rf-empty::after {
+  display: none;
+}
+/* Draggable selection window: grab the span between the two thumbs to slide the
+   whole selection without resizing it. Inset by a full thumb on each side so both
+   thumbs stay exposed and individually draggable; the thumbs (z-index 3) ride
+   above it. Collapses to nothing when the span is empty. */
+.rf-window {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  height: 18px;
+  z-index: 2;
+  left: calc(var(--rf-thumb) + var(--rf-lo, 0) * (100% - var(--rf-thumb)));
+  right: calc(var(--rf-thumb) + (1 - var(--rf-hi, 1)) * (100% - var(--rf-thumb)));
+  cursor: grab;
+  touch-action: none;
+}
+.rf-window.dragging {
+  cursor: grabbing;
+}
+.rf-track.rf-empty .rf-window {
   display: none;
 }
 .rf-track input[type="range"] {
@@ -2060,6 +2167,7 @@ body.ridemap-open {
   margin: 0;
   background: none;
   pointer-events: none;
+  z-index: 3;
   -webkit-appearance: none;
   appearance: none;
 }
@@ -2074,7 +2182,7 @@ body.ridemap-open {
   width: 15px;
   border-radius: 50%;
   background: var(--accent);
-  border: 2px solid #fff;
+  border: 2px solid var(--bg);
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
   cursor: grab;
   margin-top: -1px;
@@ -2088,7 +2196,7 @@ body.ridemap-open {
   width: 15px;
   border-radius: 50%;
   background: var(--accent);
-  border: 2px solid #fff;
+  border: 2px solid var(--bg);
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
   cursor: grab;
 }
@@ -2100,29 +2208,19 @@ body.ridemap-open {
   background: var(--muted);
   cursor: default;
 }
-/* Floating variant over the map; non-floating card in the Stats view. Anchored
-   along the bottom, clear of the top controls (zoom / Expand) and the bottom-right
-   Leaflet attribution. The bottom-centre job pill lifts above this bar when shown
-   (see the body:has(#mapFilter…) rule) so the two never overlap. */
-.map-filter {
-  position: absolute;
-  left: 10px;
-  right: 10px;
-  bottom: 10px;
-  z-index: 500;
+/* Shared chrome for the date filter that sits directly below a basemap — used by
+   both the Map view (below #allRidesMap) and the Stats heatmap (below #freqHeatMap)
+   so the two read identically. In flow (never overlaying the map) so the
+   bottom-right Leaflet attribution stays clear. On the Map view the bottom-centre
+   job pill lifts above it when shown (see the body:has(#mapFilter…) rule). */
+.basemap-filter {
+  margin-top: 10px;
+  flex: 0 0 auto;
   padding: 8px 16px;
   background: rgba(20, 23, 29, 0.92);
   border: 1px solid var(--line);
   border-radius: 10px;
-  backdrop-filter: blur(6px);
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.4);
-}
-.stats-filter {
-  margin: 0 0 18px;
-  padding: 10px 16px;
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
 }
 
 /* Full-screen mode: the map-wrap fills the viewport above everything else. */
@@ -2634,7 +2732,10 @@ body.job-active .toast {
 .srcpick {
   position: fixed;
   inset: 0;
-  z-index: 80;
+  /* Above all map chrome — the floating map buttons (z-500) and rubber-band
+     (z-600) live in the root stacking context, so a full-screen modal must
+     outrank them or it'll be punched through. */
+  z-index: 1000;
   display: grid;
   place-items: center;
   padding: 24px;
@@ -2714,6 +2815,7 @@ body.job-active .toast {
 .srcopt-form {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 8px;
   margin-top: 12px;
 }
@@ -2724,8 +2826,9 @@ body.job-active .toast {
   border: 1px solid var(--line);
   border-radius: 8px;
   color: var(--text);
-  padding: 8px 10px;
+  padding: 7px 10px;
   font: inherit;
+  line-height: 1.4;
 }
 .srcopt-form input:focus {
   outline: none;
@@ -2812,7 +2915,8 @@ body.job-active .toast {
 .confirm {
   position: fixed;
   inset: 0;
-  z-index: 90;
+  /* Above the source picker (z-1000) and all map chrome — see .srcpick. */
+  z-index: 1010;
   display: grid;
   place-items: center;
   padding: 24px;

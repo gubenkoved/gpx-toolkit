@@ -58,6 +58,9 @@ export function createAreaSelect(opts: AreaSelectOptions): AreaSelect {
   let dragStart: PixelPoint | null = null;
   let rubberBand: HTMLDivElement | null = null;
   let attached = false;
+  // The pointer that started the current drag; ignore others (multi-touch) so a
+  // second finger can't hijack or jitter the rubber-band mid-gesture.
+  let activePointerId: number | null = null;
 
   /** Project the current tracks into container pixels for click hit-testing. */
   function projectTracks(map: L.Map): ProjectedTrack[] {
@@ -135,31 +138,43 @@ export function createAreaSelect(opts: AreaSelectOptions): AreaSelect {
     opts.onSelect(keys.length ? [keys[0]] : []);
   }
 
-  function onDown(e: MouseEvent): void {
+  function onDown(e: PointerEvent): void {
     const map = opts.getMap();
     if (!armed || !map || e.button !== 0) return;
     const p = map.mouseEventToContainerPoint(e);
     dragStart = { x: p.x, y: p.y };
+    activePointerId = e.pointerId;
+    // Capture the pointer so move/up keep firing on this element even if the
+    // finger/cursor slides outside the map (essential for touch drags).
+    try {
+      map.getContainer().setPointerCapture(e.pointerId);
+    } catch {
+      // Older engines may reject capture; the gesture still works for mouse.
+    }
     rubberBand = document.createElement("div");
     rubberBand.className = "map-rubber";
     map.getContainer().appendChild(rubberBand);
     updateRubber(p.x, p.y);
-    e.preventDefault(); // suppress text selection while dragging
+    e.preventDefault(); // suppress text selection / native scroll while dragging
   }
 
-  function onMove(e: MouseEvent): void {
+  function onMove(e: PointerEvent): void {
     const map = opts.getMap();
     if (!armed || !dragStart || !map) return;
+    if (activePointerId !== null && e.pointerId !== activePointerId) return;
     const p = map.mouseEventToContainerPoint(e);
     updateRubber(p.x, p.y);
+    e.preventDefault(); // keep the browser from scrolling/zooming mid-drag (touch)
   }
 
-  function onUp(e: MouseEvent): void {
+  function onUp(e: PointerEvent): void {
     const map = opts.getMap();
     if (!armed || !dragStart || !map) return;
+    if (activePointerId !== null && e.pointerId !== activePointerId) return;
     const start = dragStart;
     const end = map.mouseEventToContainerPoint(e);
     dragStart = null;
+    activePointerId = null;
     if (rubberBand) {
       rubberBand.remove();
       rubberBand = null;
@@ -185,9 +200,13 @@ export function createAreaSelect(opts: AreaSelectOptions): AreaSelect {
     attached = true;
     map.on("click", onMapClick);
     const cont = map.getContainer();
-    cont.addEventListener("mousedown", onDown);
-    cont.addEventListener("mousemove", onMove);
-    window.addEventListener("mouseup", onUp);
+    // Pointer events unify mouse + touch + pen so the rubber-band drag works on
+    // mobile. With pointer capture (set in onDown) move/up fire on the container
+    // even past its edges, so we listen on the container itself, not window.
+    cont.addEventListener("pointerdown", onDown);
+    cont.addEventListener("pointermove", onMove);
+    cont.addEventListener("pointerup", onUp);
+    cont.addEventListener("pointercancel", onUp);
   }
 
   return {

@@ -7,8 +7,8 @@
  * in-browser `Controller` and re-renders on its change events.
  */
 
-import "./style.css";
 import "leaflet/dist/leaflet.css";
+import "./style.css";
 
 import L from "leaflet";
 
@@ -933,7 +933,8 @@ function rangeControlHtml(which: RangeView, bounds: DateRange, sel: DateRange): 
     `aria-label="${edge === "lo" ? "Earliest" : "Latest"} date">`;
   return (
     `<span class="rf-edge" id="${which}From"></span>` +
-    `<div class="rf-track">${input("lo", dayIndex(bounds, sel.minMs))}${input("hi", dayIndex(bounds, sel.maxMs))}</div>` +
+    `<div class="rf-track">${input("lo", dayIndex(bounds, sel.minMs))}${input("hi", dayIndex(bounds, sel.maxMs))}` +
+    `<div class="rf-window" data-rangewin="${which}" aria-hidden="true" title="Drag to move the selected dates"></div></div>` +
     `<span class="rf-edge" id="${which}To"></span>` +
     `<button class="rf-reset" data-rangereset="${which}" title="Show every date">All</button>`
   );
@@ -1016,6 +1017,60 @@ function onRangeInput(which: RangeView, el: HTMLInputElement): void {
   updateRangeLabels(which);
   if (which === "map") mountAllRidesMap({ fit: false });
   else mountStatsView({ fit: false });
+}
+
+/**
+ * Drag the selected window (the span between the two thumbs) to slide the whole
+ * selection without resizing it — both edges move by the same whole-day delta,
+ * clamped so the fixed-size window stays within bounds. Uses pointer capture so
+ * the drag keeps tracking past the slider edges (and works on touch).
+ */
+function onWindowDrag(which: RangeView, win: HTMLElement, e: PointerEvent): void {
+  const bounds = boundsOf(which);
+  const track = win.parentElement;
+  const lo = document.getElementById(`${which}Lo`) as HTMLInputElement | null;
+  const hi = document.getElementById(`${which}Hi`) as HTMLInputElement | null;
+  if (!bounds || !track || !lo || !hi) return;
+  const n = dayCount(bounds);
+  const usablePx = track.getBoundingClientRect().width - 15; // track width minus one thumb
+  if (n <= 0 || usablePx <= 0) return;
+
+  const startX = e.clientX;
+  const startLo = Number(lo.value);
+  const span = Number(hi.value) - startLo; // held constant for the whole drag
+  win.classList.add("dragging");
+  try {
+    win.setPointerCapture(e.pointerId);
+  } catch {
+    // Older engines may reject capture; mouse drag still works without it.
+  }
+
+  const move = (ev: PointerEvent): void => {
+    const dIdx = Math.round(((ev.clientX - startX) / usablePx) * n);
+    const newLo = Math.max(0, Math.min(startLo + dIdx, n - span));
+    lo.value = String(newLo);
+    hi.value = String(newLo + span);
+    const next: DateRange = {
+      minMs: addDays(bounds.minMs, newLo),
+      maxMs: addDays(bounds.minMs, newLo + span),
+    };
+    if (which === "map") mapRange = next;
+    else statsRange = next;
+    updateRangeLabels(which);
+    if (which === "map") mountAllRidesMap({ fit: false });
+    else mountStatsView({ fit: false });
+    ev.preventDefault();
+  };
+  const end = (): void => {
+    win.classList.remove("dragging");
+    win.removeEventListener("pointermove", move);
+    win.removeEventListener("pointerup", end);
+    win.removeEventListener("pointercancel", end);
+  };
+  win.addEventListener("pointermove", move);
+  win.addEventListener("pointerup", end);
+  win.addEventListener("pointercancel", end);
+  e.preventDefault();
 }
 
 /** Reset a view's selection back to its full span and re-frame the map. */
@@ -1513,6 +1568,22 @@ function periodCard(rec: PeriodRecord | null, label: string): string {
 }
 
 /** Render the Stats view: totals, records and the route-frequency heatmap. */
+/**
+ * Whether the Stats date slider is narrowed below the full span, and if so a
+ * compact label for the selected window (e.g. "filtered · Jan 1 – Mar 1, 2026").
+ * Returns "" when the full span is selected so the header flag stays hidden.
+ */
+function statsFilteredFlag(): string {
+  const bounds = boundsOf("stats");
+  const sel = rangeOf("stats");
+  if (!bounds || !sel) return "";
+  const n = dayCount(bounds);
+  if (n <= 0) return "";
+  const narrowed = dayIndex(bounds, sel.minMs) > 0 || dayIndex(bounds, sel.maxMs) < n;
+  if (!narrowed) return "";
+  return `filtered · ${fmtDay(sel.minMs)} – ${fmtDay(sel.maxMs)}`;
+}
+
 function mountStatsView(opts: { fit?: boolean } = {}): void {
   const live = STATE.rides.filter((r) => !r.deleted);
   document.getElementById("statsEmpty")?.classList.toggle("hidden", live.length > 0);
@@ -1525,6 +1596,15 @@ function mountStatsView(opts: { fit?: boolean } = {}): void {
   refreshRange("stats");
   const visible = statsRange ? ridesInRange(STATE.rides, statsRange) : STATE.rides;
   const hidden = live.length - visible.filter((r) => !r.deleted).length;
+
+  // When the date slider is narrowed below the full span, the totals/records are
+  // a filtered subset — flag both section headers so it's never mistaken for the
+  // lifetime figure. Empty string (not filtered) hides the flag via :empty.
+  const flag = statsFilteredFlag();
+  const totalsFlag = document.getElementById("totalsFlag");
+  const recordsFlag = document.getElementById("recordsFlag");
+  if (totalsFlag) totalsFlag.textContent = flag;
+  if (recordsFlag) recordsFlag.textContent = flag;
 
   const s = computeStats(visible);
   const totals = document.getElementById("statsTotals");
@@ -3148,6 +3228,13 @@ document.addEventListener("change", (e) => {
     saveFilters();
     applyState();
   }
+});
+
+// Drag the selected range window (between the two thumbs) to slide it as a whole.
+document.addEventListener("pointerdown", (e) => {
+  const win = (e.target as HTMLElement).closest?.<HTMLElement>(".rf-window");
+  const which = win?.dataset.rangewin;
+  if (win && (which === "map" || which === "stats")) onWindowDrag(which, win, e);
 });
 
 // Live outlier-trim sliders: update labels and recompute the speed view as they move.
