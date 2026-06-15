@@ -17,6 +17,21 @@ humans and the assistant can read this file as a compressed history of decisions
 
 ---
 
+## UX & responsiveness cleanup (mobile fullscreen + source picker)
+- **What:** Three small CSS fixes. (1) Fullscreen Map/Stats use `100svh` instead of
+  `100vh` (and the mobile bottom row `38svh`) so the ride-labels panel no longer hides
+  below the address bar and the floating expand button stops jumping. (2) `.rmapwrap`
+  gets `isolation: isolate` so the mini-map's expand button can't paint over the
+  full-screen route lightbox. (3) The source picker's phone/ADB option becomes a
+  wrapping flex row (text full-width, buttons grouped right) with the `legacy / ADB`
+  tag kept on one line, plus a `#srcBeeline` reset so the row's flex-basis doesn't
+  balloon the account panel.
+- **Why:** Tighten mobile/responsive behaviour and remove stray, cramped, or misplaced
+  UI — keeping the one unified design language readable at small widths and in
+  full-screen.
+
+---
+
 ## Privacy note on the Beeline sign-in screen
 - **What:** Added a `.srcopt-note` under the Beeline account sign-in form in the
   source picker: serverless / runs entirely in the browser, password sent once and

@@ -1498,6 +1498,7 @@ span.caret.open::before {
 /* Wrapper so the floating "expand" button can overlay the mini-map corner. */
 .rmapwrap {
   position: relative;
+  isolation: isolate;
   margin-top: 8px;
 }
 .rmapwrap .rmap {
@@ -2092,7 +2093,7 @@ body.map-expanded .map-wrap {
   position: fixed;
   inset: 0;
   z-index: 60;
-  height: 100vh;
+  height: 100svh;
   padding: 12px;
   gap: 12px;
   background: var(--bg);
@@ -2108,7 +2109,7 @@ body.heat-expanded .freq-wrap {
   position: fixed;
   inset: 0;
   z-index: 60;
-  height: 100vh;
+  height: 100svh;
   padding: 12px;
   background: var(--bg);
 }
@@ -2553,7 +2554,7 @@ body.job-active .toast {
   }
   body.map-expanded .map-wrap {
     grid-template-columns: 1fr;
-    grid-template-rows: 1fr minmax(0, 38vh);
+    grid-template-rows: 1fr minmax(0, 38svh);
   }
 }
 
@@ -2599,6 +2600,7 @@ body.job-active .toast {
 }
 .srcopt {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 14px;
   padding: 14px;
@@ -2607,7 +2609,7 @@ body.job-active .toast {
   border-radius: var(--radius);
 }
 .srcopt-main {
-  flex: 1 1 auto;
+  flex: 1 1 260px;
   min-width: 0;
 }
 .srcopt-title {
@@ -2619,6 +2621,7 @@ body.job-active .toast {
 .srcopt-tag {
   font-size: 11px;
   font-weight: 500;
+  white-space: nowrap;
   color: var(--accent);
   border: 1px solid var(--accent-dim);
   border-radius: 999px;
@@ -2637,11 +2640,17 @@ body.job-active .toast {
   display: flex;
   gap: 8px;
   flex: 0 0 auto;
+  margin-left: auto;
 }
-/* The Beeline option stacks its description above an inline sign-in form. */
+/* The Beeline option stacks its description above an inline sign-in form. Reset
+   .srcopt-main's row flex-basis (260px) here: in this column it would otherwise
+   become a *vertical* base size and balloon the title/description into a tall gap. */
 #srcBeeline {
   flex-direction: column;
   align-items: stretch;
+}
+#srcBeeline .srcopt-main {
+  flex: 0 0 auto;
 }
 .srcopt-form {
   display: flex;
@@ -2686,9 +2695,9 @@ body.job-active .toast {
 }
 .srcopt-note-ico {
   flex: 0 0 auto;
-  width: 40px;
-  height: 40px;
-  margin-top: 2px;
+  width: 28px;
+  height: 28px;
+  margin-top: 1px;
   color: var(--accent-dim);
 }
 .srcopt-note a {
