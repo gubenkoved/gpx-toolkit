@@ -482,6 +482,16 @@ let activeView: ViewName = readView();
 // Rough-track mini-map (Leaflet). The stored track is a heavily simplified
 // polyline — an APPROXIMATION of the route, never the full GPX.
 // --------------------------------------------------------------------------- //
+
+// OSM's tile usage policy requires a visible "© OpenStreetMap contributors"
+// credit wherever the tiles are shown. One canonical string, reused by every
+// tile layer. The big interactive maps render it as a compact Leaflet control
+// (with setPrefix(false) to drop the "Leaflet" flag); the per-ride mini-maps
+// omit the control entirely and rely on the page-level header credit instead, so
+// the badge doesn't repeat on every little card.
+const OSM_ATTRIBUTION =
+  '© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> contributors';
+
 const mapRegistry = new Map<string, L.Map>();
 
 /** Markup for a ride's mini-map + its caption. */
@@ -559,7 +569,9 @@ function mountMaps(): void {
     }
     if (pts.length < 2) return;
     const map = L.map(host, {
-      attributionControl: true,
+      // Mini-maps drop the per-map credit (the header carries the page-level one)
+      // so the badge doesn't repeat on every ride card.
+      attributionControl: false,
       zoomControl: false,
       fadeAnimation: false,
       dragging: false,
@@ -570,7 +582,6 @@ function mountMaps(): void {
     });
     L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
       maxZoom: 19,
-      attribution: "© OpenStreetMap",
       className: "rmap-tiles",
     }).addTo(map);
     // White casing underneath + colored line on top so the track stays legible
@@ -722,10 +733,11 @@ function openRideMap(key: string): void {
     rideMapBig = null;
   }
   const map = L.map(host, { attributionControl: true, zoomControl: true });
+  map.attributionControl.setPrefix(false); // compact credit, no "Leaflet" flag
   rideMapBig = map;
   L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
     maxZoom: 19,
-    attribution: "© OpenStreetMap",
+    attribution: OSM_ATTRIBUTION,
     className: "rmap-tiles",
   }).addTo(map);
   L.polyline(pts, { color: "#ffffff", weight: 7, opacity: 0.9 }).addTo(map);
@@ -1201,9 +1213,10 @@ function mountAllRidesMap(opts: { fit?: boolean } = {}): void {
       zoomControl: true,
       fadeAnimation: false,
     });
+    allRidesMap.attributionControl.setPrefix(false); // compact credit, no "Leaflet" flag
     L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
       maxZoom: 19,
-      attribution: "© OpenStreetMap",
+      attribution: OSM_ATTRIBUTION,
       className: "map-tiles",
     }).addTo(allRidesMap);
     allRidesLayer = L.layerGroup().addTo(allRidesMap);
@@ -1532,9 +1545,10 @@ function mountFreqHeatmap(rides: RideView[], hidden: number, fit?: boolean): voi
       zoomControl: true,
       fadeAnimation: false,
     });
+    freqHeatMap.attributionControl.setPrefix(false); // compact credit, no "Leaflet" flag
     L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
       maxZoom: 19,
-      attribution: "© OpenStreetMap",
+      attribution: OSM_ATTRIBUTION,
       className: "map-tiles",
     }).addTo(freqHeatMap);
     freqHeatMap.setView([20, 0], 2); // sane default until the first track is drawn

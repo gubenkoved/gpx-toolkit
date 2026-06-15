@@ -127,6 +127,21 @@ header {
   letter-spacing: 0.2px;
   cursor: default;
 }
+/* Page-level OSM credit (OSM tile policy requires a visible "© OpenStreetMap
+   contributors"). The big interactive maps also show a compact corner control;
+   this tiny header link is the backstop that covers the Explore view, whose
+   mini-maps intentionally omit the per-map badge. */
+.osm-credit {
+  color: var(--muted);
+  font-size: 11px;
+  letter-spacing: 0.2px;
+  text-decoration: none;
+  opacity: 0.7;
+}
+.osm-credit:hover {
+  opacity: 1;
+  text-decoration: underline;
+}
 .totals {
   color: var(--muted);
   font-size: 12.5px;

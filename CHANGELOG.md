@@ -17,6 +17,17 @@ humans and the assistant can read this file as a compressed history of decisions
 
 ---
 
+## Declutter OSM map attribution
+- **What:** Replaced the repeated per-map "© OpenStreetMap" badge with one canonical
+  `OSM_ATTRIBUTION` string: the three big interactive maps (full-screen ride map, all-rides
+  Map view, Stats heatmap) keep a *compact* corner credit (`setPrefix(false)` drops the
+  "Leaflet" flag) linking to openstreetmap.org/copyright; the per-ride mini-maps drop the
+  control entirely; a tiny `.osm-credit` link in the header carries the page-level credit.
+- **Why:** The badge was visual noise repeated on every ride card while the wording ("©
+  OpenStreetMap") was off from OSM's required "© OpenStreetMap contributors". This keeps a
+  single, correctly-worded, linked credit visible wherever tiles render — satisfying OSM's
+  tile-usage policy without cluttering each map.
+
 ## Removed the ADB (phone) ride source (v0.3.0)
 - **What:** Deleted the legacy Android/ADB ride source entirely — `src/adb/` (WebUSB +
   demo transports), `src/beeline.ts` (uiautomator-driven app automation), `AdbRideSource`,
