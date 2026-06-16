@@ -17,6 +17,19 @@ humans and the assistant can read this file as a compressed history of decisions
 
 ---
 
+## Pace full-GPX cloud exports to ≤1 ride/second
+- **What:** Full-mode GPX export (`BeelineRideSource.downloadGpx`, full path) no longer
+  fans rides out through the upload concurrency pool — it now runs them sequentially,
+  paced to at most one cloud export per second (new `FULL_GPX_MIN_INTERVAL_S`, holding
+  out only the remainder of each 1 s window via the injected `sleep`). It still goes
+  through the existing `download-gpx` task queue, and the per-ride `onFail` →
+  aggregated persistent-error path is unchanged. Added a test asserting N−1 paced waits
+  for an N-ride batch.
+- **Why:** Each full export is a server-side render plus a ~500 KB download; selecting a
+  whole year and firing them concurrently hammers the Beeline backend. A deliberate,
+  gentle client-side ceiling keeps batch downloads polite without changing the queueing
+  or error feedback users already rely on.
+
 ## Full-GPX export gateway (optional AWS Lambda relay) + consent + graceful fallback
 - **What:** The full-track GPX download can now be routed through an optional, stateless
   relay (`infra/gpx-relay`, a zero-dep Node 20 AWS Lambda behind a Function URL). In a

@@ -1,7 +1,7 @@
 {
   "name": "beeline-uploader-web",
   "private": true,
-  "version": "0.6.0",
+  "version": "0.6.1",
   "type": "module",
   "description": "Beeline Toolkit — backend-free, in-browser Beeline cloud companion; upload rides to Strava and more.",
   "scripts": {

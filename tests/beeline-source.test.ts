@@ -9,6 +9,7 @@ import { BeelineRideSource } from "../src/beeline-source";
 import { Controller } from "../src/controller";
 import { memoryBackend } from "../src/kv";
 import { beelineRideKey } from "../src/parsing";
+import type { Sleep } from "../src/source";
 import { Store } from "../src/store";
 
 const FIXTURE = JSON.parse(
@@ -89,14 +90,14 @@ const fakeSignIn = async (email: string): Promise<BeelineSession> => ({
   expiresAt: Date.now() + 3_600_000,
 });
 
-function makeController(api: FakeBeelineApi): Controller {
+function makeController(api: FakeBeelineApi, sleep: Sleep = async () => {}): Controller {
   const store = new Store(memoryBackend());
   return new Controller(
     () =>
       BeelineRideSource.create("rider@example.com", "secret", () => 4, {
         api,
         signIn: fakeSignIn,
-        sleep: async () => {},
+        sleep,
       }),
     store,
   );
@@ -310,6 +311,33 @@ describe("Controller + BeelineRideSource (no network)", () => {
     expect(ft).not.toBeNull();
     expect(ft?.times.every((t) => t != null)).toBe(true);
     expect(ft?.eles.every((e) => e != null)).toBe(true);
+  });
+
+  it("paces full-GPX exports to at most one ride per second", async () => {
+    const api = new FakeBeelineApi(structuredClone(FIXTURE));
+    const sleeps: number[] = [];
+    const c = makeController(api, async (s) => {
+      sleeps.push(s);
+    });
+    await c.connect();
+    c.scan("all", null);
+    await vi.waitFor(() => expect(c.state().jobs.busy).toBe(false), { timeout: 5000 });
+
+    // Three rides that all carry a polyline (so the cloud export succeeds for each).
+    const keys = [
+      beelineRideKey(FIXTURE["demo-uploaded-0001"].start as number),
+      beelineRideKey(FIXTURE["demo-pending-0002"].start as number),
+      beelineRideKey(FIXTURE["demo-processing-0004"].start as number),
+    ];
+    c.downloadGpx(keys, "", "full");
+    await vi.waitFor(() => expect(c.state().jobs.busy).toBe(false), { timeout: 5000 });
+
+    // All three were exported from the cloud…
+    expect(api.exportCalls.length).toBe(3);
+    // …and pacing held between them: one ~1 s wait per gap (N-1), none after the last.
+    expect(sleeps.length).toBe(2);
+    for (const s of sleeps) expect(s).toBeGreaterThan(0);
+    expect(sleeps.every((s) => s <= 1)).toBe(true);
   });
 
   it("falls back to a route-only GPX when the full export gateway is unreachable", async () => {

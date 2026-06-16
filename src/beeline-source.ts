@@ -87,6 +87,14 @@ export interface BeelineSourceDeps {
 const UPLOAD_POLL_ATTEMPTS = 30;
 const UPLOAD_POLL_INTERVAL_S = 1;
 
+/**
+ * Minimum spacing between full-GPX cloud exports (seconds). Each export is a real
+ * server-side render + a ~500 KB storage download, so a batch is paced to at most
+ * one ride per second — a deliberate, gentle ceiling on the load a client puts on
+ * the Beeline backend, even when the user selects a whole year at once.
+ */
+const FULL_GPX_MIN_INTERVAL_S = 1;
+
 export class BeelineRideSource implements RideSource {
   readonly kind = "beeline";
 
@@ -293,16 +301,23 @@ export class BeelineRideSource implements RideSource {
     };
 
     if (mode === "full") {
-      // Full mode: fetch each ride's real recorded track from the cloud. These are
-      // independent network calls, so run them through the same bounded pool the
-      // uploads use (a ride's GPX is ~500 KB and a render takes a moment).
-      const handle = async (key: string): Promise<void> => {
+      // Full mode: fetch each ride's real recorded track from the cloud. Each one is
+      // a server-side render + a ~500 KB download, so we DON'T fan these out — they
+      // run sequentially, paced to at most one export per second, to keep a gentle,
+      // deliberate ceiling on the load a client puts on the Beeline backend (a
+      // year's worth of selected rides would otherwise hammer it). The pacing holds
+      // out only the *remainder* of the 1 s window after each export, so a slow
+      // render that already took ≥1 s adds no extra wait.
+      for (let i = 0; i < found.length; i++) {
+        if (cancelled) break;
+        const key = found[i];
         const entry = this.byKey.get(key);
-        if (!entry) return;
+        if (!entry) continue;
         const name = rideShortLabel(key) || key;
         const detail = this.detailFor(key, entry.raw);
         onDetail(detail);
-        if (await rep(`downloading full GPX: ${name}…`)) return;
+        if (await rep(`downloading full GPX: ${name}…`)) break;
+        const startedAt = Date.now();
         try {
           const bytes = await this.api.exportRideGpx(this.session, entry.pushId);
           const file: GpxFile = {
@@ -319,9 +334,14 @@ export class BeelineRideSource implements RideSource {
           const retryable = err instanceof BeelineError && err.kind === "unreachable";
           onFail(key, err instanceof Error ? err.message : String(err), retryable);
         }
-      };
-      const poolSize = Math.max(1, this.concurrency());
-      await runPool(found, poolSize, handle, () => cancelled);
+        // Pace the next ride: wait out the rest of the 1 s window (skip after the
+        // last ride and once cancelled).
+        if (i < found.length - 1 && !cancelled) {
+          const elapsedS = (Date.now() - startedAt) / 1000;
+          const remaining = FULL_GPX_MIN_INTERVAL_S - elapsedS;
+          if (remaining > 0) await this.sleep(remaining);
+        }
+      }
       return results;
     }
 
