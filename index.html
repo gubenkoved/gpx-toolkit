@@ -22,10 +22,10 @@
       <span class="conn">
         <span class="cstate off" id="connState">not connected</span>
         <button class="small ghost" id="btnDisconnect" style="display:none">Disconnect</button>
-        <button class="small accent" id="btnSource" title="Switch data source (Beeline account or demo)">Change source</button>
+        <button class="small accent" id="btnSource" title="Switch data source (Beeline account or demo)"><svg class="mi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 3l4 4-4 4M20 7H9M8 21l-4-4 4-4M4 17h11"/></svg><span class="btn-label">Change source</span></button>
       </span>
       <span class="split">
-        <button class="ghost small menubtn" data-splitmenu="state" aria-haspopup="true" aria-expanded="false" title="Local data: import, export or reset">Data</button>
+        <button class="ghost small menubtn" data-splitmenu="state" aria-haspopup="true" aria-expanded="false" title="Local data: import, export or reset"><svg class="mi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/></svg><span class="btn-label">Data</span></button>
         <span class="splitmenu" id="stateMenu">
           <button class="ghost small" id="btnImport" title="Merge a previously exported (or Python tool) state file into this browser">Import…</button>
           <button class="ghost small" id="btnExport" title="Download all locally stored rides, settings and status as a JSON backup">Export</button>
@@ -39,7 +39,7 @@
           <button class="ghost small" id="btnUploadSel" title="Upload the selected pending rides to Strava">Upload selected to Strava</button>
         </span>
       </span>
-      <button class="primary small" id="btnUploadPending" title="Upload all known pending rides to Strava">Upload all to Strava</button>
+      <button class="primary small" id="btnUploadPending" title="Upload all known pending rides to Strava"><svg class="mi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 16V4M7 9l5-5 5 5M5 20h14"/></svg><span class="btn-label">Upload all to Strava</span></button>
       <input type="file" id="importFile" accept="application/json,.json" style="display:none" />
     </span>
   </div>

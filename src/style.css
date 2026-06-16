@@ -103,6 +103,15 @@ header {
 .hdr-actions {
   margin-left: auto;
 }
+/* Header action buttons (Change source, Data, Upload all) each carry an inline
+   icon that only surfaces when the button collapses to icon-only on narrow
+   screens; on wider screens the text label carries the meaning, so the icon is
+   hidden. Both stay in the DOM so the narrow-layout swap is pure CSS — matching
+   the per-ride "Upload" button. (Re-sync keeps its always-on refresh icon, which
+   has no `.mi` class, so it is unaffected here.) */
+.hdr-actions button .mi {
+  display: none;
+}
 .brand {
   display: flex;
   align-items: baseline;
@@ -1378,6 +1387,15 @@ span.caret.open::before {
   display: flex;
   gap: 6px;
   flex: 0 0 auto;
+}
+/* The "Upload to Strava" button carries its text label on wide screens; the
+   inline upload icon only surfaces when the button collapses to icon-only on
+   narrow viewports (see the mobile block). Keep both in the DOM so the swap is
+   pure CSS — no re-render. */
+.rbtns .accent .mi-upl {
+  display: none;
+  width: 16px;
+  height: 16px;
 }
 /* The "⋯" overflow toggle and its grouping wrapper exist only for the mobile
    layout: on desktop the toggle is hidden and `.ovr-items` collapses (display:
@@ -2682,6 +2700,39 @@ body.job-active .toast {
     padding: 10px 12px;
   }
 
+  /* -- ride title row: let the status/GPS badges wrap below the title instead
+        of forcing the row wider than the viewport (badges are nowrap). ------ */
+  .rtitle {
+    flex-wrap: wrap;
+    row-gap: 4px;
+  }
+  .rname {
+    min-width: 0;
+  }
+
+  /* -- "Upload to Strava" collapses to an icon-only square, reclaiming the
+        ~90px the text label ate so the content column (stats grid + mini-map,
+        which live inside .rmain) gets real width instead of being crushed. --- */
+  .rbtns .accent .btn-label {
+    display: none;
+  }
+  .rbtns .accent .mi-upl {
+    display: block;
+  }
+  .rbtns .accent {
+    padding: 7px;
+    line-height: 0;
+  }
+
+  /* -- expanded details: pack more stat columns into the now-wider content,
+        and shorten the mini-map so a ride card isn't dominated by its map. --- */
+  .stats {
+    grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+    gap: 6px 10px;
+  }
+  .rmap {
+    height: 150px;
+  }
   /* -- action clusters collapse behind the "⋯" toggle -------------------- */
   .ovr {
     display: inline-flex;
@@ -2761,6 +2812,82 @@ body.job-active .toast {
   body.heat-expanded .freq-wrap {
     grid-template-columns: 1fr;
     grid-template-rows: 1fr minmax(0, 38svh);
+  }
+}
+
+/* ------------------------------------------------------------------------ */
+/* Header actions collapse to icon-only squares (~≤560px) — same idea as the   */
+/* per-ride "Upload" button. Below ~560px the labelled toolbar buttons wrap     */
+/* into three stacked rows; dropping the text labels (titles/tooltips keep the  */
+/* accessible name) and revealing each button's inline icon packs them back     */
+/* onto one row. A wider cut-off than the 480px chrome tweaks so large phones   */
+/* (and split-screen windows) don't get stuck with the bloated multi-row bar.   */
+/* ------------------------------------------------------------------------ */
+@media (max-width: 560px) {
+  .hdr-actions button .btn-label,
+  .conn #btnScan .scan-label {
+    display: none;
+  }
+  .hdr-actions button .mi {
+    display: block;
+    width: 16px;
+    height: 16px;
+  }
+  #btnSource,
+  #btnUploadPending {
+    display: inline-flex;
+    align-items: center;
+    padding: 6px;
+  }
+  body[data-src="beeline"] #btnScan,
+  .hdr-actions .menubtn {
+    padding: 6px 8px;
+  }
+}
+
+/* ------------------------------------------------------------------------ */
+/* Very narrow phones (~360–480px). The 768px block already collapses the    */
+/* chrome and the action clusters; here we squeeze the last bits that still  */
+/* feel cramped at ~390px: tighter chrome padding, a shorter mini-map, a     */
+/* fixed two-column stats grid, and denser group headers.                    */
+/* ------------------------------------------------------------------------ */
+@media (max-width: 480px) {
+  main {
+    padding: 12px 8px 52px;
+  }
+  header {
+    padding: 9px 9px;
+  }
+  /* Pack the toolbar tighter so the same buttons fit in fewer rows. */
+  header button {
+    padding: 4px 7px;
+    font-size: 11.5px;
+  }
+  .seg button {
+    padding: 5px 8px;
+    font-size: 12px;
+  }
+  .fchip {
+    padding: 4px 8px;
+    font-size: 12px;
+  }
+  /* Ride rows: trim the side padding so the content column gets more width. */
+  .rrow {
+    padding: 10px 9px;
+    gap: 8px;
+  }
+  /* Two even stat columns read cleaner than a ragged auto-fill at this width. */
+  .stats {
+    grid-template-columns: 1fr 1fr;
+  }
+  /* A ride card shouldn't be dominated by its map on a tiny screen. */
+  .rmap {
+    height: 130px;
+  }
+  /* Denser group headers so the year/month rows don't eat vertical space. */
+  .yhead,
+  .mhead {
+    padding: 7px 8px;
   }
 }
 

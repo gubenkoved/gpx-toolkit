@@ -17,6 +17,26 @@ humans and the assistant can read this file as a compressed history of decisions
 
 ---
 
+## Narrow-mobile iteration: icon-only actions for ride rows + header
+- **What:** Reworked the narrow-viewport layout so it's usable on a ~390px phone.
+  Ride rows: the per-ride **"Upload to Strava"** button collapses to an icon-only
+  square (new `UPLOAD_ICON`, label wrapped in `.btn-label`) at ≤768px, freeing the
+  ~90px the text ate so the expanded **stats grid** and **mini-map** (which live
+  inside `.rmain`) get real width instead of being crushed into a narrow left
+  column; status badges now wrap below the title instead of overflowing, the stats
+  grid packs tighter (`minmax(96px…)`, two fixed columns ≤480px) and the mini-map
+  shortens (150px → 130px). Header: **Change source**, **Data** and **Upload all to
+  Strava** gained inline icons (hidden on desktop, label-only) that take over as
+  icon-only squares ≤560px, with **Re-sync**'s hoisted text label dropping to reveal
+  its existing refresh icon — collapsing the toolbar from three stacked rows (~128px)
+  to one (~76–98px). Added two finer breakpoints (`560px` for the header collapse,
+  `480px` for very-narrow chrome) on top of the existing `768px` block.
+- **Why:** The narrow view was "barely usable" — the upload button + kebab squeezed
+  every ride's content/stats/map into a cramped column, and the header wrapped into a
+  bloated three-row stack. Reusing the established icon-only pattern (inline SVG, never
+  Unicode glyphs; meaning kept in `title`/`aria-label`) reclaims the width text labels
+  ate while leaving desktop untouched, so the same actions stay one tap away on a phone.
+
 ## Rename & delete rides (cloud, through the RideSource seam) (v0.4.0)
 - **What:** Added per-ride **Rename** and **Delete** as cloud actions. New
   `renameRide`/`deleteRide` on the `RideSource` seam ([src/source.ts](src/source.ts)),

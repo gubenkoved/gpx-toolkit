@@ -1735,6 +1735,18 @@ const KEBAB_ICON =
   '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">' +
   '<circle cx="12" cy="5" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="12" cy="19" r="1.8"/></svg>';
 
+/**
+ * Inline SVG for the "Upload to Strava" action — an up-arrow into a tray, drawn
+ * with strokes (matching the app's other line icons) so it reads as "upload" at
+ * a glance. Shown only when the button collapses to icon-only on narrow screens
+ * (the text label carries the meaning on wider ones); `currentColor` inherits
+ * the accent button's text colour. Inline SVG, never a Unicode glyph.
+ */
+const UPLOAD_ICON =
+  '<svg class="mi mi-upl" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
+  'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">' +
+  '<path d="M12 16V4M7 9l5-5 5 5M5 20h14"/></svg>';
+
 function badge(s: string): string {
   const label =
     (
@@ -2309,7 +2321,7 @@ function render(): void {
             ${so ? detailsBlock(r) : ""}
           </div>
           <div class="rbtns${openMenu === `ovr-r:${r.key}` ? " open" : ""}">
-            <button class="small accent" data-act="upload-one" data-key="${r.key}"${r.status === "uploaded" ? ' disabled title="Already uploaded to Strava"' : ""}>Upload to Strava</button>
+            <button class="small accent" data-act="upload-one" data-key="${r.key}"${r.status === "uploaded" ? ' disabled title="Already uploaded to Strava"' : ' title="Upload to Strava"'}>${UPLOAD_ICON}<span class="btn-label">Upload to Strava</span></button>
             <button class="small ghost ovr" data-splitmenu="ovr-r:${r.key}" aria-haspopup="true" aria-expanded="${openMenu === `ovr-r:${r.key}`}" title="More ride actions">${KEBAB_ICON}</button>
             <span class="ovr-items">
               <button class="small ghost" data-act="gpx-save-one" data-key="${r.key}" title="Download the full GPX and save it to disk">Save .gpx file</button>
