@@ -118,6 +118,28 @@ export class Controller {
     for (const fn of this.gpxListeners) fn(file);
   }
 
+  /**
+   * Try to emit a route-only ("light") GPX for one ride synthesized from its cached
+   * polyline — no network, no timestamps/elevation. Returns true when a file was
+   * emitted, false when the ride has no usable cached route. Shared by the light
+   * export path and the full-export fallback (when the export gateway is
+   * unreachable but we still hold the route).
+   */
+  private emitCachedLightGpx(key: string): boolean {
+    const rec = this.store.rides.get(key);
+    if (!(rec && rec.source === "beeline" && rec.track)) return false;
+    const title = rec.title || rec.title_base || "";
+    const xml = encodedTrackToGpx(rec.track, title || rideShortLabel(key) || key);
+    if (!xml) return false;
+    this.emitGpx({
+      key,
+      filename: gpxFilename(key),
+      downloadName: gpxDownloadName(key, title),
+      bytes: new TextEncoder().encode(xml),
+    });
+    return true;
+  }
+
   /** The in-memory full track for a ride, or null when not fetched this session. */
   getFullTrack(key: string): FullTrack | null {
     return this.fullTracks.get(key) ?? null;
@@ -364,6 +386,9 @@ export class Controller {
     let removed = 0;
     let succeeded = 0;
     const failures: string[] = [];
+    // Rides whose full export was unreachable but that carry a cached route, so we
+    // can still hand the user a route-only GPX instead of failing outright.
+    const degraded: string[] = [];
     const mode: GpxMode = (task.payload.mode as GpxMode) ?? "light";
     // Seed live progress so the queue panel shows "0 of N" while the sweep runs.
     task.progress = { done: 0, total: task.keys.length };
@@ -381,15 +406,7 @@ export class Controller {
       for (const key of task.keys) {
         const rec = this.store.rides.get(key);
         if (rec && rec.source === "beeline" && rec.track) {
-          const title = rec.title || rec.title_base || "";
-          const xml = encodedTrackToGpx(rec.track, title || rideShortLabel(key) || key);
-          if (xml) {
-            this.emitGpx({
-              key,
-              filename: gpxFilename(key),
-              downloadName: gpxDownloadName(key, title),
-              bytes: new TextEncoder().encode(xml),
-            });
+          if (this.emitCachedLightGpx(key)) {
             succeeded++;
           } else {
             failures.push(`${rideShortLabel(key) || key}: no route track to export`);
@@ -452,7 +469,19 @@ export class Controller {
             this.notify();
           }
         },
-        (key, reason) => failures.push(`${key}: ${reason}`),
+        (key, reason, retryable) => {
+          // When the full export gateway is unreachable but the ride still carries a
+          // cached route, hand the user a route-only GPX instead of failing — so a
+          // gateway outage mid-batch never breaks the download. Genuine "no track"
+          // failures (not retryable) stay real errors.
+          if (mode === "full" && retryable && this.emitCachedLightGpx(key)) {
+            succeeded++;
+            degraded.push(rideShortLabel(key) || key);
+            if (task.progress) task.progress.done++;
+            return;
+          }
+          failures.push(`${key}: ${reason}`);
+        },
         // Capture the ride's detail read during the export so a GPX download on a
         // ride we never opened still records its title/stats/Strava status.
         (detail) => this.persistDetail(detail),
@@ -462,7 +491,14 @@ export class Controller {
     }
 
     const suffix = removed ? `, ${removed} deleted` : "";
-    report(`exported ${succeeded} GPX file${succeeded === 1 ? "" : "s"}${suffix}`);
+    // Surface any graceful degradation (full track unreachable → route-only) in the
+    // completion status so the user knows those files lack real time/elevation.
+    const degradedNote = degraded.length
+      ? ` — ${degraded.length} saved as route-only (export gateway unreachable; no real time/elevation)`
+      : "";
+    report(
+      `exported ${succeeded} GPX file${succeeded === 1 ? "" : "s"}${suffix}${degradedNote}`,
+    );
 
     if (failures.length) {
       // Fail the task so the UI shows a persistent, acknowledgeable error with full

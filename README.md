@@ -62,6 +62,26 @@ The design goal is to **never store your Beeline password in clear** (or at all)
 This keeps the app autonomous offline and leaves password custody entirely to your browser /
 password manager.
 
+## Full-track GPX & the optional export gateway
+
+Saving a ride's **full** recorded GPX (real per-point timestamps + elevation) needs one
+server-side hop: Beeline renders the file to Firebase Storage, and the authenticated
+download there 302-redirects to a Google host that returns **no CORS header**, so a browser
+can't complete it. The app ships an **optional**, stateless relay for this
+([`infra/gpx-relay`](infra/gpx-relay/README.md) — a zero-dependency AWS Lambda you host).
+
+- It's **off by default**: with no relay configured the app is fully backend-free, and the
+  light **route-only** GPX (synthesized from the cached polyline) still works everywhere.
+- When a relay **is** configured (build-time `GPX_RELAY_URL`), the first full-GPX download
+  shows a **one-time consent** prompt explaining that the request is routed through your
+  gateway. It forwards only your **short-lived sign-in token and the ride id** — never your
+  password — and the gateway **stores nothing**. Tick *"Don't ask again"* to remember it.
+- If the gateway is ever **unreachable**, the download **degrades gracefully** to a
+  route-only GPX instead of failing.
+
+See [`infra/gpx-relay/README.md`](infra/gpx-relay/README.md) for the AWS deploy guide and the
+(free, fail-closed) rate-limiting / cost-safety model.
+
 ## Usage
 
 - **Get your rides** — press **Re-sync** to download your whole history in one shot.

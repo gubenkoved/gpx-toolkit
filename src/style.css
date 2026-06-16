@@ -1778,10 +1778,6 @@ body.ridemap-open {
   border-radius: 50%;
   animation: spin 0.7s linear infinite;
 }
-.ridemap-status.err {
-  color: #ff9b8f;
-  white-space: normal;
-}
 /* The elevation profile drawn below the map from the full recorded track. Fixed
    height so the map keeps the rest; hideable. The SVG fills the width. */
 .ridemap-profile {
@@ -3333,6 +3329,7 @@ body.job-active .toast {
   font-size: 13.5px;
   margin: 10px 0 20px;
   line-height: 1.45;
+  white-space: pre-line;
 }
 .confirm-input {
   width: 100%;
@@ -3352,6 +3349,25 @@ body.job-active .toast {
 .confirm-input:focus {
   outline: none;
   border-color: var(--accent-dim);
+}
+.confirm-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 20px;
+  color: var(--muted);
+  font-size: 13px;
+  cursor: pointer;
+  user-select: none;
+}
+.confirm-check.hidden {
+  display: none;
+}
+.confirm-check input {
+  width: 15px;
+  height: 15px;
+  accent-color: var(--accent);
+  cursor: pointer;
 }
 .confirm-actions {
   display: flex;

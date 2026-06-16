@@ -32,6 +32,13 @@ function gitCommit(): string {
 // keeps the real cross-origin host so normal dev still exercises genuine CORS.
 const devProxy = process.env.BEELINE_DEV_PROXY === "1";
 
+// Optional production relay for the full-track GPX download (see infra/gpx-relay).
+// The browser can't finish that download itself — the Storage redirect drops its
+// CORS header — so a deployment can point at a tiny stateless Lambda that does the
+// fetch server-side. Empty by default: the app then uses the direct in-browser path
+// and stays fully backend-free (dev, native shells). String-baked at build time.
+const gpxRelayUrl = process.env.GPX_RELAY_URL ?? "";
+
 // `base: "./"` keeps asset URLs relative so the build can be served from any
 // path on a static host (GitHub Pages project sites, Netlify subpaths, etc.).
 // `target: esnext` (below) keeps modern JS (BigInt, top-level features) intact.
@@ -44,6 +51,8 @@ export default defineConfig({
     // Always a literal boolean in the bundle; `false` in `vite build`, so the
     // `/bl-storage` path and the proxy never ship to production.
     __BEELINE_DEV_PROXY__: JSON.stringify(devProxy),
+    // The full-GPX relay URL, baked in at build time ("" when unset).
+    __GPX_RELAY_URL__: JSON.stringify(gpxRelayUrl),
   },
   server: devProxy
     ? {

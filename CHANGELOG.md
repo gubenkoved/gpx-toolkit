@@ -17,6 +17,34 @@ humans and the assistant can read this file as a compressed history of decisions
 
 ---
 
+## Full-GPX export gateway (optional AWS Lambda relay) + consent + graceful fallback
+- **What:** The full-track GPX download can now be routed through an optional, stateless
+  relay (`infra/gpx-relay`, a zero-dep Node 20 AWS Lambda behind a Function URL). In a
+  deployed browser the direct download can't complete — the authenticated Firebase
+  Storage `?alt=media` GET 302-redirects to a Google host that returns no
+  `Access-Control-Allow-Origin`, so the browser blocks the cross-origin read. The relay
+  does both export hops server-side (taking only a `rideId` — never a client URL, so no
+  SSRF) and returns the gzipped GPX with CORS headers. Wiring: build-time
+  `GPX_RELAY_URL` (Vite `define` → `__GPX_RELAY_URL__`), passed in the Pages deploy
+  workflow as a repo Variable; empty by default so the app stays backend-free
+  (dev `dev:proxy`, native shells). Before the first relayed download the app shows a
+  one-time consent dialog (what's sent: the short-lived id token + ride id; never the
+  password; gateway stores nothing) with a "Don't ask again" checkbox persisted in
+  localStorage. If the gateway is unreachable mid-download, each affected ride degrades to
+  a route-only GPX synthesized from the cached polyline (the task still succeeds, with a
+  status note) instead of failing; a genuine "no recorded track" stays a real error.
+  Relay safety (free, fail-closed): kill switch (`ENABLED=0` → 503 → app falls back),
+  Origin allow-list, strict `rideId` validation, and a best-effort per-account/per-IP
+  in-memory rate limit — paired with low reserved concurrency + an AWS Budgets alert as
+  the real ceiling (see `infra/gpx-relay/README.md`).
+- **Why:** Every prior CORS workaround (the empirical probe, the dev proxy) confirmed the
+  Storage redirect drops its CORS header in production, so the browser physically cannot
+  finish the download — a tiny server-side relay is the smallest fix that restores the
+  real timed/elevation track. It's kept strictly optional and isolated from the SPA build
+  so the backend-free promise holds when unset; consent + graceful light fallback keep the
+  user informed and the app working even when the gateway is off or down; the layered,
+  zero-cost rate limiting guards a self-hosted public URL from a surprise bill.
+
 ## Full recorded GPX track: fetch on demand, real time/elevation map + profile
 - **What:** Fetch a ride's full recorded GPX on demand (cloud `exportRide` → Firebase
   Storage → gunzip: the real ~1 Hz track with per-point time + elevation), kept in

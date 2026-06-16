@@ -54,14 +54,30 @@ const STORAGE_BASE = __BEELINE_DEV_PROXY__
   ? "/bl-storage"
   : "https://firebasestorage.googleapis.com";
 const STORAGE_BUCKET = "beeline-e46ed.appspot.com";
+// Optional production relay for the full-track GPX (see infra/gpx-relay). When this
+// is a non-empty URL, `exportRideGpx` routes the whole export through it instead of
+// the two direct hops — the only way to finish the download in a production browser,
+// where the Storage `?alt=media` redirect drops its CORS header. Empty in dev and in
+// any backend-free build, so the direct path is used.
+const GPX_RELAY_URL = __GPX_RELAY_URL__;
 const ANDROID_PACKAGE = "co.beeline";
 const ANDROID_CERT = "8DB76C76142E30EEF0D04F5BF738A4BAA6049642";
 
 /** Raised for any Beeline backend failure (auth rejected, network, HTTP error). */
 export class BeelineError extends Error {
-  constructor(message: string) {
+  /**
+   * Coarse cause, used by the GPX download to decide whether to degrade gracefully:
+   * - `unreachable` — the export gateway/network couldn't be reached or returned a
+   *   transient/disabled status. The caller may fall back to a route-only GPX.
+   * - `no-track` — the ride genuinely has no recorded full track to export (a clear,
+   *   non-retryable condition the user should see).
+   * - `other` — everything else (auth, malformed responses, …).
+   */
+  readonly kind: "unreachable" | "no-track" | "other";
+  constructor(message: string, kind: "unreachable" | "no-track" | "other" = "other") {
     super(message);
     this.name = "BeelineError";
+    this.kind = kind;
   }
 }
 
@@ -265,6 +281,11 @@ export async function exportRideGpx(
   session: BeelineSession,
   pushId: string,
 ): Promise<Uint8Array> {
+  // In production the browser can't finish the direct download (the Storage redirect
+  // drops its CORS header), so a deployment points at a relay that does both hops
+  // server-side. When configured, route the whole export through it.
+  if (GPX_RELAY_URL) return exportRideGpxViaRelay(session, pushId);
+
   let res: { result?: string };
   try {
     res = await request<{ result?: string }>("POST", `${FUNCTIONS_BASE}/exportRide`, {
@@ -275,7 +296,7 @@ export async function exportRideGpx(
     const msg = err instanceof Error ? err.message : String(err);
     // Partial rides (no on-device track) come back as a callable NOT_FOUND.
     if (/ride points|NOT_FOUND|not\s*found/i.test(msg)) {
-      throw new BeelineError("ride has no recorded track to export");
+      throw new BeelineError("ride has no recorded track to export", "no-track");
     }
     throw err;
   }
@@ -285,6 +306,55 @@ export async function exportRideGpx(
   }
   const gz = await downloadStorageObject(session, path);
   return gunzip(gz);
+}
+
+/**
+ * Export a ride's full GPX through the production relay (see infra/gpx-relay). The
+ * relay does both export hops server-side and returns the gzipped GPX. Failures are
+ * tagged `unreachable` (network / disabled / 5xx / 429) so the caller can fall back
+ * to a route-only GPX, or `no-track` (422) when the ride has nothing to export.
+ */
+async function exportRideGpxViaRelay(
+  session: BeelineSession,
+  pushId: string,
+): Promise<Uint8Array> {
+  let resp: Response;
+  try {
+    resp = await fetch(GPX_RELAY_URL, {
+      method: "POST",
+      credentials: "same-origin",
+      headers: {
+        "Content-Type": "application/json; charset=utf-8",
+        Authorization: `Bearer ${session.idToken}`,
+      },
+      body: JSON.stringify({ rideId: pushId }),
+    });
+  } catch (err) {
+    throw new BeelineError(
+      `couldn't reach the GPX export gateway: ${(err as Error).message}`,
+      "unreachable",
+    );
+  }
+  if (!resp.ok) {
+    const detail = await resp.text().catch(() => "");
+    if (resp.status === 422 || /ride points|no recorded track/i.test(detail)) {
+      throw new BeelineError("ride has no recorded track to export", "no-track");
+    }
+    // Disabled (503), rate-limited (429) or any upstream 5xx: treat as unreachable
+    // so the app degrades to a route-only GPX rather than hard-failing.
+    if (resp.status === 503 || resp.status === 429 || resp.status >= 500) {
+      throw new BeelineError(
+        `GPX export gateway unavailable (HTTP ${resp.status})`,
+        "unreachable",
+      );
+    }
+    throw new BeelineError(
+      `GPX export gateway error: HTTP ${resp.status} ${detail.slice(0, 200)}`,
+    );
+  }
+  // The relay returns the gzipped GPX bytes verbatim; gunzip (a no-op on already
+  // plain bytes) yields the GPX text.
+  return gunzip(new Uint8Array(await resp.arrayBuffer()));
 }
 
 /** Download a Firebase Storage object's raw bytes by its object path. */
@@ -309,6 +379,7 @@ async function downloadStorageObject(
   } catch (err) {
     throw new BeelineError(
       `network error downloading GPX from Beeline storage: ${(err as Error).message}`,
+      "unreachable",
     );
   }
   if (!resp.ok) {

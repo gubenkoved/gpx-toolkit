@@ -17,6 +17,7 @@
  */
 
 import {
+  BeelineError,
   type BeelineSession,
   deleteRide,
   exportRideGpx,
@@ -268,7 +269,7 @@ export class BeelineRideSource implements RideSource {
     progress: Progress = () => false,
     onGpx: (file: GpxFile) => void = () => {},
     onMissing: (keys: string[]) => void = () => {},
-    onFail: (key: string, reason: string) => void = () => {},
+    onFail: (key: string, reason: string, retryable?: boolean) => void = () => {},
     onDetail: (detail: RideDetail) => void = () => {},
     mode: GpxMode = "light",
   ): Promise<GpxFile[]> {
@@ -313,7 +314,10 @@ export class BeelineRideSource implements RideSource {
           results.push(file);
           onGpx(file);
         } catch (err) {
-          onFail(key, err instanceof Error ? err.message : String(err));
+          // `unreachable` failures (gateway/network down) are retryable, so the
+          // Controller can degrade to a route-only GPX instead of hard-failing.
+          const retryable = err instanceof BeelineError && err.kind === "unreachable";
+          onFail(key, err instanceof Error ? err.message : String(err), retryable);
         }
       };
       const poolSize = Math.max(1, this.concurrency());

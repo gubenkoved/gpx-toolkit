@@ -133,13 +133,16 @@ export interface RideSource {
   ): Promise<RideDetail[]>;
 
   /** Obtain a GPX file per ride, streaming each via `onGpx`. The `mode` selects the
-   *  lightweight stored-shape export or the full recorded track (see `GpxMode`). */
+   *  lightweight stored-shape export or the full recorded track (see `GpxMode`).
+   *  `onFail`'s `retryable` is true when the failure was a transient/unreachable
+   *  export gateway (vs. a genuine "ride has no track") — letting the caller decide
+   *  to degrade gracefully. */
   downloadGpx(
     keys: Set<string>,
     progress?: Progress,
     onGpx?: (file: GpxFile) => void,
     onMissing?: (keys: string[]) => void,
-    onFail?: (key: string, reason: string) => void,
+    onFail?: (key: string, reason: string, retryable?: boolean) => void,
     onDetail?: (detail: RideDetail) => void,
     mode?: GpxMode,
   ): Promise<GpxFile[]>;

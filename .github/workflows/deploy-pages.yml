@@ -32,6 +32,11 @@ jobs:
 
       - name: Build
         run: npm run build
+        env:
+          # Optional full-track GPX export gateway (see infra/gpx-relay). Set this
+          # as a repository Variable to bake the relay URL into the build; when
+          # absent the app uses the direct in-browser path and stays backend-free.
+          GPX_RELAY_URL: ${{ vars.GPX_RELAY_URL }}
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3

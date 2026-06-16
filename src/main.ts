@@ -124,6 +124,25 @@ const rememberedEmail = (): string => {
   }
 };
 
+// One-time consent for routing the full-GPX download through the external export
+// gateway (see infra/gpx-relay). Only relevant when a relay URL is configured at
+// build time; remembered per device so we don't re-prompt every download.
+const GPX_RELAY_CONSENT_KEY = "beeline_uploader.gpx_relay_consent";
+const relayConsentGiven = (): boolean => {
+  try {
+    return localStorage.getItem(GPX_RELAY_CONSENT_KEY) === "1";
+  } catch {
+    return false;
+  }
+};
+const rememberRelayConsent = (): void => {
+  try {
+    localStorage.setItem(GPX_RELAY_CONSENT_KEY, "1");
+  } catch {
+    /* non-fatal */
+  }
+};
+
 function activate(next: Controller, demo: boolean, source: SourceKind): void {
   if (unsubscribe) unsubscribe();
   if (unsubscribeGpx) unsubscribeGpx();
@@ -222,6 +241,42 @@ function withBeelineAccess(action: () => void): void {
     return;
   }
   action();
+}
+
+/**
+ * Gate a full-track GPX action behind one-time consent when an export gateway is
+ * configured at build time. The full recorded track can't be fetched directly in
+ * the browser (a CORS limit on Beeline's storage redirect), so a deployment routes
+ * it through a small external gateway; we explain that once and remember the choice
+ * per device. With no gateway configured (dev / direct builds) or once consent is
+ * stored, the action runs straight away.
+ */
+function withGpxRelayConsent(action: () => void): void {
+  if (!__GPX_RELAY_URL__ || relayConsentGiven()) {
+    action();
+    return;
+  }
+  void consentDialog({
+    title: "Fetch the full track via the export gateway?",
+    body:
+      "The full recorded track (real per-point timestamps and elevation) can't be " +
+      "downloaded directly in the browser — Beeline's storage redirect drops the CORS " +
+      "header the browser needs. With your go-ahead, this download is routed through " +
+      "the app's small export gateway, which fetches the file server-side and hands it " +
+      "back.\n\n" +
+      "Sent to the gateway: your current Beeline sign-in token and the ride id. " +
+      "Never sent or stored: your password. The gateway keeps nothing — it just relays " +
+      "the file.\n\n" +
+      "If the gateway is ever unreachable, the app falls back to a route-only GPX " +
+      "(no real time or elevation).",
+    confirmLabel: "Use the gateway",
+    checkLabel: "Don't ask again on this device",
+    checked: true,
+  }).then(({ ok, dontAsk }) => {
+    if (!ok) return;
+    if (dontAsk) rememberRelayConsent();
+    action();
+  });
 }
 
 /** Build a ride source from a device getter (closure captures serial, etc.). */
@@ -636,11 +691,10 @@ function fmtSecsShort(sec: number): string {
  * is easy to miss — an error here stays put next to the "Fetch full track" button
  * until the next action. `kind` controls styling; "" clears it.
  */
-function setRideMapStatus(msg: string, kind: "info" | "error" | "" = ""): void {
+function setRideMapStatus(msg: string, kind: "info" | "" = ""): void {
   const el = document.getElementById("rideMapStatus");
   if (!el) return;
   el.textContent = msg;
-  el.classList.toggle("err", kind === "error");
   el.classList.toggle("busy", kind === "info");
 }
 
@@ -1048,43 +1102,48 @@ function fetchRideMapFull(): void {
   const key = rideMapKey;
   if (!key) return;
   const fetchBtn = document.getElementById("btnRideMapFull") as HTMLButtonElement | null;
-  // Gate on a live connection first (may pop the re-auth picker in offline mode);
-  // only show the "downloading…" busy state once the fetch actually starts, so a
-  // cancelled re-auth doesn't leave the button stuck spinning.
-  withBeelineAccess(() => {
-    if (rideMapKey !== key) return; // user moved on while signing in
-    if (fetchBtn) {
-      fetchBtn.disabled = true;
-      fetchBtn.textContent = "Fetching…";
-    }
-    setRideMapStatus("Downloading the full recorded track…", "info");
-    controller
-      .fetchFullTrack(key)
-      .then(() => {
-        // The user may have closed or switched rides while it loaded.
-        if (rideMapKey === key && rideMapBig) {
-          buildRideMapState();
-          if (rideHover) {
-            rideMapBig.fitBounds(L.latLngBounds(rideHover.pts), { padding: [24, 24] });
+  // Gate on consent (when an export gateway is configured) first, then on a live
+  // connection (may pop the re-auth picker in offline mode); only show the
+  // "downloading…" busy state once the fetch actually starts, so a cancelled
+  // re-auth or declined consent doesn't leave the button stuck spinning.
+  withGpxRelayConsent(() =>
+    withBeelineAccess(() => {
+      if (rideMapKey !== key) return; // user moved on while signing in
+      if (fetchBtn) {
+        fetchBtn.disabled = true;
+        fetchBtn.textContent = "Fetching…";
+      }
+      setRideMapStatus("Downloading the full recorded track…", "info");
+      controller
+        .fetchFullTrack(key)
+        .then(() => {
+          // The user may have closed or switched rides while it loaded.
+          if (rideMapKey === key && rideMapBig) {
+            buildRideMapState();
+            if (rideHover) {
+              rideMapBig.fitBounds(L.latLngBounds(rideHover.pts), { padding: [24, 24] });
+            }
           }
-        }
-        setRideMapStatus("");
-        toast("Full track loaded — time, elevation and speed are now real.");
-      })
-      .catch((err) => {
-        const msg = err instanceof Error ? err.message : String(err);
-        // In-context, persistent feedback in the bar (survives in full-screen)…
-        if (rideMapKey === key) {
-          setRideMapStatus(`Couldn't fetch full track: ${msg}`, "error");
-          if (fetchBtn) {
-            fetchBtn.disabled = false;
-            fetchBtn.textContent = "Retry full track";
+          setRideMapStatus("");
+          toast("Full track loaded — time, elevation and speed are now real.");
+        })
+        .catch((err) => {
+          const msg = err instanceof Error ? err.message : String(err);
+          // Don't fold the (often long) error into the cramped map bar — clear the
+          // "downloading…" note and let the toast (which paints above the full-screen
+          // map) carry the reason. The button flipping to "Retry full track" is the
+          // persistent, in-context signal that it failed.
+          if (rideMapKey === key) {
+            setRideMapStatus("");
+            if (fetchBtn) {
+              fetchBtn.disabled = false;
+              fetchBtn.textContent = "Retry full track";
+            }
           }
-        }
-        // …plus a toast for when the map was already closed.
-        toast(`Couldn't fetch the full track: ${msg}`, true);
-      });
-  });
+          toast(`Couldn't fetch the full track: ${msg}`, true);
+        });
+    }),
+  );
 }
 
 /** Switch the route-colouring mode (plain / by elevation / by speed). */
@@ -2974,6 +3033,7 @@ function confirmDialog(opts: {
   confirmResolve?.(false); // abandon any prior pending dialog
   confirmIsPrompt = false;
   $("#confirmInput").classList.add("hidden");
+  $("#confirmCheck").classList.add("hidden");
   $("#confirmTitle").textContent = opts.title;
   $("#confirmBody").textContent = opts.body;
   $("#confirmOk").textContent = opts.confirmLabel ?? "Confirm";
@@ -2981,6 +3041,40 @@ function confirmDialog(opts: {
   $<HTMLButtonElement>("#confirmOk").focus();
   return new Promise<boolean>((resolve) => {
     confirmResolve = resolve as (v: boolean | string | null) => void;
+  });
+}
+
+/**
+ * One-time consent prompt before routing a full-GPX download through the external
+ * export gateway. Reuses the confirm modal — plus its checkbox row — so it matches
+ * the app's dialog vocabulary. Resolves to whether the user agreed and whether they
+ * ticked "don't ask again".
+ */
+function consentDialog(opts: {
+  title: string;
+  body: string;
+  confirmLabel?: string;
+  checkLabel: string;
+  checked?: boolean;
+}): Promise<{ ok: boolean; dontAsk: boolean }> {
+  const modal = document.getElementById("confirmModal");
+  if (!modal) return Promise.resolve({ ok: true, dontAsk: false });
+  confirmResolve?.(false); // abandon any prior pending dialog
+  confirmIsPrompt = false;
+  $("#confirmInput").classList.add("hidden");
+  $("#confirmCheck").classList.remove("hidden");
+  $("#confirmCheckLabel").textContent = opts.checkLabel;
+  $<HTMLInputElement>("#confirmCheckBox").checked = opts.checked ?? true;
+  $("#confirmTitle").textContent = opts.title;
+  $("#confirmBody").textContent = opts.body;
+  $("#confirmOk").textContent = opts.confirmLabel ?? "Continue";
+  modal.classList.remove("hidden");
+  $<HTMLButtonElement>("#confirmOk").focus();
+  return new Promise<{ ok: boolean; dontAsk: boolean }>((resolve) => {
+    confirmResolve = ((ok) => {
+      const dontAsk = $<HTMLInputElement>("#confirmCheckBox").checked;
+      resolve({ ok: ok === true, dontAsk });
+    }) as (v: boolean | string | null) => void;
   });
 }
 
@@ -2999,6 +3093,7 @@ function promptDialog(opts: {
   if (!modal) return Promise.resolve(null);
   confirmResolve?.(false); // abandon any prior pending dialog
   confirmIsPrompt = true;
+  $("#confirmCheck").classList.add("hidden");
   $("#confirmTitle").textContent = opts.title;
   $("#confirmBody").textContent = opts.body;
   $("#confirmOk").textContent = opts.confirmLabel ?? "Save";
@@ -3016,6 +3111,7 @@ function promptDialog(opts: {
 /** Close the confirm/prompt modal and settle its promise with the user's choice. */
 function closeConfirm(ok: boolean): void {
   document.getElementById("confirmModal")?.classList.add("hidden");
+  document.getElementById("confirmCheck")?.classList.add("hidden");
   const resolve = confirmResolve;
   const isPrompt = confirmIsPrompt;
   confirmResolve = null;
@@ -3394,7 +3490,9 @@ document.addEventListener("click", (e) => {
     openMenu = null;
     if (!selected.size) return toast("Select some rides first.");
     const keys = [...selected];
-    return withBeelineAccess(() => run(() => controller.downloadGpx(keys, "", "full")));
+    return withGpxRelayConsent(() =>
+      withBeelineAccess(() => run(() => controller.downloadGpx(keys, "", "full"))),
+    );
   }
   if (t.id === "btnUploadSel") {
     if (!selected.size) return toast("Select some rides first.");
@@ -3430,7 +3528,9 @@ document.addEventListener("click", (e) => {
   if (act === "gpx-save-full-one") {
     openMenu = null;
     const key = t.dataset.key!;
-    return withBeelineAccess(() => run(() => controller.downloadGpx([key], "", "full")));
+    return withGpxRelayConsent(() =>
+      withBeelineAccess(() => run(() => controller.downloadGpx([key], "", "full"))),
+    );
   }
   if (act === "upload-one") {
     const ride = STATE.rides.find((r) => r.key === t.dataset.key);

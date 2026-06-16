@@ -3,6 +3,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it, vi } from "vitest";
 import type { BeelineSession, RawBeelineRide } from "../src/beeline-api";
+import { BeelineError } from "../src/beeline-api";
 import type { BeelineApi } from "../src/beeline-source";
 import { BeelineRideSource } from "../src/beeline-source";
 import { Controller } from "../src/controller";
@@ -309,6 +310,65 @@ describe("Controller + BeelineRideSource (no network)", () => {
     expect(ft).not.toBeNull();
     expect(ft?.times.every((t) => t != null)).toBe(true);
     expect(ft?.eles.every((e) => e != null)).toBe(true);
+  });
+
+  it("falls back to a route-only GPX when the full export gateway is unreachable", async () => {
+    const api = new FakeBeelineApi(structuredClone(FIXTURE));
+    // The cloud export is unreachable — a retryable failure the app degrades around.
+    api.exportRideGpx = async (_s: BeelineSession, pushId: string) => {
+      api.exportCalls.push(pushId);
+      throw new BeelineError("GPX export gateway unavailable (HTTP 503)", "unreachable");
+    };
+    const c = makeController(api);
+    await c.connect();
+    c.scan("all", null);
+    await vi.waitFor(() => expect(c.state().jobs.busy).toBe(false), { timeout: 5000 });
+
+    const key = beelineRideKey(FIXTURE[UPLOADED].start as number);
+    const files: { bytes: Uint8Array }[] = [];
+    c.onGpx((f) => files.push(f));
+
+    c.downloadGpx([key], "", "full");
+    await vi.waitFor(() => expect(c.state().jobs.busy).toBe(false), { timeout: 5000 });
+
+    // The task SUCCEEDED (degraded), not failed, and a route-only GPX was emitted
+    // from the cached track instead.
+    const task = c.state().jobs.history.find((t) => t.kind === "download-gpx");
+    expect(task?.status).toBe("done");
+    expect(api.exportCalls).toContain(UPLOADED);
+    expect(files.length).toBe(1);
+    const gpx = new TextDecoder().decode(files[0].bytes);
+    expect(gpx).toContain("<trkpt ");
+    // It's the shape-only synth — no real per-point time/elevation, and it is NOT
+    // cached as a full track (the map must not claim real timestamps).
+    expect(gpx).not.toContain("<time>");
+    expect(gpx).not.toContain("<ele>");
+    expect(c.getFullTrack(key)).toBeNull();
+  });
+
+  it("does NOT fall back for a genuine no-track failure (stays a real error)", async () => {
+    const api = new FakeBeelineApi(structuredClone(FIXTURE));
+    // A non-retryable failure: the ride genuinely has no recorded track to export.
+    api.exportRideGpx = async (_s: BeelineSession, pushId: string) => {
+      api.exportCalls.push(pushId);
+      throw new BeelineError("ride has no recorded track to export", "no-track");
+    };
+    const c = makeController(api);
+    await c.connect();
+    c.scan("all", null);
+    await vi.waitFor(() => expect(c.state().jobs.busy).toBe(false), { timeout: 5000 });
+
+    const key = beelineRideKey(FIXTURE[UPLOADED].start as number);
+    const files: { bytes: Uint8Array }[] = [];
+    c.onGpx((f) => files.push(f));
+
+    c.downloadGpx([key], "", "full");
+    await vi.waitFor(() => expect(c.state().jobs.busy).toBe(false), { timeout: 5000 });
+
+    // No silent route-only fallback — the task fails so the user sees the real reason.
+    const task = c.state().jobs.history.find((t) => t.kind === "download-gpx");
+    expect(task?.status).toBe("error");
+    expect(files.length).toBe(0);
   });
 
   it("fetchFullTrack returns the parsed track and caches it (one fetch on revisit)", async () => {

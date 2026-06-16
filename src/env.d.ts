@@ -16,3 +16,11 @@ declare const __APP_BUILD_DATE__: string;
  * `false` in production builds, so the proxy path never ships.
  */
 declare const __BEELINE_DEV_PROXY__: boolean;
+/**
+ * Optional production relay URL for the full-track GPX download (see
+ * infra/gpx-relay). Empty string when unset — the app then uses the direct
+ * in-browser export path and stays fully backend-free. When set, the full-GPX
+ * download is routed through this stateless Lambda to sidestep the Storage
+ * redirect's missing CORS header in production.
+ */
+declare const __GPX_RELAY_URL__: string;
