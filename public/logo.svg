@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128" role="img" aria-label="GPX Toolkit">
+  <!-- Rounded orange badge: a big black bike riding a route ribbon. The bike is
+       scaled up (1.6×) and inked near-black so it stays legible down to favicon
+       size; the dimmer ribbon nods to the map/heatmap route lines. -->
+  <rect width="128" height="128" rx="28" fill="#fc5200"/>
+  <path d="M18 96 C 40 82, 50 106, 64 90 S 96 76, 110 90" fill="none"
+        stroke="#7a2c0f" stroke-width="8" stroke-linecap="round"/>
+  <g transform="translate(64 53) scale(1.6) translate(-64 -53)">
+    <g fill="none" stroke="#1a1408" stroke-width="5.6" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="46" cy="55" r="13"/>
+      <circle cx="82" cy="55" r="13"/>
+      <path d="M46 55 L58 55 L51 37 L72 37 L82 55 M58 55 L66 37"/>
+    </g>
+  </g>
+</svg>

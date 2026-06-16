@@ -17,6 +17,17 @@ humans and the assistant can read this file as a compressed history of decisions
 
 ---
 
+## App logo & favicon: bike-on-a-route badge
+- **What:** Introduced a single brand mark (`public/logo.svg`) — a rounded Strava-orange badge of a
+  bike riding a route ribbon — and used it everywhere: the header brand mark (replacing the bare
+  CSS accent dot in both the header and the Sources dialog), the favicon (replacing the old route-
+  squiggle), and as PNG fallbacks (`favicon-32`, `apple-touch-icon`, `icon-192/512`) wired up via
+  a new `site.webmanifest` + `theme-color`. PNGs are rasterized from the SVG by `scripts/gen-icons.mjs`
+  (`npm run gen-icons`, `sharp` devDependency) and committed. Patch bump to 0.9.1.
+- **Why:** The app had a placeholder favicon and no real logo; the bike+route badge expresses the
+  product (rides + GPX tracks) in the established accent palette, and the platform icons/manifest
+  make it install/bookmark cleanly on mobile.
+
 ## Fix: per-ride "⋮" menu clipped by the month box
 - **What:** The month container that owns the currently-open per-ride overflow menu now gets a
   `menu-open` class flipping it to `overflow: visible`, so the downward dropdown is no longer cut

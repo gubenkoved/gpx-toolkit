@@ -1,0 +1,15 @@
+{
+  "name": "GPX Toolkit",
+  "short_name": "GPX Toolkit",
+  "description": "Backend-free, in-browser ride toolkit: import GPX files, explore/map/analyze your rides, and upload Beeline-account rides to Strava.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#0b0d11",
+  "theme_color": "#fc5200",
+  "icons": [
+    { "src": "/favicon.svg", "type": "image/svg+xml", "sizes": "any" },
+    { "src": "/icon-192.png", "type": "image/png", "sizes": "192x192" },
+    { "src": "/icon-512.png", "type": "image/png", "sizes": "512x512" }
+  ]
+}
