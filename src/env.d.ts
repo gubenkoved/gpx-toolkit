@@ -9,3 +9,10 @@ declare const __APP_VERSION__: string;
 declare const __APP_COMMIT__: string;
 /** Build date as an ISO day, e.g. "2026-06-13". */
 declare const __APP_BUILD_DATE__: string;
+/**
+ * True only in a dev server started with `npm run dev:proxy` (BEELINE_DEV_PROXY=1):
+ * routes the full-track GPX download through the Vite proxy (`/bl-storage`) to
+ * sidestep the Storage redirect's missing CORS header for local testing. Always
+ * `false` in production builds, so the proxy path never ships.
+ */
+declare const __BEELINE_DEV_PROXY__: boolean;

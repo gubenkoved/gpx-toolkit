@@ -22,6 +22,16 @@ function gitCommit(): string {
   }
 }
 
+// Opt-in dev-only reverse proxy for the full-track GPX download, enabled ONLY when
+// the dev server is started via `npm run dev:proxy` (BEELINE_DEV_PROXY=1). The
+// authenticated `firebasestorage.…/?alt=media` GET 302-redirects to a Google host
+// that sends NO `Access-Control-Allow-Origin`, so the browser blocks it (the
+// `exportRide` POST itself is CORS-clean and needs no proxy). With the flag on, the
+// page fetches a same-origin `/bl-storage/…` path and Vite forwards it server-side,
+// where CORS doesn't apply and the redirect is followed for us. Default `npm run dev`
+// keeps the real cross-origin host so normal dev still exercises genuine CORS.
+const devProxy = process.env.BEELINE_DEV_PROXY === "1";
+
 // `base: "./"` keeps asset URLs relative so the build can be served from any
 // path on a static host (GitHub Pages project sites, Netlify subpaths, etc.).
 // `target: esnext` (below) keeps modern JS (BigInt, top-level features) intact.
@@ -31,7 +41,21 @@ export default defineConfig({
     __APP_VERSION__: JSON.stringify(pkg.version),
     __APP_COMMIT__: JSON.stringify(gitCommit()),
     __APP_BUILD_DATE__: JSON.stringify(new Date().toISOString().slice(0, 10)),
+    // Always a literal boolean in the bundle; `false` in `vite build`, so the
+    // `/bl-storage` path and the proxy never ship to production.
+    __BEELINE_DEV_PROXY__: JSON.stringify(devProxy),
   },
+  server: devProxy
+    ? {
+        proxy: {
+          "/bl-storage": {
+            target: "https://firebasestorage.googleapis.com",
+            changeOrigin: true,
+            rewrite: (p) => p.replace(/^\/bl-storage/, ""),
+          },
+        },
+      }
+    : undefined,
   build: {
     target: "esnext",
   },

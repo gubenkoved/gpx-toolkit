@@ -43,9 +43,16 @@ const RTDB_BASE = "https://beeline-e46ed.firebaseio.com";
 const FUNCTIONS_BASE = "https://us-central1-beeline-e46ed.cloudfunctions.net";
 const IDENTITY_BASE = "https://www.googleapis.com/identitytoolkit/v3/relyingparty";
 // Firebase Storage REST host + bucket holding the server-rendered full-track GPX
-// (`exportRide` writes `ride-gpx-export/<uid>/<pushId>.gpx.gz` here). The same
-// host the Firebase JS SDK downloads through, so it is browser/CORS-friendly.
-const STORAGE_BASE = "https://firebasestorage.googleapis.com";
+// (`exportRide` writes `ride-gpx-export/<uid>/<pushId>.gpx.gz` here). The authed
+// `?alt=media` GET 302-redirects to a Google download host that returns NO
+// `Access-Control-Allow-Origin`, so the browser blocks it cross-origin. Under
+// `npm run dev:proxy` (__BEELINE_DEV_PROXY__) we hit a same-origin `/bl-storage`
+// path that the Vite dev server forwards (following the redirect server-side) to
+// unblock local testing; production builds always use the real host (the flag is
+// `false` in `vite build`). See vite.config.ts.
+const STORAGE_BASE = __BEELINE_DEV_PROXY__
+  ? "/bl-storage"
+  : "https://firebasestorage.googleapis.com";
 const STORAGE_BUCKET = "beeline-e46ed.appspot.com";
 const ANDROID_PACKAGE = "co.beeline";
 const ANDROID_CERT = "8DB76C76142E30EEF0D04F5BF738A4BAA6049642";
