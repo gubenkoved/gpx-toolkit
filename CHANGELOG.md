@@ -17,6 +17,19 @@ humans and the assistant can read this file as a compressed history of decisions
 
 ---
 
+## Hover the elevation profile → highlight that point on the route map
+- **What:** Hovering the full-screen ride map's elevation profile now lights up the
+  matching point on the route above it — dropping/moving the same circle marker and
+  writing the distance/time/elevation/speed readout — mirroring the existing map→profile
+  sync so the two are fully bidirectional. Extracted a shared `showRideTrackPoint(latLng,
+  idx, km)` (used by both the map-hover and the new profile-hover paths) plus a
+  `trackPointAtKm` resolver that inverts the map's pixel search, and a `clearRideTrackPoint`
+  shared teardown. The profile strip gets a crosshair cursor; listeners are wired once on
+  the persistent host (the SVG re-renders per ride but events bubble).
+- **Why:** Hover sync only worked one way (map → profile cursor). Reading a climb off the
+  profile and seeing *where* on the route it happens is the natural other half, and reusing
+  the readout/marker keeps both directions identical.
+
 ## Pace full-GPX cloud exports to ≤1 ride/second
 - **What:** Full-mode GPX export (`BeelineRideSource.downloadGpx`, full path) no longer
   fans rides out through the upload concurrency pool — it now runs them sequentially,

@@ -1821,6 +1821,7 @@ body.ridemap-open {
   height: 100%;
   display: block;
   overflow: visible;
+  cursor: crosshair;
 }
 .ridemap-profile .rp-area {
   fill: rgba(252, 82, 0, 0.16);

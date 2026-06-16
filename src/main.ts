@@ -910,14 +910,34 @@ function onRideMapHover(e: L.LeafletMouseEvent): void {
     }
   }
   if (best > 28 || !bestLatLng) {
-    out.textContent = "";
-    rideMapMarker?.remove();
-    rideMapMarker = null;
-    moveProfileCursor(null);
+    clearRideTrackPoint();
     return;
   }
+  showRideTrackPoint(bestLatLng, bestIdx, bestKm);
+}
+
+/** Clear the hover marker, readout and profile cursor (pointer left the track). */
+function clearRideTrackPoint(): void {
+  const out = document.getElementById("rideMapHover");
+  if (out) out.textContent = "";
+  rideMapMarker?.remove();
+  rideMapMarker = null;
+  moveProfileCursor(null);
+}
+
+/**
+ * Light up one along-track position everywhere at once: drop/move the route marker
+ * at the interpolated lat/lng, write the distance/time/elevation/speed readout, and
+ * move the elevation-profile cursor to the matching distance. Shared by BOTH the
+ * map-hover and the profile-hover paths so hovering either surface highlights the
+ * same point on the other. `idx` is the nearest recorded-point index (for real
+ * time/elevation/speed), `km` the cumulative distance into the ride.
+ */
+function showRideTrackPoint(latLng: [number, number], idx: number, km: number): void {
+  if (!rideMapBig || !rideHover) return;
+  const out = document.getElementById("rideMapHover");
   if (!rideMapMarker) {
-    rideMapMarker = L.circleMarker(bestLatLng, {
+    rideMapMarker = L.circleMarker(latLng, {
       radius: 6,
       color: "#ffffff",
       weight: 2,
@@ -925,14 +945,14 @@ function onRideMapHover(e: L.LeafletMouseEvent): void {
       fillOpacity: 1,
     }).addTo(rideMapBig);
   } else {
-    rideMapMarker.setLatLng(bestLatLng);
+    rideMapMarker.setLatLng(latLng);
   }
 
   const full = rideHover.full;
-  const parts = [`${full ? "" : "~"}${bestKm.toFixed(2)} km`];
+  const parts = [`${full ? "" : "~"}${km.toFixed(2)} km`];
   if (full && hasTimes(full) && rideHover.startMs !== null) {
     // Real recorded time at the nearest point — no estimate.
-    const tMs = full.times[bestIdx];
+    const tMs = full.times[idx];
     if (tMs != null) {
       const intoSec = (tMs - rideHover.startMs) / 1000;
       if (intoSec >= 0) parts.push(`${fmtSecsShort(intoSec)} in`);
@@ -940,13 +960,13 @@ function onRideMapHover(e: L.LeafletMouseEvent): void {
       const p2 = (n: number) => String(n).padStart(2, "0");
       parts.push(`${p2(clock.getHours())}:${p2(clock.getMinutes())}`);
     }
-    const ele = full.eles[bestIdx];
+    const ele = full.eles[idx];
     if (ele != null) parts.push(`${Math.round(ele)} m`);
-    const spd = rideHover.speeds?.[bestIdx];
+    const spd = rideHover.speeds?.[idx];
     if (spd != null) parts.push(`${spd.toFixed(1)} km/h`);
   } else if (rideHover.elapsedSec > 0) {
     // Even-pace estimate from total elapsed time.
-    const frac = rideHover.totalKm > 0 ? bestKm / rideHover.totalKm : 0;
+    const frac = rideHover.totalKm > 0 ? km / rideHover.totalKm : 0;
     parts.push(`~${fmtSecsShort(frac * rideHover.elapsedSec)} in`);
     if (rideHover.startMs !== null) {
       const clock = new Date(rideHover.startMs + frac * rideHover.elapsedSec * 1000);
@@ -954,8 +974,51 @@ function onRideMapHover(e: L.LeafletMouseEvent): void {
       parts.push(`~${p2(clock.getHours())}:${p2(clock.getMinutes())}`);
     }
   }
-  out.textContent = parts.join(" · ");
-  moveProfileCursor(bestKm);
+  if (out) out.textContent = parts.join(" · ");
+  moveProfileCursor(km);
+}
+
+/**
+ * Resolve an along-track distance (km) to its interpolated lat/lng and nearest
+ * recorded-point index — the inverse of the map hover's pixel search. Used to light
+ * up the route when the elevation profile is hovered.
+ */
+function trackPointAtKm(km: number): { latLng: [number, number]; idx: number } | null {
+  if (!rideHover || rideHover.pts.length < 2) return null;
+  const { cum, pts } = rideHover;
+  const target = Math.max(0, Math.min(km, rideHover.totalKm));
+  let i = 1;
+  while (i < cum.length - 1 && cum[i] < target) i++;
+  const segLen = cum[i] - cum[i - 1];
+  const t = segLen > 0 ? (target - cum[i - 1]) / segLen : 0;
+  const a = pts[i - 1];
+  const b = pts[i];
+  return {
+    latLng: [a[0] + t * (b[0] - a[0]), a[1] + t * (b[1] - a[1])],
+    idx: t < 0.5 ? i - 1 : i,
+  };
+}
+
+/**
+ * Hover over the elevation profile → sync the route map. Maps the cursor's X to an
+ * along-track distance (through the SAME padding the profile path uses) and lights
+ * up that point on the map + readout via `showRideTrackPoint`.
+ */
+function onRideProfileHover(e: PointerEvent): void {
+  if (!rideHover) return;
+  const svg = (e.currentTarget as HTMLElement).querySelector("svg");
+  if (!svg) return;
+  const rect = svg.getBoundingClientRect();
+  if (rect.width <= 0) return;
+  // The profile path maps padX..(W-padX) viewBox units to 0..totalKm, so convert
+  // the cursor's fractional X through the same padding to line up with the line.
+  const W = 1000;
+  const padX = 4;
+  const xView = ((e.clientX - rect.left) / rect.width) * W;
+  const frac = Math.max(0, Math.min(1, (xView - padX) / (W - 2 * padX)));
+  const km = frac * rideHover.totalKm;
+  const at = trackPointAtKm(km);
+  if (at) showRideTrackPoint(at.latLng, at.idx, km);
 }
 
 /** Show/hide the full-track controls in the bar to match the loaded state. */
@@ -1085,13 +1148,7 @@ function openRideMap(key: string): void {
 
   map.on("move zoom resize zoomend moveend", reprojectRideHover);
   map.on("mousemove", onRideMapHover);
-  map.on("mouseout", () => {
-    const out = document.getElementById("rideMapHover");
-    if (out) out.textContent = "";
-    rideMapMarker?.remove();
-    rideMapMarker = null;
-    moveProfileCursor(null);
-  });
+  map.on("mouseout", clearRideTrackPoint);
 }
 
 /** Fetch the open ride's full recorded track, then upgrade the map in place. On
@@ -3765,6 +3822,16 @@ function syncDaysField(): void {
 
 $("#days").addEventListener("input", syncDaysField);
 syncDaysField();
+
+// Elevation profile ↔ route map sync: hovering the full-screen ride map's profile
+// strip lights up the matching point on the route above it (and the readout). The
+// host persists in the DOM across opens, so wire it once here; the SVG inside is
+// re-rendered per ride but pointer events still bubble to the host.
+const rideProfileEl = document.getElementById("rideMapProfile");
+if (rideProfileEl) {
+  rideProfileEl.addEventListener("pointermove", onRideProfileHover);
+  rideProfileEl.addEventListener("pointerleave", clearRideTrackPoint);
+}
 
 // Map view side panel: hovering an entry highlights its track; clicking opens the
 // ride in the Explore view. no-track entries carry no data-key, so they're inert.
