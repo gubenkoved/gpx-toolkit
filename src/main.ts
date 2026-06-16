@@ -775,7 +775,10 @@ function closeRideMap(): void {
 // Explore view. Only rides with a downloaded route can be drawn; the side panel
 // still lists the rest, flagged, so nothing is silently hidden.
 // --------------------------------------------------------------------------- //
-const CLICK_PX = 8; // how close (in screen px) a click must land to "hit" a track
+// How close (in screen px) a click must land to "hit" a track. A fingertip is far
+// less precise than a mouse, so coarse (touch) pointers get a much larger radius.
+const CLICK_PX =
+  typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches ? 22 : 8;
 const BASE_TRACK = {
   color: "#ff5a1f",
   weight: 3.5,
@@ -1128,20 +1131,46 @@ function openRideInExplore(key: string): void {
   openMonths.add(ride.month_key);
   openStats.add(key);
   setView("explore");
-  requestAnimationFrame(() => {
+  flashRowIntoView(key);
+}
+
+/**
+ * Scroll a ride row into view and pulse it. Desktop lands on the first frame, but
+ * mobile is fragile: the just-opened detail block mounts a Leaflet mini-map a tick
+ * later (invalidateSize on a 0ms timeout) and the mobile URL bar reflows the
+ * viewport, so a single scroll lands in the wrong place and the 1.2s flash can
+ * finish before the row settles. So we re-scroll over several ticks to correct for
+ * the late layout shifts and only start the flash on the final settle pass — that
+ * way the blink is reliably seen wherever the row comes to rest.
+ */
+function flashRowIntoView(key: string): void {
+  const find = (): HTMLElement | null => {
     for (const el of document.querySelectorAll<HTMLElement>(".rrow")) {
-      if (el.dataset.key === key) {
-        el.scrollIntoView({ behavior: "smooth", block: "center" });
-        // Briefly pulse the row so the eye lands on the ride we jumped to.
+      if (el.dataset.key === key) return el;
+    }
+    return null;
+  };
+  // Instant (not smooth) re-scrolls: two smooth animations fired a few hundred ms
+  // apart fight each other on mobile and cancel out. A hard jump on each corrective
+  // pass is what actually lands reliably across devices.
+  const settleAt = [0, 120, 360]; // ms; the last pass owns the flash
+  settleAt.forEach((delay, i) => {
+    const run = (): void => {
+      const el = find();
+      if (!el) return;
+      el.scrollIntoView({ block: "center" });
+      if (i === settleAt.length - 1) {
+        // Restart the pulse so the eye lands on the ride we jumped to.
         el.classList.remove("flash");
-        void el.offsetWidth; // restart the animation if the row is re-targeted
+        void el.offsetWidth; // reflow to retrigger the animation if re-targeted
         el.classList.add("flash");
         el.addEventListener("animationend", () => el.classList.remove("flash"), {
           once: true,
         });
-        break;
       }
-    }
+    };
+    if (delay === 0) requestAnimationFrame(run);
+    else setTimeout(run, delay);
   });
 }
 
@@ -1428,6 +1457,7 @@ const heatAreaSelect: AreaSelect = createAreaSelect({
     heatSelectedKeys = keys;
     renderHeatMatched();
   },
+  clickPx: CLICK_PX,
 });
 
 /** On-screen pixel gap we aim to keep between heat points; half the glow radius keeps them merged. */

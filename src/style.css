@@ -1260,6 +1260,9 @@ span.caret.open::before {
   padding: 11px 15px;
   cursor: pointer;
   border-top: 1px solid var(--line);
+  /* When a row is scrolled into view from a map's "Selected" list it must clear
+     the sticky header (position:sticky; top:0) instead of tucking underneath it. */
+  scroll-margin-top: 96px;
 }
 .rrow:hover {
   background: #161a21;

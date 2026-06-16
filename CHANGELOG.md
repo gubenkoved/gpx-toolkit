@@ -17,7 +17,19 @@ humans and the assistant can read this file as a compressed history of decisions
 
 ---
 
-## Replace the vague "Other" Strava-status filter with explicit states
+## Reliably scroll-to + blink a ride opened from a map's "Selected" list on mobile
+- **What:** Reworked `openRideInExplore` in [src/main.ts](src/main.ts) to scroll the
+  target `.rrow` into view across several settle passes (rAF → 120ms → 360ms) using
+  instant (not smooth) scrolls, firing the `.flash` pulse only on the final pass.
+  Added `scroll-margin-top` to `.rrow` so it clears the sticky header, and widened the
+  map/heatmap click hit-radius (`CLICK_PX`) to 22px on coarse (touch) pointers.
+- **Why:** On mobile a single smooth scroll landed wrong and the blink was often missed:
+  the just-opened detail block mounts a Leaflet mini-map a tick later and the mobile URL
+  bar reflows the viewport, so the row kept moving after the one scroll. Re-scrolling on a
+  few ticks corrects for those late layout shifts, and a fingertip needs a bigger hit area
+  than a mouse to land on a track line.
+
+
 - **What:** Reworked the Explore status segment from `All / Pending / Uploaded / Other`
   to `All / Not uploaded / Processing / Uploaded`. The `Filters.status` union and its
   predicate in [src/filter.ts](src/filter.ts) now use three mutually-exclusive concrete
