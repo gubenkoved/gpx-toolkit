@@ -64,6 +64,7 @@
       </span>
       <input type="file" id="importFile" accept="application/json,.json,application/zip,.zip" style="display:none" />
       <input type="file" id="gpxFile" accept=".gpx,.zip,application/gpx+xml,application/zip" multiple style="display:none" />
+      <input type="file" id="locFile" accept="application/json,.json" style="display:none" />
     </span>
   </div>
 </header>
@@ -75,6 +76,7 @@
     <button class="vtab" data-view="map" role="tab">Map</button>
     <button class="vtab" data-view="stats" role="tab">Stats</button>
     <button class="vtab" data-view="analytics" role="tab">Wind</button>
+    <button class="vtab" data-view="timeline" role="tab">Timeline</button>
   </div>
   <div id="exploreView">
   <div class="stats-panel hidden" id="statsPanel">
@@ -226,7 +228,32 @@
       </section>
     </div>
   </div>
+
+  <div id="timelineView" class="hidden">
+    <div class="stats-empty" id="timelineEmpty"></div>
+    <div class="tl-wrap hidden" id="timelineBody">
+      <div class="tl-main">
+        <div id="timelineMap"></div>
+        <div class="tl-banner" id="tlBanner" aria-live="polite"></div>
+        <button class="map-select" id="btnTlSelect" aria-pressed="false" aria-label="Select area" title="Drag a rectangle on the map to find when you were in that area">
+          <svg class="mi mi-marquee" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="3.5" y="3.5" width="17" height="17" rx="2" fill="none" stroke="currentColor" stroke-width="2" stroke-dasharray="4 3"/></svg>
+          <svg class="mi mi-cancel" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        </button>
+        <button class="map-expand" id="btnTlExpand" aria-pressed="false" aria-label="Full screen" title="Toggle full-screen (Esc to exit)">
+          <svg class="mi mi-expand" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M8 3H5a2 2 0 0 0-2 2v3M21 8V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3M16 21h3a2 2 0 0 0 2-2v-3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <svg class="mi mi-collapse" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M8 3v3a2 2 0 0 1-2 2H3M21 8h-3a2 2 0 0 1-2-2V3M3 16h3a2 2 0 0 1 2 2v3M16 21v-3a2 2 0 0 1 2-2h3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+        <button class="map-help" id="btnTlHelp" aria-haspopup="dialog" aria-expanded="false" aria-label="How to export your data" title="How to export your Location History from your phone">
+          <svg class="mi" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M9.3 9.2a2.7 2.7 0 0 1 5.2 1c0 1.8-2.5 2.2-2.5 3.8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="17.4" r="1.1" fill="currentColor"/></svg>
+        </button>
+        <div class="tl-help hidden" id="tlHelp" role="dialog" aria-label="How to export your Location History"></div>
+        <div class="tl-bar" id="tlBar"></div>
+      </div>
+      <aside class="tl-side" id="tlSide"></aside>
+    </div>
+  </div>
 </main>
+
 
 <div class="job" id="job">
   <div class="job-list" id="jobList"></div>

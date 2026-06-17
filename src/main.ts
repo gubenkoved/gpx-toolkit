@@ -53,7 +53,25 @@ import { BeelineError } from "./beeline-api";
 import { BeelineRideSource, type BeelineSourceDeps } from "./beeline-source";
 import { GpxRideSource } from "./gpx-source";
 import { GpxCache } from "./gpxcache";
-import { idbBackend, idbBlobBackend, idbWindBlobBackend, memoryBackend } from "./kv";
+import {
+  idbBackend,
+  idbBlobBackend,
+  idbLocationBlobBackend,
+  idbWindBlobBackend,
+  memoryBackend,
+} from "./kv";
+import { parseLocationHistory } from "./loc-parse";
+import { LocationHistoryStore } from "./loc-store";
+import {
+  closeTimelineHelp,
+  collapseTimeline,
+  initTimelineView,
+  isTimelineExpanded,
+  isTimelineHelpOpen,
+  leaveTimelineView,
+  mountTimelineView,
+  resetTimelineData,
+} from "./timeline-view";
 import { createLocate, type Locate } from "./locate";
 import type { SourceFactory } from "./source";
 import { type RideSource, STORAGE_KEY, Store } from "./store";
@@ -85,6 +103,9 @@ const storageBackend = idbBackend();
 /** Durable binary backend for the compressed full-GPX cache (own `gpx` object store). */
 const gpxBlobBackend = idbBlobBackend();
 const windBlobBackend = idbWindBlobBackend();
+/** Durable binary backend for imported Google Location History (own `location-history`
+ *  object store — separate bucket, independently droppable). */
+const locationBlobBackend = idbLocationBlobBackend();
 /** Surface a background-write failure (e.g. quota exceeded) to the user. */
 const onStorageError = (message: string): void => pushError("Storage error", message);
 
@@ -524,6 +545,12 @@ async function goBeeline(email: string, password: string): Promise<boolean> {
 async function openApp(): Promise<void> {
   const c = await getRealController();
   activate(c, false);
+  // Load the location-history catalog in the background; refresh once ready so the
+  // Timeline tab and the Data-menu storage breakdown reflect any imported data.
+  void ensureLocStore().then(() => {
+    if (activeView === "timeline") mountTimelineView();
+    render();
+  });
 }
 
 /** Pull the whole ride history from the connected Beeline account (the one
@@ -602,6 +629,89 @@ function goGpx(): void {
     if (controller !== c) activate(c, false);
     openGpxFilePicker();
   });
+}
+
+// --------------------------------------------------------------------------- //
+// Location History (Timeline) — its own storage bucket, separate from rides
+// --------------------------------------------------------------------------- //
+
+/** App-global location-history store (lazy-loaded; separate from any controller). */
+let locStore: LocationHistoryStore | null = null;
+let locLoading: Promise<LocationHistoryStore> | null = null;
+
+/** Load (once) the location-history store and hydrate its catalog. */
+function ensureLocStore(): Promise<LocationHistoryStore> {
+  if (locStore) return Promise.resolve(locStore);
+  if (!locLoading) {
+    locLoading = LocationHistoryStore.load(locationBlobBackend).then((s) => {
+      locStore = s;
+      return s;
+    });
+  }
+  return locLoading;
+}
+
+/** Open the hidden Location-History file picker (single .json export). */
+function openLocFilePicker(): void {
+  (document.getElementById("locFile") as HTMLInputElement | null)?.click();
+}
+
+/**
+ * Import a Google Location History export: parse it into the normalized record
+ * stream, persist it month-chunked into the dedicated store, and refresh the view.
+ * Runs off the main paint via a microtask; surfaces parse/format errors as a toast.
+ */
+async function importLocationHistory(file: File): Promise<void> {
+  const store = await ensureLocStore();
+  toast(`Reading ${file.name}\u2026`);
+  try {
+    const text = await file.text();
+    const doc = JSON.parse(text) as unknown;
+    const imp = parseLocationHistory(doc, { importedAt: Date.now() });
+    if (imp.records.length === 0) {
+      toast("No usable location records found in that file.", true);
+      return;
+    }
+    await store.addImport(imp.records, imp.sources);
+    if (imp.profile) await store.setProfile(imp.profile);
+    const skipped = imp.skipped ? ` (${imp.skipped} unreadable points skipped)` : "";
+    toast(`Imported ${imp.records.length.toLocaleString()} location records${skipped}.`);
+    resetTimelineData();
+    if (activeView === "timeline") mountTimelineView();
+    render(); // refresh storage breakdown in the Data menu
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Could not read that file.";
+    pushError("Location History import failed", msg);
+    toast(msg, true);
+  }
+}
+
+/**
+ * Drop ALL imported location history — its own bucket only. Rides, Beeline data,
+ * imported GPX, wind cache and settings are untouched (and conversely, a GPX/wind
+ * flush never touches this). Mirrors the cache-flush confirm/toast pattern.
+ */
+async function dropLocationHistory(): Promise<void> {
+  openMenu = null; // close the Data menu we were invoked from
+  const store = await ensureLocStore();
+  if (store.isEmpty()) {
+    toast("No location history to clear.");
+    return;
+  }
+  const months = store.months().length;
+  if (
+    !confirm(
+      `Delete all imported Location History (${fmtBytes(store.totalBytes())} across ${months} ` +
+        `month${months === 1 ? "" : "s"})? Your rides, Beeline data and settings are kept.`,
+    )
+  ) {
+    return;
+  }
+  await store.clear();
+  toast("Location history cleared.");
+  resetTimelineData();
+  if (activeView === "timeline") mountTimelineView();
+  render();
 }
 
 // --------------------------------------------------------------------------- //
@@ -758,12 +868,14 @@ function escHtml(s: string): string {
 // Top-level view ("Explore" = the rides list/stats; "Map" = all-rides heatmap).
 // Remembered across reloads; defaults to Explore on first run.
 // --------------------------------------------------------------------------- //
-type ViewName = "explore" | "map" | "stats" | "analytics";
+type ViewName = "explore" | "map" | "stats" | "analytics" | "timeline";
 const VIEW_KEY = "beeline_uploader.view";
 const readView = (): ViewName => {
   try {
     const v = localStorage.getItem(VIEW_KEY);
-    return v === "map" || v === "stats" || v === "analytics" ? v : "explore";
+    return v === "map" || v === "stats" || v === "analytics" || v === "timeline"
+      ? v
+      : "explore";
   } catch {
     return "explore";
   }
@@ -1509,12 +1621,14 @@ function applyView(): void {
   const isMap = activeView === "map";
   const isStats = activeView === "stats";
   const isAnalytics = activeView === "analytics";
+  const isTimeline = activeView === "timeline";
   document
     .getElementById("exploreView")
-    ?.classList.toggle("hidden", isMap || isStats || isAnalytics);
+    ?.classList.toggle("hidden", isMap || isStats || isAnalytics || isTimeline);
   document.getElementById("mapView")?.classList.toggle("hidden", !isMap);
   document.getElementById("statsView")?.classList.toggle("hidden", !isStats);
   document.getElementById("analyticsView")?.classList.toggle("hidden", !isAnalytics);
+  document.getElementById("timelineView")?.classList.toggle("hidden", !isTimeline);
   if (!isMap && document.body.classList.contains("map-expanded")) setMapExpanded(false);
   if (!isStats && document.body.classList.contains("heat-expanded")) setHeatExpanded(false);
   if (!isMap && mapAreaSelect.isArmed()) mapAreaSelect.setMode(false);
@@ -1522,6 +1636,7 @@ function applyView(): void {
   // Stop watching the device position when its map leaves the screen.
   if (!isMap && mapLocate.isActive()) mapLocate.setActive(false);
   if (!isStats && heatLocate.isActive()) heatLocate.setActive(false);
+  if (!isTimeline) leaveTimelineView();
   document.querySelectorAll<HTMLButtonElement>("#viewTabs .vtab").forEach((b) => {
     b.classList.toggle("active", b.dataset.view === activeView);
   });
@@ -2117,7 +2232,12 @@ async function mountAnalyticsView(_opts: { fit?: boolean } = {}): Promise<void> 
   }
 }
 
-/** Push the persisted heatmap thickness into its slider/output (skip while dragging). */
+// --------------------------------------------------------------------------- //
+// Timeline (Google Location History) view lives in ./timeline-view.ts — an isolated
+// map-centric experience (dwell heatmap, area-select "when was I here", day replay
+// with a time slider). main.ts only owns import/drop and wires the module's deps.
+// --------------------------------------------------------------------------- //
+
 function syncHeatControl(): void {
   const slider = document.getElementById("heatRadius") as HTMLInputElement | null;
   const out = document.getElementById("heatRadiusOut") as HTMLOutputElement | null;
@@ -2894,12 +3014,19 @@ function render(): void {
       `<span class="ms-size">${size}</span>` +
       `<span class="ms-act">` +
       (clear
-        ? `<button class="ms-clear" data-clear="${clear}" title="Clear ${label.toLowerCase()} — it's re-fetchable">Clear</button>`
+        ? clear === "location"
+          ? `<button class="ms-clear" data-clear="location" title="Delete imported Location History — your only local copy">Drop</button>`
+          : `<button class="ms-clear" data-clear="${clear}" title="Clear ${label.toLowerCase()} — it's re-fetchable">Clear</button>`
         : "") +
       `</span></span>`;
     const sub = (text: string) => `<span class="ms-sub">${text}</span>`;
     const rows: string[] = [row("Rides & settings", fmtBytes(stateBytes))];
     if (dataCount) rows.push(row("Imported GPX", fmtBytes(controller.gpxDataBytes())));
+    // Imported Location History — its own bucket, separately droppable. Shown as YOUR
+    // DATA (no auto-clear) but with an explicit Drop, since it's irreplaceable locally.
+    if (locStore && !locStore.isEmpty()) {
+      rows.push(row("Location History", fmtBytes(locStore.totalBytes()), "location"));
+    }
     // The cache group only appears when something is actually cached.
     if (cacheCount || windCount) {
       rows.push(sub("Caches"));
@@ -3022,6 +3149,7 @@ function render(): void {
   if (activeView === "map") mountAllRidesMap();
   else if (activeView === "stats") mountStatsView();
   else if (activeView === "analytics") void mountAnalyticsView();
+  else if (activeView === "timeline") mountTimelineView();
   else mountMaps();
   // The consolidated actions menu lives in static markup (not rebuilt here), so
   // sync its open state from the shared `openMenu` flag.
@@ -3652,6 +3780,9 @@ async function resetEverything(): Promise<void> {
     return;
   }
   controller.reset(); // clear the active controller's cache (IndexedDB) + job queue
+  // The location-history bucket is separate from the controller's stores, so a full
+  // reset must clear it explicitly to be complete (a per-domain drop never does this).
+  await ensureLocStore().then((s) => s.clear());
   forgetProfile(); // forget the chosen source so the dialog leads next time
   await openApp(); // rebuild a fresh controller over the now-empty cache
   showSources({ welcome: true }); // start fresh: let the user reconnect a source
@@ -3911,6 +4042,7 @@ document.addEventListener("click", (e) => {
   if (t.id === "btnExportAll") return void exportAll();
   if (t.dataset?.clear === "gpx") return void flushGpxCache();
   if (t.dataset?.clear === "wind") return void flushWindCache();
+  if (t.dataset?.clear === "location") return void dropLocationHistory();
   if (t.id === "btnReset") return void resetEverything();
   if (t.id === "btnScan") return pullFromBeeline();
   if (t.id === "btnCancel") return run(() => controller.cancel(null));
@@ -4224,6 +4356,10 @@ document.addEventListener("change", (e) => {
     importGpxFiles([...cb.files]);
     cb.value = "";
   }
+  if (cb.id === "locFile" && cb.files && cb.files[0]) {
+    void importLocationHistory(cb.files[0]);
+    cb.value = "";
+  }
   if (cb.id === "flatOnly") {
     void mountAnalyticsView();
   }
@@ -4256,10 +4392,13 @@ document.addEventListener("drop", (e) => {
   document.body.classList.remove("dragging-files");
   if (!dragHasFiles(e)) return;
   e.preventDefault();
-  const files = [...(e.dataTransfer?.files ?? [])].filter((f) => /\.(gpx|zip)$/i.test(f.name));
-  if (files.length) importGpxFiles(files);
-  else if (e.dataTransfer?.files.length)
-    toast("Drop .gpx files or a .zip bundle to import.", true);
+  const dropped = [...(e.dataTransfer?.files ?? [])];
+  const gpx = dropped.filter((f) => /\.(gpx|zip)$/i.test(f.name));
+  const loc = dropped.filter((f) => /\.json$/i.test(f.name));
+  if (gpx.length) importGpxFiles(gpx);
+  if (loc.length) void importLocationHistory(loc[0]);
+  if (!gpx.length && !loc.length && dropped.length)
+    toast("Drop .gpx files / a .zip bundle, or a Location History .json.", true);
 });
 
 // Live outlier-trim sliders: update labels and recompute the speed view as they move.
@@ -4341,6 +4480,17 @@ initRideMap({
   osmAttribution: OSM_ATTRIBUTION,
 });
 
+initTimelineView({
+  getStore: () => locStore,
+  ensureStore: ensureLocStore,
+  toast,
+  esc: escHtml, // the real HTML escaper — NOT `esc`, which slugifies (spaces → "_")
+  fmtBytes,
+  osmAttribution: OSM_ATTRIBUTION,
+  onImport: openLocFilePicker,
+  onDrop: () => void dropLocationHistory(),
+});
+
 // Map view side panel: hovering an entry highlights its track; clicking opens the
 // ride in the Explore view. no-track entries carry no data-key, so they're inert.
 const mapSideEl = document.getElementById("mapSide");
@@ -4401,6 +4551,8 @@ window.addEventListener("keydown", (e) => {
   }
   if (document.body.classList.contains("map-expanded")) setMapExpanded(false);
   if (document.body.classList.contains("heat-expanded")) setHeatExpanded(false);
+  if (isTimelineHelpOpen()) closeTimelineHelp();
+  else if (isTimelineExpanded()) collapseTimeline();
 });
 
 /** Show the build version in the header + source picker; hover reveals commit + build date. */

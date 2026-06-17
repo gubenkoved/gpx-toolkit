@@ -216,7 +216,7 @@ none. The table is grouped by concern; keep new modules in the group they belong
 | File | Responsibility | Key symbols |
 |------|----------------|-------------|
 | [index.html](../index.html) | App shell, markup, styles, Sources dialog (Beeline + GPX) | — |
-| [src/main.ts](../src/main.ts) | UI entry: render + wiring, Sources dialog, re-auth gating, GPX import, all views (Explore/Map/Stats) | `activate()`, `getRealController()`, `openApp()`, `goBeeline()`, `goGpx()`, `pullFromBeeline()`, `importGpxFiles()`, `withBeelineAccess()`, `showSources()` |
+| [src/main.ts](../src/main.ts) | UI entry: render + wiring, Sources dialog, re-auth gating, GPX import, Location-History import/drop, all views (Explore/Map/Stats/Wind/Timeline) | `activate()`, `getRealController()`, `openApp()`, `goBeeline()`, `goGpx()`, `pullFromBeeline()`, `importGpxFiles()`, `importLocationHistory()`, `dropLocationHistory()`, `mountTimelineView()`, `withBeelineAccess()`, `showSources()` |
 | [src/ridemap.ts](../src/ridemap.ts) | Full-screen single-ride route map: route colouring (height/speed/wind), elevation/speed profile, hover readout + wind dial. Depends on the app only via an injected `RideMapDeps` seam | `initRideMap()`, `openRideMap()`, `closeRideMap()`, `refreshOpenRideMapWind()` |
 | [src/controller.ts](../src/controller.ts) | Orchestration + app state; source registry; per-ride dispatch; full-track cache | `Controller`, `registerSource()`, `state()`, `runTask()`, `importGpx()`, `getFullTrack()` |
 | [src/source.ts](../src/source.ts) | `RideSource` seam + capabilities + shared GPX/catalog types | `RideSource`, `SourceCapabilities`, `SourceKind`, `GpxFile`, `ImportResult`, `gpxFilename()` |
@@ -265,12 +265,17 @@ none. The table is grouped by concern; keep new modules in the group they belong
 | [src/windspeed.ts](../src/windspeed.ts) | Wind-vs-speed analytics: ride segmentation, regression, speed capping | `segmentRide()`, `linearRegression()`, `speedCapIndices()`, `WindSeg` |
 | [src/windchart.ts](../src/windchart.ts) | Wind-vs-speed scatter plot (SVG render) | `drawWindSpeedChart()`, `makeScale()`, `niceTicks()` |
 
-*Location history (experimental import)*
+*Location history (Timeline import)*
 
 | File | Responsibility | Key symbols |
 |------|----------------|-------------|
 | [src/locate.ts](../src/locate.ts) | Reverse-geocode helper (place names for tracks) | `createLocate()`, `Locate`, `LocateOptions` |
-| [src/loc-model.ts](../src/loc-model.ts) | Location-history model types (records, frequent places/trips, profile) | `LocRecord`, `LocProfile`, `LocImport`, `FrequentPlace`, `FrequentTrip` |
+| [src/loc-model.ts](../src/loc-model.ts) | Location-history model: one normalized `LocRecord` per Google source + rich `LocSourceDef` provenance + precomputed profile | `LocRecord`, `LocKind`, `AccClass`, `LocSourceDef`, `LocProfile`, `LocImport` |
+| [src/loc-parse.ts](../src/loc-parse.ts) | Parse a Google export into a `LocImport` (on-device Timeline implemented; legacy formats detected + rejected). Drops wifiScan MACs | `parseLocationHistory()`, `parseOnDevice()`, `parseLatLng()`, `detectFormat()` |
+| [src/loc-codec.ts](../src/loc-codec.ts) | Columnar delta+zig-zag+varint codec for a month of records; lossless E7 coords; observable JSON header | `encodeChunk()`, `decodeChunk()`, `decodeHeader()`, `ChunkHeader` |
+| [src/loc-store.ts](../src/loc-store.ts) | Month-chunked, gzipped persistence in its OWN `location-history` IDB store (separately droppable); in-memory catalog (extent, sources, per-month headers) | `LocationHistoryStore`, `LocCatalog`, `MonthSummary`, `monthKey()` |
+| [src/timeline-view.ts](../src/timeline-view.ts) | Isolated Timeline map experience: dwell heatmap (with a draggable date-range window reusing the shared `.rf-*` slider), area-select "when was I here", day replay with a time slider. Injected `TimelineDeps` seam | `initTimelineView()`, `mountTimelineView()`, `leaveTimelineView()`, `resetTimelineData()`, `rangeSliderHtml()` |
+| [src/timeline-geo.ts](../src/timeline-geo.ts) | Pure day-replay maths: time-sorted day samples + position interpolation for the scrubber | `buildDaySamples()`, `posAt()`, `dayKeyOf()` |
 
 *Low-level utilities*
 

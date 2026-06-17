@@ -2226,8 +2226,19 @@ body.ridemap-open {
   gap: 2px;
   margin: 4px 0 16px;
   border-bottom: 1px solid var(--line);
+  /* Scroll horizontally instead of wrapping/crushing when the tabs overflow a
+     narrow (mobile) viewport. Momentum scroll on touch; the scrollbar is hidden
+     so it reads as a clean tab strip. */
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+.viewtabs::-webkit-scrollbar {
+  display: none;
 }
 .vtab {
+  flex: 0 0 auto;
+  white-space: nowrap;
   background: transparent;
   border: 0;
   border-bottom: 2px solid transparent;
@@ -2363,6 +2374,858 @@ body.ridemap-open {
   white-space: nowrap;
   max-width: 100%;
 }
+/* === Timeline view: map-centric experience (mirrors .map-wrap/.map-main/.map-side) === */
+.tl-wrap {
+  display: grid;
+  grid-template-columns: 1fr 300px;
+  gap: 12px;
+  height: calc(100vh - 210px);
+  min-height: 460px;
+}
+.tl-wrap.hidden {
+  display: none;
+}
+.tl-main {
+  position: relative;
+  height: 100%;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  /* Own stacking context so the floating map buttons (.map-expand/.map-select/
+     .map-help, z-index 500) stay contained below the header — without it their
+     500 escapes to the root context and paints over the header's open ⋯ menu
+     (z-index 30, capped inside the header's own z-index 10 context). */
+  isolation: isolate;
+}
+#timelineMap {
+  flex: 1;
+  min-height: 0;
+  border-radius: var(--radius);
+  overflow: hidden;
+  border: 1px solid var(--line);
+  background: var(--bg);
+  isolation: isolate;
+}
+#timelineMap .leaflet-container {
+  height: 100%;
+  width: 100%;
+  background: #05070a;
+}
+/* Same dark, desaturated basemap treatment as every other map. */
+#timelineMap .leaflet-tile-pane {
+  filter: grayscale(85%) brightness(0.6) contrast(1.1);
+}
+#timelineMap.selecting,
+#timelineMap.selecting .leaflet-grab,
+#timelineMap.selecting .leaflet-interactive {
+  cursor: crosshair;
+  touch-action: none;
+}
+
+/* A small top banner: the day label + scrub clock + context in day mode. Centred
+   horizontally so it clears Leaflet's zoom control (top-left) and the floating
+   expand/select buttons (top-right). */
+.tl-banner {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 500;
+  max-width: calc(100% - 110px);
+  padding: 6px 11px;
+  background: rgba(20, 23, 29, 0.92);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--text);
+  font-size: 12.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  backdrop-filter: blur(6px);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
+  pointer-events: none;
+}
+.tl-banner.hidden {
+  display: none;
+}
+
+/* Map hover tooltips (visit stops / approximate routes in day replay). Override
+   Leaflet's stock white pill with the same dark, blurred chrome as .tl-banner so the
+   labels read as part of the app, not the map library. A matching coloured arrow
+   tip points back at the marker. */
+.leaflet-tooltip.tl-tip {
+  padding: 5px 9px;
+  background: rgba(20, 23, 29, 0.94);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
+}
+.leaflet-tooltip.tl-tip::before {
+  border-top-color: rgba(20, 23, 29, 0.94);
+  border-bottom-color: rgba(20, 23, 29, 0.94);
+}
+
+/* The in-flow control bar below the map (mode-dependent): heat legend + range in
+   overview, day nav + time slider in day mode. Mirrors .basemap-filter chrome. */
+.tl-bar {
+  margin-top: 10px;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 10px 18px;
+  padding: 8px 14px;
+  background: rgba(20, 23, 29, 0.92);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.4);
+  flex-wrap: wrap;
+}
+/* Live heatmap tweak sliders (spread + dwell sensitivity). */
+.tl-tweaks {
+  display: inline-flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.tl-tweak {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.tl-tweak input[type="range"] {
+  width: 78px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+.tl-tweak output {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text);
+  min-width: 26px;
+}
+/* "Open day" jump trigger + the day-bar date control — both open the custom calendar
+   popover. A sleek pill with a leading calendar icon, matching the other bar controls. */
+.tl-jump {
+  white-space: nowrap;
+}
+.tl-calbtn {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--panel2);
+  border: 1px solid var(--line);
+  color: var(--text);
+  border-radius: 7px;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.tl-calbtn:hover {
+  border-color: #333b48;
+  background: #222732;
+}
+.tl-calbtn .bi {
+  width: 14px;
+  height: 14px;
+  color: var(--muted);
+}
+.tl-date {
+  font-family: var(--mono);
+}
+/* The date-range slider is the bar's primary control: it grows to fill the row and
+   only wraps to its own line on a narrow map. Reuses the shared `.rf-*` slider chrome. */
+.tl-range {
+  flex: 1 1 320px;
+  min-width: 240px;
+  gap: 9px;
+}
+
+/* Custom day-picker calendar popover — dark, blurred chrome matching the design
+   language (replaces the unstylable native date picker). Positioned via fixed coords
+   from JS; floats above its trigger. */
+.tl-cal {
+  position: fixed;
+  z-index: 560;
+  width: 264px;
+  padding: 12px;
+  background: rgba(20, 23, 29, 0.97);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.55);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+}
+.tl-cal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+.tl-cal-month {
+  font-size: 13.5px;
+  font-weight: 650;
+  color: var(--text);
+}
+.tl-cal-nav {
+  display: inline-flex;
+  gap: 4px;
+}
+.tl-cal-arrow {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  border: 1px solid var(--line);
+  background: var(--panel2);
+  color: var(--text);
+  cursor: pointer;
+}
+.tl-cal-arrow .bi {
+  width: 15px;
+  height: 15px;
+}
+.tl-cal-arrow:hover:not(:disabled) {
+  border-color: #333b48;
+  background: #222732;
+}
+.tl-cal-arrow:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.tl-cal-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+}
+.tl-cal-dow {
+  margin-bottom: 4px;
+}
+.tl-cal-cell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 30px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text);
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.tl-cal-cell.dow {
+  height: 20px;
+  color: var(--muted);
+  font-size: 10.5px;
+  font-weight: 600;
+  cursor: default;
+}
+.tl-cal-cell.empty {
+  cursor: default;
+}
+.tl-cal-cell.out {
+  color: #3a4250;
+  cursor: default;
+}
+button.tl-cal-cell:hover {
+  background: var(--panel2);
+}
+.tl-cal-cell.today {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 50%, var(--line));
+}
+.tl-cal-cell.sel {
+  background: var(--accent);
+  color: #fff;
+  font-weight: 650;
+}
+.tl-cal-cell.sel:hover {
+  background: var(--accent);
+}
+
+/* "+N more days" footer when a selection exceeds the render cap. */
+.tl-side-more {
+  padding: 7px 11px;
+  font-size: 11.5px;
+  color: var(--muted);
+  border-top: 1px solid var(--line);
+}
+/* Day-mode nav + scrubber. The prev/next buttons hold an SVG chevron (no glyph),
+   centred via flex; sized for a comfortable touch target. */
+.tl-step {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 7px;
+  border: 1px solid var(--line);
+  background: var(--panel2);
+  color: var(--text);
+  cursor: pointer;
+}
+.tl-step .bi {
+  width: 17px;
+  height: 17px;
+}
+.tl-step:hover:not(:disabled) {
+  border-color: #333b48;
+  background: #222732;
+}
+.tl-step:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.tl-scrub {
+  flex: 1 1 160px;
+  min-width: 120px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+.tl-clock {
+  flex: 0 0 auto;
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--accent);
+  min-width: 48px;
+  text-align: right;
+}
+/* UTC ⇄ area-local time toggle, sitting beside the day-bar clock. */
+.tl-tz {
+  flex: 0 0 auto;
+  padding: 3px 9px;
+  font-size: 11px;
+  font-weight: 600;
+  font-family: var(--mono);
+  letter-spacing: 0.02em;
+  color: var(--muted);
+  background: var(--panel2);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  cursor: pointer;
+}
+.tl-tz:hover {
+  color: var(--text);
+  border-color: #333b48;
+}
+.tl-tz.on {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--line));
+}
+
+/* Side panel (reuses .map-side look). */
+.tl-side {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+  padding: 12px 13px;
+  overflow-y: auto;
+}
+.tl-side-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+.tl-side-head h2 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 650;
+}
+/* Day panel: stack a "back to overview" breadcrumb above the day title so the way out
+   sits right where the user is reading the rail, not only in the far-off bottom bar. */
+.tl-day-head {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 5px;
+}
+.tl-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  background: none;
+  border: 0;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.tl-back:hover {
+  color: var(--text);
+}
+.tl-back .bi {
+  width: 14px;
+  height: 14px;
+}
+.tl-side-sub {
+  color: var(--muted);
+  font-size: 12px;
+  margin-bottom: 10px;
+  line-height: 1.5;
+}
+.tl-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin: 4px 0 14px;
+}
+.tl-fact {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.tl-fact b {
+  font-size: 18px;
+  line-height: 1;
+  color: var(--text);
+}
+.tl-fact span {
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--muted);
+}
+.tl-side-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 6px;
+}
+/* Buttons with a leading SVG icon (.bi): align icon + label on one baseline-free row. */
+.tl-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+.bi {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  display: block;
+}
+.tl-btn.primary .bi {
+  width: 17px;
+  height: 17px;
+}
+/* Two-up call-to-action row in the empty state (import + how-to-export). */
+.tl-empty-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 14px;
+}
+/* "How to export" guide: a floating card over the map (toggled by the ? button),
+   and an inline variant shown in the empty state. */
+.tl-help {
+  position: absolute;
+  top: 10px;
+  right: 54px;
+  z-index: 520;
+  width: min(340px, calc(100% - 64px));
+  max-height: calc(100% - 20px);
+  overflow-y: auto;
+  padding: 14px 16px 16px;
+  background: rgba(17, 20, 26, 0.97);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(8px);
+}
+.tl-help.hidden {
+  display: none;
+}
+.tl-help-inline {
+  position: static;
+  width: 100%;
+  max-width: 460px;
+  margin-top: 12px;
+  max-height: none;
+  backdrop-filter: none;
+  background: var(--panel);
+}
+.tl-help-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.tl-help-head h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 14px;
+  font-weight: 650;
+  color: var(--text);
+}
+.tl-help-head .bi {
+  width: 18px;
+  height: 18px;
+  color: var(--accent);
+}
+.tl-help-x {
+  flex: 0 0 auto;
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  color: var(--muted);
+  cursor: pointer;
+}
+.tl-help-x:hover {
+  color: var(--text);
+  background: var(--panel2);
+  border-color: var(--line);
+}
+.tl-help-x .bi {
+  width: 16px;
+  height: 16px;
+}
+.tl-help-sub {
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.55;
+  margin: 0 0 12px;
+}
+.tl-help-steps {
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+.tl-help-steps li {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text);
+}
+.tl-help-n {
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #1a1206;
+  font-size: 11px;
+  font-weight: 700;
+  margin-top: 1px;
+}
+.tl-help-steps code,
+.src-hint code {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  background: var(--panel2);
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+.tl-help-note {
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.5;
+  margin: 0 0 12px;
+}
+.tl-help-import {
+  width: 100%;
+  justify-content: center;
+}
+/* "When you were here" day rows + day-mode event rows. */
+.tl-day-list,
+.tl-ev-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+/* Per-year visit histogram: a clickable index that doubles as a drill-down filter. */
+.tl-hist {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 2px 0 10px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--line);
+}
+.tl-hist-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 3px 6px;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  text-align: left;
+}
+.tl-hist-row:hover {
+  background: var(--panel2);
+}
+.tl-hist-row.active {
+  border-color: var(--accent);
+  background: rgba(255, 90, 31, 0.1);
+}
+.tl-hist-yr {
+  flex: 0 0 auto;
+  width: 34px;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--text);
+}
+.tl-hist-bar {
+  flex: 1 1 auto;
+  height: 8px;
+  background: #2a313c;
+  border-radius: 4px;
+  overflow: hidden;
+}
+.tl-hist-fill {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, #22d3ee, #f97316);
+  border-radius: 4px;
+}
+.tl-hist-n {
+  flex: 0 0 auto;
+  min-width: 24px;
+  text-align: right;
+  font-size: 11px;
+  color: var(--muted);
+}
+/* "<year> only · show all years" drill-down note. */
+.tl-drill {
+  font-size: 11.5px;
+  color: var(--muted);
+  margin: -4px 0 8px;
+}
+/* Consecutive-day "periods" (stays): a collapsible card per run of days. */
+.tl-side-hint {
+  font-size: 11px;
+  color: var(--muted);
+  margin: 0 0 8px;
+}
+.tl-period-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.tl-period {
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  overflow: hidden;
+  background: var(--panel);
+}
+.tl-period-head {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 9px 11px;
+  background: none;
+  border: 0;
+  border-radius: 0;
+  cursor: pointer;
+  text-align: left;
+}
+.tl-period-head:hover {
+  background: var(--panel2);
+}
+.tl-period-head.open {
+  background: var(--panel2);
+  border-bottom: 1px solid var(--line);
+}
+.tl-period-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.tl-period-range {
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--text);
+}
+.tl-period-meta {
+  font-size: 11.5px;
+  color: var(--muted);
+}
+/* CSS chevron (no glyph): a rotated border square that flips when the card opens. */
+.tl-period-chev {
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  border-right: 1.5px solid var(--muted);
+  border-bottom: 1.5px solid var(--muted);
+  transform: rotate(-45deg);
+  transition: transform 0.15s ease;
+}
+.tl-period-head.open .tl-period-chev {
+  transform: rotate(45deg);
+}
+.tl-period-go {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 16px;
+  line-height: 1;
+}
+.tl-period-head.solo:hover .tl-period-go {
+  color: var(--accent);
+}
+.tl-period-days {
+  display: flex;
+  flex-direction: column;
+}
+.tl-day-row {
+  padding: 8px 11px;
+  cursor: pointer;
+}
+.tl-day-row + .tl-day-row {
+  border-top: 1px solid var(--line);
+}
+.tl-day-row:hover {
+  background: var(--panel2);
+}
+.tl-day-when {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text);
+}
+.tl-day-meta {
+  font-size: 11.5px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+/* Day timeline: one continuous, colour-coded rail with a node per event. The rail is
+   built from each row's own vertical segment (tinted by the event's place/travel-mode
+   colour) so consecutive segments abut into a single connected line; a dot marks the
+   event's moment on it. Rows abut (no gap) so the line stays unbroken. */
+.tl-ev-list {
+  gap: 0;
+  position: relative;
+}
+.tl-ev {
+  position: relative;
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  padding: 7px 9px 7px 26px;
+  border-radius: 7px;
+  cursor: pointer;
+}
+/* The rail segment this row owns (full row height → segments join up). */
+.tl-ev::before {
+  content: "";
+  position: absolute;
+  left: 11px;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--ev, #64748b);
+}
+/* The node dot at the event's moment, punched out of the row background. */
+.tl-ev::after {
+  content: "";
+  position: absolute;
+  left: 12px;
+  top: 13px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--ev, #64748b);
+  border: 2px solid var(--panel);
+  transform: translate(-50%, -50%);
+}
+.tl-ev:hover {
+  background: var(--panel2);
+}
+.tl-ev:hover::after {
+  border-color: var(--panel2);
+}
+/* The event the day scrubber is currently at: tinted row + a larger, ringed node so
+   the map marker and the timeline stay visibly in sync while replaying. */
+.tl-ev.now {
+  background: rgba(249, 115, 22, 0.1);
+}
+.tl-ev.now::after {
+  width: 12px;
+  height: 12px;
+  box-shadow: 0 0 0 3px rgba(249, 115, 22, 0.25);
+  border-color: var(--bg);
+}
+.tl-ev.now .tl-ev-time {
+  color: var(--accent);
+}
+/* Round off the rail's two ends so it reads as a clean capped line. */
+.tl-ev:first-child::before {
+  top: 13px;
+  border-top-left-radius: 2px;
+  border-top-right-radius: 2px;
+}
+.tl-ev:last-child::before {
+  bottom: auto;
+  height: 13px;
+  border-bottom-left-radius: 2px;
+  border-bottom-right-radius: 2px;
+}
+.tl-ev-time {
+  flex: 0 0 auto;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--muted);
+  min-width: 42px;
+}
+/* "±Nd" marker for an event whose area-local time wraps to an adjacent calendar day. */
+.tl-ev-dd {
+  font-size: 8.5px;
+  color: var(--accent);
+  margin-left: 1px;
+  vertical-align: super;
+}
+.tl-ev-what {
+  font-size: 12.5px;
+  color: var(--text);
+}
+
+/* Full-screen mode mirrors the Map view's pseudo-fullscreen. */
+body.tl-expanded .tl-wrap {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  height: 100svh;
+  padding: 12px;
+  gap: 12px;
+  background: var(--bg);
+  grid-template-columns: 1fr 320px;
+}
+body.tl-expanded {
+  overflow: hidden;
+}
+
 .heat-thickness {
   display: inline-flex;
   align-items: center;
@@ -2398,6 +3261,9 @@ body.ridemap-open {
      than overlaying the bottom-right Leaflet attribution. Keep in lockstep. */
   display: flex;
   flex-direction: column;
+  /* Contain the floating map buttons (z-index 500) so they never paint over the
+     header's open ⋯ menu — same fix as `.tl-main`/`.map-main`. */
+  isolation: isolate;
 }
 /* The heatmap's "Selected" list sits in a side panel beside the map, mirroring the
    Map view's `.map-side`; it only fills once an area-select picks rides. */
@@ -2530,6 +3396,9 @@ body.ridemap-open {
      attribution stays clear. The filter is hidden until there are rides. */
   display: flex;
   flex-direction: column;
+  /* Contain the floating map buttons (z-index 500) so they never paint over the
+     header's open ⋯ menu — same fix as `.tl-main`/`.freq-main`. */
+  isolation: isolate;
 }
 #allRidesMap {
   flex: 1;
@@ -2653,6 +3522,42 @@ body.ridemap-open {
 .map-locate .mi {
   width: 17px;
   height: 17px;
+  display: block;
+  pointer-events: none;
+}
+/* Floating "?" help button (Timeline) — same square style, third slot under the
+   expand/select buttons. Lights up amber while its guide overlay is open. */
+.map-help {
+  position: absolute;
+  top: 90px;
+  right: 10px;
+  z-index: 500;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  background: rgba(20, 23, 29, 0.92);
+  border: 1px solid var(--line);
+  color: var(--text);
+  border-radius: 8px;
+  cursor: pointer;
+  backdrop-filter: blur(6px);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
+}
+.map-help:hover {
+  background: #222732;
+  border-color: #333b48;
+}
+.map-help.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #1a1206;
+}
+.map-help .mi {
+  width: 18px;
+  height: 18px;
   display: block;
   pointer-events: none;
 }
@@ -3475,6 +4380,66 @@ body.job-active .toast {
     grid-template-columns: 1fr;
     grid-template-rows: 1fr minmax(0, 38svh);
   }
+
+  /* -- Timeline: stack the side panel under the map, like the Map view ----- */
+  .tl-wrap {
+    grid-template-columns: 1fr;
+    grid-template-rows: 56vh minmax(0, auto);
+    height: auto;
+    min-height: 0;
+  }
+  body.tl-expanded .tl-wrap {
+    grid-template-columns: 1fr;
+    grid-template-rows: 1fr minmax(0, 40svh);
+  }
+  /* Day-replay bar: let the scrubber keep a usable width by allowing the bar to
+     wrap; the clock + tz toggle drop to a second line rather than crushing the
+     slider. The scrubber takes the whole first row once nav buttons + date wrap. */
+  .tl-bar {
+    gap: 8px 10px;
+  }
+  .tl-scrub {
+    flex: 1 1 100%;
+    min-width: 0;
+    order: 1;
+  }
+  .tl-clock,
+  .tl-tz {
+    order: 2;
+  }
+  /* Overview controls: the two heat sliders share their row with the compact
+     "Open day" button (grow to fill, but leave room for it) rather than forcing it
+     onto its own near-empty line. Each slider keeps a sensible min so it never
+     collapses to an un-grabbable sliver; they wrap inside the group before that. */
+  .tl-tweaks {
+    flex: 1 1 auto;
+    min-width: 0;
+    gap: 12px 16px;
+  }
+  .tl-tweak {
+    flex: 1 1 140px;
+  }
+  .tl-tweak input[type="range"] {
+    flex: 1 1 auto;
+    width: auto;
+    min-width: 96px;
+  }
+  /* "Open day" tucks at the end of the heat-sliders row at its natural width. */
+  .tl-jump {
+    flex: 0 0 auto;
+  }
+  /* The date-range slider spans the full width on its own row; at tablet width its
+     default From · track · To · All layout still reads well (the phone block below
+     wraps the labels when the track would get too narrow). */
+  .tl-range {
+    flex: 1 1 100%;
+    min-width: 0;
+  }
+  /* The day-mode controls get comfortable touch targets on phones. */
+  .tl-step {
+    width: 34px;
+    height: 34px;
+  }
 }
 
 /* ------------------------------------------------------------------------ */
@@ -3492,17 +4457,41 @@ body.job-active .toast {
   }
   .hdr-actions button .mi {
     display: block;
-    width: 16px;
-    height: 16px;
   }
-  #btnSource {
+  /* Collapse the three header action buttons (Pull from Beeline · Sources · the
+     ⋯ menu) into ONE cohesive set of equal icon squares. They used to render
+     ragged — #btnSource was 30px tall (6px padding + 16px icon) while #btnScan
+     and the ⋯ menu were 28px, with mismatched widths — so the orange Pull button
+     sat a hair off-row from its neighbours. Now all three are identical 32px
+     squares with centred 17px icons, reading as one aligned cluster. */
+  .hdr-actions .conn #btnScan,
+  .hdr-actions #btnSource,
+  .hdr-actions .split > .iconmenu {
     display: inline-flex;
     align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+  }
+  .hdr-actions .conn #btnScan svg,
+  .hdr-actions #btnSource .mi,
+  .hdr-actions .split > .iconmenu .ki {
+    flex: 0 0 auto;
+    width: 17px;
+    height: 17px;
+  }
+  /* "Open day" collapses to an icon-only calendar square on phones — the most
+     frugal form; the title tooltip keeps the accessible name. */
+  .tl-jump {
     padding: 6px;
   }
-  body[data-src="beeline"] #btnScan,
-  .hdr-actions .menubtn {
-    padding: 6px 8px;
+  .tl-jump span {
+    display: none;
+  }
+  .tl-jump .bi {
+    width: 16px;
+    height: 16px;
   }
   /* Filters collapse behind the "Filters" toggle: the bar otherwise wraps into
      ~4 rows (status segment + tri-state chips + Source/Distance + Clear) and eats
@@ -3569,6 +4558,34 @@ body.job-active .toast {
   }
   .sp-trim .trim input[type="range"] {
     width: 96px;
+  }
+
+  /* -- Timeline date-range slider: below ~560px the From·To labels flanking the
+        track squeeze it to an un-grabbable sliver. Wrap so the two date labels
+        share the top line (each half the row, forcing the track to wrap) and the
+        track spans the next line with All beside it. */
+  .tl-range {
+    flex-wrap: wrap;
+    row-gap: 5px;
+  }
+  #tlRangeFrom {
+    order: 1;
+    flex: 1 1 calc(50% - 6px);
+    min-width: 0;
+  }
+  #tlRangeTo {
+    order: 2;
+    flex: 1 1 calc(50% - 6px);
+    min-width: 0;
+    text-align: right;
+  }
+  .tl-range .rf-track {
+    order: 3;
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+  .tl-range .rf-reset {
+    order: 4;
   }
 
   /* -- full-screen route bar: keep the title + Close on one tidy row -------

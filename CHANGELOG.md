@@ -17,6 +17,30 @@ humans and the assistant can read this file as a compressed history of decisions
 
 ---
 
+## Timeline: explore your Google Location History on a map
+- **What:** A new **Timeline** tab brings a Google **on-device Timeline** export into the
+  app, entirely on-device in its own droppable storage. Import parses the export into one
+  normalized, time-ordered `LocRecord` stream (path samples, place visits, travel segments,
+  recent raw fixes) persisted month-chunked in a dedicated `location-history` IndexedDB store
+  (a columnar delta+zig-zag+varint codec, gzipped per month — measured 83.5 MB JSON → 1.52 MB
+  on disk, 55x, on a real 11-year/172k-record export; coordinates kept lossless at E7).
+  The tab is a map-centric experience:
+  - a **dwell heatmap** of where you spend time, normalized to the visible window, with live
+    persisted spread/sensitivity tweaks;
+  - a draggable **date-range window** over the whole history (drag the middle to slide a
+    fixed-size window through time) and a custom in-design-language **day-picker calendar**;
+  - **area-select** ("when was I here") that lists the matching days grouped into consecutive
+    **stays**, with a per-year histogram drill-down; hovering a day previews its footprint on
+    the overview map;
+  - **day replay** — a colour-coded event rail (by place / travel mode) synced to a time
+    scrubber, with the map marker, a UTC ⇄ approximate-area-local time toggle (with day-
+    rollover feedback), and rail-hover map highlighting.
+  Fully responsive (controls reflow and the side panel stacks under the map on phones), with
+  the app's icon set, dark map tooltips, and design language throughout.
+- **Why:** Location History is a large, rich dataset fundamentally different from rides, so it
+  gets its own compression-first bucket and a dedicated map-first tab to explore where and
+  when you've been — without ever leaving the device.
+
 ## Full export/import in ZIP format
 - **What:** added `exportAllZip()` / `importAllZip()` on Controller to package all ride state, settings, and cached GPX blobs (cache + data vault) + wind cache into a single ZIP file. Import transparently handles both JSON (rides only) and ZIP (full state + caches) files. ZIP carries manifest.json with metadata and entry counts.
 - **Why:** a power user's full dataset (thousands of rides, 500MB+ cache, shared wind history) cannot be backed up as JSON alone — binary blobs must be preserved for offline/restore scenarios. ZIP is universal and enables complete backup/restore workflows. Import merges rather than replaces, skipping blobs with identical bytes, so re-importing is idempotent. Added `reload()` methods to GpxCache and WindCache to rebuild in-memory indexes after bulk blob writes.

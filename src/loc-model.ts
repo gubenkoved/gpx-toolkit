@@ -13,8 +13,11 @@
  *  - Accuracy is a *class*, not just metres: only `raw.position` fixes carry a real
  *    `accuracyMeters`; path samples and inferred visit/activity centroids have none.
  *    A class ('approx'/'derived'/…) lets every record state its trust level anyway.
- *  - `src` (provenance) is never flattened away: a true GPS fix and a Google-inferred
- *    home-visit centroid render and aggregate very differently, so we keep the origin.
+ *  - Provenance is never flattened away: a true GPS fix and a Google-inferred
+ *    home-visit centroid render and aggregate very differently. Rather than inline
+ *    the origin/device/import on every record (redundant across ~160k records), each
+ *    record carries a compact `sourceId` that dereferences a rich `LocSourceDef` in
+ *    the catalog — one shared dictionary entry per distinct provenance.
  */
 
 /** The four record shapes, discriminating a `LocRecord`. */
@@ -70,6 +73,39 @@ export type ActType =
 /** Source of a raw `position` fix. */
 export type FixSource = "GPS" | "WIFI" | "WIFI_ONLY" | "CELL" | "UNKNOWN";
 
+/** Which Google export shape a record was parsed from. */
+export type LocFormat = "on-device" | "records" | "semantic";
+
+/**
+ * Rich provenance for a group of records, stored once in the catalog and referenced
+ * by `LocRecord.sourceId`. One entry per distinct (format × origin × device × import)
+ * combination, so the per-record cost is a single small integer.
+ *
+ * This is the source-correlation key: it folds the Google structure a record came
+ * from (`origin`), the device that produced it (when the format carries one), and
+ * which import batch it arrived in — all dereferenced from one id. Extensible: new
+ * provenance facets (OS, app version, …) extend this without touching the record
+ * schema or the storage codec.
+ */
+export interface LocSourceDef {
+  /** Short id referenced by `LocRecord.sourceId`. */
+  id: number;
+  /** Which Google export produced these records. */
+  format: LocFormat;
+  /** The Google structure the records came from. */
+  origin: LocSource;
+  /** Source device, when the export format identifies one (legacy `Records.json`). */
+  device?: { tag?: number; name?: string; platform?: string };
+  /** Which import batch/file these records arrived in. */
+  importId?: string;
+  /** When that import ran, epoch ms. */
+  importedAt?: number;
+  /** Human label for legends/filters, e.g. "Pixel 7 · paths". */
+  label?: string;
+  /** Records attributed to this source (for UI legend/filtering). */
+  count?: number;
+}
+
 /**
  * One normalized location record. The first block is always present; the rest are
  * kind-specific and absent otherwise. Coordinates are decimal degrees; timestamps
@@ -77,7 +113,8 @@ export type FixSource = "GPS" | "WIFI" | "WIFI_ONLY" | "CELL" | "UNKNOWN";
  */
 export interface LocRecord {
   kind: LocKind;
-  src: LocSource;
+  /** Dictionary key into the catalog's `LocSourceDef[]` — full provenance. */
+  sourceId: number;
   /** Instant (path/fix) or span START (visit/move), epoch ms. */
   t: number;
   /** Span END for visit/move, epoch ms. */
@@ -147,6 +184,8 @@ export interface LocProfile {
 /** The result of parsing one Google export. */
 export interface LocImport {
   records: LocRecord[];
+  /** Rich provenance defs; `LocRecord.sourceId` indexes by `id`. */
+  sources: LocSourceDef[];
   profile: LocProfile | null;
   /** Per-kind tallies, for an import summary / sanity check. */
   counts: Record<LocKind, number>;

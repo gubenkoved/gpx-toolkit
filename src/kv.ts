@@ -82,13 +82,18 @@ const GPX_STORE_NAME = "gpx";
  *  dataset/grid-cell/day). Global (not per-profile) — wind is universal, so every
  *  profile shares it for maximum reuse. */
 const WIND_STORE_NAME = "wind";
+/** Object store holding the imported Google Location History (binary, one gzipped
+ *  columnar blob per month + a catalog). Its OWN bucket, separate from rides/GPX/wind,
+ *  so it can be dropped independently and never bloats the ride-state blob. */
+const LOCATION_STORE_NAME = "location-history";
 // v2 adds the `gpx` object store alongside the original `kv` store.
 // v3 adds the `wind` object store for the global historical-wind cache.
-const DB_VERSION = 3;
+// v4 adds the `location-history` object store for imported Google Location History.
+const DB_VERSION = 4;
 
 /** Every object store this app expects. `onupgradeneeded` creates whichever are
  *  missing, so a forced upgrade always converges to the full, current schema. */
-const ALL_STORES = [STORE_NAME, GPX_STORE_NAME, WIND_STORE_NAME];
+const ALL_STORES = [STORE_NAME, GPX_STORE_NAME, WIND_STORE_NAME, LOCATION_STORE_NAME];
 
 /**
  * The version we open at. Normally `DB_VERSION`, but `dbWithStore` raises it to force
@@ -217,6 +222,16 @@ export function idbBlobBackend(): BlobStore {
  */
 export function idbWindBlobBackend(): BlobStore {
   return idbBlobBackendFor(WIND_STORE_NAME);
+}
+
+/**
+ * Durable IndexedDB-backed binary store for imported Google Location History. Lives
+ * in its OWN `location-history` object store on the shared DB connection, so dropping
+ * location history never touches rides, the GPX cache or the wind cache (and vice
+ * versa). This is the separate storage bucket the Timeline feature requires.
+ */
+export function idbLocationBlobBackend(): BlobStore {
+  return idbBlobBackendFor(LOCATION_STORE_NAME);
 }
 
 /** Build a binary backend over one named object store (shared DB connection). */
