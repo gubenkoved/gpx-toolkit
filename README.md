@@ -43,7 +43,16 @@ Beeline-account source talks to Beeline's Firebase backend over `fetch` (CORS-fr
 proxy). There is no server and no rooting. State is kept in the browser (IndexedDB), with all
 sources' rides in one unified store.
 
-![GPX Toolkit listing rides from Beeline and imported GPX with a distance chart, KPIs, and month groups, ready to batch-upload to Strava](docs/screenshot.png)
+<table>
+  <tr>
+    <td><img src="docs/screenshot-main.png" alt="Unified ride library with a distance/speed chart, KPIs and month groups, ready to batch-upload to Strava"></td>
+    <td><img src="docs/screenshot-map.png" alt="All-rides map view with overlapping translucent tracks over a dark basemap"></td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshot-stats.png" alt="Lifetime stats: totals, per-period records and a route-frequency heatmap"></td>
+    <td><img src="docs/screenshot-wind.jpeg" alt="Wind analysis: per-ride wind-vs-speed scatter and wind dial"></td>
+  </tr>
+</table>
 
 ## Requirements
 
