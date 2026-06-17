@@ -240,6 +240,7 @@ describe("renameRide / deleteRide (RTDB writes)", () => {
     idToken: "tok/+=en", // contains chars that MUST be URL-encoded in the query
     uid: "uid123",
     email: "rider@example.com",
+    refreshToken: "rt",
     expiresAt: Date.now() + 3_600_000,
   };
 
@@ -314,6 +315,7 @@ describe("exportRideGpx (full cloud track)", () => {
     idToken: "tok/+=en", // chars that MUST be URL-encoded where used in a URL
     uid: "uid123",
     email: "rider@example.com",
+    refreshToken: "rt",
     expiresAt: Date.now() + 3_600_000,
   };
 

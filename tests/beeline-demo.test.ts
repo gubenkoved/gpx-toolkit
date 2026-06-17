@@ -13,6 +13,7 @@ describe("beeline demo", () => {
       idToken: "x",
       uid: "x",
       email: DEMO_BEELINE_EMAIL,
+      refreshToken: "x",
       expiresAt: Date.now() + 1000,
     });
     const ids = Object.keys(rides);
@@ -63,6 +64,7 @@ describe("beeline demo", () => {
       idToken: "x",
       uid: "x",
       email: DEMO_BEELINE_EMAIL,
+      refreshToken: "x",
       expiresAt: Date.now() + 1000,
     };
     const deps = demoBeelineDeps();

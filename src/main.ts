@@ -49,6 +49,7 @@ import {
   type WindSeg,
 } from "./windspeed";
 import { DEMO_BEELINE_EMAIL, demoBeelineDeps } from "./beeline-demo";
+import { BeelineError } from "./beeline-api";
 import { BeelineRideSource, type BeelineSourceDeps } from "./beeline-source";
 import { GpxRideSource } from "./gpx-source";
 import { GpxCache } from "./gpxcache";
@@ -418,6 +419,31 @@ function beelineSourceFactory(
 }
 
 /**
+ * Feedback hook for the source's silent session renewal. The Beeline id token lives
+ * ~1h; the source renews it transparently from the refresh token when it nears expiry
+ * or is rejected mid-action, so a long batch never breaks. We only surface the failure
+ * case: when the refresh token itself is rejected (revoked / signed out elsewhere) we
+ * drop the connection so the next account action re-prompts for the password via
+ * `withBeelineAccess`. A successful renewal is intentionally silent.
+ */
+function beelineRenewDeps(c: Controller): BeelineSourceDeps {
+  return {
+    onRenew: (phase) => {
+      if (phase === "renewing") {
+        toast("Renewing Beeline session…");
+        return;
+      }
+      if (phase !== "failed") return;
+      void c.disconnect();
+      pushError(
+        "Beeline session expired",
+        "Your Beeline session couldn't be renewed automatically. Sign in again to continue uploading or syncing — your cached rides stay on screen.",
+      );
+    },
+  };
+}
+
+/**
  * Beeline demo: a simulated cloud account exercising the Beeline mechanics —
  * one-shot history download and server-side Strava uploads observed by polling.
  */
@@ -452,17 +478,23 @@ async function goBeeline(email: string, password: string): Promise<boolean> {
   try {
     // Connect with a fresh factory carrying these credentials (registers the Beeline
     // source onto the shared controller alongside any imported GPX rides).
-    await c.connect(beelineSourceFactory(email, password, c.store));
+    await c.connect(beelineSourceFactory(email, password, c.store, beelineRenewDeps(c)));
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     setBeelineError(msg);
-    // Remember the profile so a reload returns here, and surface a clear,
-    // dismissable error — but keep the cached rides on screen (autonomy).
-    rememberProfile("beeline", email);
-    pushError(
-      "Can't reach your Beeline account",
-      `${msg}\n\nShowing your last downloaded rides. Use “Change source” to sign in again and re-sync once you're back online.`,
-    );
+    // A credentials rejection (wrong email/password) is the user's to fix right here
+    // in the form — show the inline message only. Don't remember the (possibly wrong)
+    // email as the connected profile, and don't push the "you're offline, showing
+    // cached rides" card, which would be misleading. A real network/outage failure,
+    // by contrast, keeps cached rides on screen and explains the stale state.
+    const isAuthRejection = err instanceof BeelineError && err.kind === "expired";
+    if (!isAuthRejection) {
+      rememberProfile("beeline", email);
+      pushError(
+        "Can't reach your Beeline account",
+        `${msg}\n\nShowing your last downloaded rides. Use “Change source” to sign in again and re-sync once you're back online.`,
+      );
+    }
     return false;
   }
   rememberProfile("beeline", email);

@@ -26,6 +26,7 @@ import {
   isTerminalStatus,
   mapBeelineRide,
   type RawBeelineRide,
+  refreshSession,
   renameRide,
   signIn,
   stravaStatusOf,
@@ -65,6 +66,8 @@ export interface BeelineApi {
   deleteRide(session: BeelineSession, pushId: string): Promise<void>;
   /** Fetch one ride's full recorded GPX (decompressed bytes) from the cloud. */
   exportRideGpx(session: BeelineSession, pushId: string): Promise<Uint8Array>;
+  /** Renew an expired/near-expiry session via its refresh token (no password). */
+  refreshSession(session: BeelineSession): Promise<BeelineSession>;
 }
 
 const realApi: BeelineApi = {
@@ -74,14 +77,23 @@ const realApi: BeelineApi = {
   renameRide,
   deleteRide,
   exportRideGpx,
+  refreshSession,
 };
+
+/** Phase of a silent session renewal, surfaced so the UI can give feedback. */
+export type RenewPhase = "renewing" | "renewed" | "failed";
 
 /** Optional dependency overrides (used by tests to avoid the network). */
 export interface BeelineSourceDeps {
   api?: BeelineApi;
   signIn?: (email: string, password: string) => Promise<BeelineSession>;
   sleep?: Sleep;
+  /** Called as the source silently renews its session, so the app can show feedback. */
+  onRenew?: (phase: RenewPhase) => void;
 }
+
+/** How long before a token's hard expiry to renew it proactively (ms). */
+const RENEW_MARGIN_MS = 120_000;
 
 /** How long to poll a single ride's Strava upload before giving up (seconds). */
 const UPLOAD_POLL_ATTEMPTS = 30;
@@ -110,6 +122,7 @@ export class BeelineRideSource implements RideSource {
     private readonly concurrency: () => number,
     private readonly api: BeelineApi,
     private readonly sleep: Sleep,
+    private readonly onRenew: (phase: RenewPhase) => void,
   ) {}
 
   /**
@@ -128,7 +141,46 @@ export class BeelineRideSource implements RideSource {
       concurrency,
       deps.api ?? realApi,
       deps.sleep ?? realSleep,
+      deps.onRenew ?? (() => {}),
     );
+  }
+
+  /**
+   * Run a backend call against a guaranteed-fresh session, renewing silently via the
+   * refresh token when needed. Two triggers: PROACTIVE — if the token is within
+   * `RENEW_MARGIN_MS` of expiry, renew before the call so a long batch never sends a
+   * dead token; REACTIVE — if the call still fails with an `expired` error (the token
+   * was rejected early), renew once and retry. When the refresh itself fails the error
+   * surfaces as kind `expired` so the app can fall back to a full password sign-in.
+   */
+  private async withFreshSession<T>(fn: (s: BeelineSession) => Promise<T>): Promise<T> {
+    if (Date.now() > this.session.expiresAt - RENEW_MARGIN_MS) {
+      await this.renew();
+    }
+    try {
+      return await fn(this.session);
+    } catch (err) {
+      if (!(err instanceof BeelineError && err.kind === "expired")) throw err;
+      // Token rejected before our proactive window — renew once and retry.
+      await this.renew();
+      return fn(this.session);
+    }
+  }
+
+  /** Replace the session with a freshly renewed one, reporting phases for feedback. */
+  private async renew(): Promise<void> {
+    this.onRenew("renewing");
+    try {
+      this.session = await this.api.refreshSession(this.session);
+    } catch (err) {
+      this.onRenew("failed");
+      if (err instanceof BeelineError && err.kind === "expired") throw err;
+      throw new BeelineError(
+        `couldn't renew Beeline session: ${err instanceof Error ? err.message : String(err)}`,
+        "expired",
+      );
+    }
+    this.onRenew("renewed");
   }
 
   label(): string {
@@ -143,7 +195,7 @@ export class BeelineRideSource implements RideSource {
 
   /** Fetch the whole history and rebuild the key→record index. Returns the cards. */
   private async refresh(since: Date | null): Promise<RideCard[]> {
-    const rides = await this.api.fetchRides(this.session);
+    const rides = await this.withFreshSession((s) => this.api.fetchRides(s));
     this.byKey.clear();
     const cards: RideCard[] = [];
     for (const [pushId, raw] of Object.entries(rides)) {
@@ -264,10 +316,12 @@ export class BeelineRideSource implements RideSource {
     progress: Progress,
   ): Promise<RawBeelineRide> {
     await progress(`uploading to Strava: ${name}…`);
-    await this.api.uploadRideToStrava(this.session, pushId);
+    await this.withFreshSession((s) => this.api.uploadRideToStrava(s, pushId));
     let current = raw;
     for (let i = 0; i < UPLOAD_POLL_ATTEMPTS; i++) {
-      const act = await this.api.fetchStravaActivity(this.session, pushId);
+      const act = await this.withFreshSession((s) =>
+        this.api.fetchStravaActivity(s, pushId),
+      );
       current = { ...current, strava_activity: act };
       if (isTerminalStatus(stravaStatusOf(current))) break;
       if (await progress(`waiting for Strava: ${name}…`)) break;
@@ -323,7 +377,9 @@ export class BeelineRideSource implements RideSource {
         if (await rep(`downloading full GPX: ${name}…`)) break;
         const startedAt = Date.now();
         try {
-          const bytes = await this.api.exportRideGpx(this.session, entry.pushId);
+          const bytes = await this.withFreshSession((s) =>
+            this.api.exportRideGpx(s, entry.pushId),
+          );
           const file: GpxFile = {
             key,
             filename: gpxFilename(key),
@@ -373,7 +429,7 @@ export class BeelineRideSource implements RideSource {
     const name = rideShortLabel(key) || key;
     await progress(`downloading full track: ${name}…`);
     const pushId = await this.resolvePushId(key);
-    const bytes = await this.api.exportRideGpx(this.session, pushId);
+    const bytes = await this.withFreshSession((s) => this.api.exportRideGpx(s, pushId));
     return extractFullTrack(new TextDecoder().decode(bytes));
   }
 
@@ -402,7 +458,7 @@ export class BeelineRideSource implements RideSource {
     const name = rideShortLabel(key) || key;
     await progress(`renaming ${name}…`);
     const pushId = await this.resolvePushId(key);
-    await this.api.renameRide(this.session, pushId, newTitle);
+    await this.withFreshSession((s) => this.api.renameRide(s, pushId, newTitle));
     // Reflect the new name in the cached record so re-reads (and the returned
     // detail) carry it without a full refresh.
     const entry = this.byKey.get(key);
@@ -417,7 +473,7 @@ export class BeelineRideSource implements RideSource {
     const name = rideShortLabel(key) || key;
     await progress(`deleting ${name}…`);
     const pushId = await this.resolvePushId(key);
-    await this.api.deleteRide(this.session, pushId);
+    await this.withFreshSession((s) => this.api.deleteRide(s, pushId));
     this.byKey.delete(key);
   }
 

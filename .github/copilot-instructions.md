@@ -226,7 +226,7 @@ none. The table is grouped by concern; keep new modules in the group they belong
 | File | Responsibility | Key symbols |
 |------|----------------|-------------|
 | [src/gpx-source.ts](../src/gpx-source.ts) | Pure-GPX `RideSource`: import `.gpx`/`.zip`, local metrics/export | `GpxRideSource`, `importFiles()`, `parseGpxFilename()`, `extractGpxName()` |
-| [src/beeline-api.ts](../src/beeline-api.ts) | Beeline cloud backend client + ride mapping | `signIn()`, `fetchRides()`, `uploadRideToStrava()`, `mapBeelineRide()`, `BeelineSession` |
+| [src/beeline-api.ts](../src/beeline-api.ts) | Beeline cloud backend client + ride mapping | `signIn()`, `refreshSession()`, `fetchRides()`, `uploadRideToStrava()`, `mapBeelineRide()`, `BeelineSession` |
 | [src/beeline-source.ts](../src/beeline-source.ts) | Account `RideSource` over the API (concurrent uploads) | `BeelineRideSource`, `BeelineApi`, `runPool()` |
 | [src/beeline-demo.ts](../src/beeline-demo.ts) | Simulated Beeline backend for the account demo | `demoBeelineDeps()`, `DEMO_BEELINE_EMAIL` |
 

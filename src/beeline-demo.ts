@@ -329,6 +329,11 @@ class DemoBeelineApi implements BeelineApi {
     }
     return new TextEncoder().encode(buildDemoFullGpx(raw));
   }
+
+  async refreshSession(session: BeelineSession): Promise<BeelineSession> {
+    // The demo token never really expires; hand back a fresh-looking session.
+    return { ...session, expiresAt: Date.now() + 3_600_000 };
+  }
 }
 
 /**
@@ -363,6 +368,7 @@ async function demoSignIn(email: string): Promise<BeelineSession> {
     idToken: "demo-token",
     uid: "demo-uid",
     email: email || DEMO_EMAIL,
+    refreshToken: "demo-refresh",
     expiresAt: Date.now() + 3_600_000,
   };
 }

@@ -39,6 +39,9 @@ class FakeBeelineApi implements BeelineApi {
   renameCalls: { pushId: string; name: string }[] = [];
   deleteCalls: string[] = [];
   exportCalls: string[] = [];
+  refreshCalls = 0;
+  /** When set, the next `refreshSession` rejects with this error (revoked token). */
+  refreshFails: BeelineError | null = null;
   constructor(public rides: Record<string, RawBeelineRide>) {}
 
   async fetchRides(): Promise<Record<string, RawBeelineRide>> {
@@ -87,12 +90,22 @@ class FakeBeelineApi implements BeelineApi {
       `</trkseg></trk></gpx>`;
     return new TextEncoder().encode(gpx);
   }
+  async refreshSession(session: BeelineSession): Promise<BeelineSession> {
+    this.refreshCalls++;
+    if (this.refreshFails) throw this.refreshFails;
+    return {
+      ...session,
+      idToken: `renewed-${this.refreshCalls}`,
+      expiresAt: Date.now() + 3_600_000,
+    };
+  }
 }
 
 const fakeSignIn = async (email: string): Promise<BeelineSession> => ({
   idToken: "fake-token",
   uid: "fake-uid",
   email,
+  refreshToken: "fake-refresh",
   expiresAt: Date.now() + 3_600_000,
 });
 
@@ -613,5 +626,79 @@ describe("Controller + BeelineRideSource (no network)", () => {
     expect(api.deleteCalls).toEqual([]); // never reached the write
     const task = c.state().jobs.history.find((t) => t.kind === "delete");
     expect(task?.status).toBe("error");
+  });
+});
+
+describe("BeelineRideSource session renewal", () => {
+  /** A sign-in that mints a session already (or nearly) past expiry, forcing a renew. */
+  const expiredSignIn = async (email: string): Promise<BeelineSession> => ({
+    idToken: "stale-token",
+    uid: "fake-uid",
+    email,
+    refreshToken: "fake-refresh",
+    expiresAt: Date.now() - 1, // already expired → proactive renew on first call
+  });
+
+  it("proactively renews the token before a call when it is near expiry", async () => {
+    const api = new FakeBeelineApi(structuredClone(FIXTURE));
+    const phases: string[] = [];
+    const source = await BeelineRideSource.create("rider@example.com", "secret", () => 4, {
+      api,
+      signIn: expiredSignIn,
+      sleep: async () => {},
+      onRenew: (p) => phases.push(p),
+    });
+
+    const result = await source.enumerateCatalog();
+
+    // The stale token was renewed BEFORE the fetch even tried, and the fetch worked.
+    expect(api.refreshCalls).toBe(1);
+    expect(phases).toEqual(["renewing", "renewed"]);
+    expect(result.complete).toBe(true);
+    expect(result.cards.length).toBeGreaterThan(0);
+  });
+
+  it("reactively renews once and retries when a call is rejected as expired", async () => {
+    const api = new FakeBeelineApi(structuredClone(FIXTURE));
+    const phases: string[] = [];
+    // The token looks fresh (no proactive renew), but the backend rejects it once.
+    let firstCall = true;
+    const realFetch = api.fetchRides.bind(api);
+    api.fetchRides = async () => {
+      if (firstCall) {
+        firstCall = false;
+        throw new BeelineError("HTTP 401 token expired", "expired", 401);
+      }
+      return realFetch();
+    };
+    const source = await BeelineRideSource.create("rider@example.com", "secret", () => 4, {
+      api,
+      signIn: fakeSignIn, // fresh, far-from-expiry session
+      sleep: async () => {},
+      onRenew: (p) => phases.push(p),
+    });
+
+    const result = await source.enumerateCatalog();
+
+    // One renew triggered by the 401, then the retried fetch succeeded.
+    expect(api.refreshCalls).toBe(1);
+    expect(phases).toEqual(["renewing", "renewed"]);
+    expect(result.cards.length).toBeGreaterThan(0);
+  });
+
+  it("reports failure and surfaces an expired error when the refresh token is rejected", async () => {
+    const api = new FakeBeelineApi(structuredClone(FIXTURE));
+    // The refresh token itself is dead (revoked / signed out elsewhere).
+    api.refreshFails = new BeelineError("HTTP 400 token revoked", "expired", 400);
+    const phases: string[] = [];
+    const source = await BeelineRideSource.create("rider@example.com", "secret", () => 4, {
+      api,
+      signIn: expiredSignIn, // forces a proactive renew, which then fails
+      sleep: async () => {},
+      onRenew: (p) => phases.push(p),
+    });
+
+    await expect(source.enumerateCatalog()).rejects.toMatchObject({ kind: "expired" });
+    expect(phases).toEqual(["renewing", "failed"]);
   });
 });

@@ -17,6 +17,21 @@ humans and the assistant can read this file as a compressed history of decisions
 
 ---
 
+## Auto-renew the Beeline session instead of failing on token expiry
+- **What:** The Beeline `idToken` (~1h TTL) is now renewed silently from the Firebase
+  refresh token, which `signIn` now captures into `BeelineSession` (memory-only — never
+  persisted). `BeelineRideSource` routes every backend call through a new
+  `withFreshSession()` wrapper that renews *proactively* when the token is within 2 min of
+  expiry and *reactively* (retry-once) when a call comes back 401/403 — `request()` now
+  tags those as `BeelineError` kind `expired` with the HTTP status. A failed refresh (revoked
+  token) drops the connection so the next action re-prompts for the password via the existing
+  `withBeelineAccess` gate; `main` shows a "Renewing…" toast and a clear expired-session card.
+- **Why:** Previously a token expiring mid-session made every Beeline action (pull, upload,
+  rename, delete, GPX export) fail until the user manually signed in again — a long batch
+  upload could silently die partway. Renewing transparently keeps in-session work alive
+  without re-prompting, while preserving the no-stored-password posture (refresh token is
+  in-memory only, so a reload still re-prompts).
+
 ## Fix the full-screen route bar clipping Close on narrow viewports
 - **What:** Made the `.ridemap-tools` control cluster the bar's overflow valve — it may
   shrink (`flex: 0 1 auto; min-width: 0`) and scroll horizontally as a last resort, with

@@ -46,6 +46,10 @@ const FIREBASE_API_KEY = "AIzaSyDS48dtvbuXhM5mWwygLY7CM5kpFbe6L0U";
 const RTDB_BASE = "https://beeline-e46ed.firebaseio.com";
 const FUNCTIONS_BASE = "https://us-central1-beeline-e46ed.cloudfunctions.net";
 const IDENTITY_BASE = "https://www.googleapis.com/identitytoolkit/v3/relyingparty";
+// Firebase's secure-token host, which exchanges a long-lived refresh token for a
+// fresh short-lived id token (`refreshSession`). Distinct host from IDENTITY_BASE
+// and it speaks form-urlencoded, not JSON.
+const SECURETOKEN_BASE = "https://securetoken.googleapis.com/v1/token";
 // Firebase Storage REST host + bucket holding the server-rendered full-track GPX
 // (`exportRide` writes `ride-gpx-export/<uid>/<pushId>.gpx.gz` here). The authed
 // `?alt=media` GET 302-redirects to a Google download host that returns NO
@@ -75,13 +79,22 @@ export class BeelineError extends Error {
    *   transient/disabled status. The caller may fall back to a route-only GPX.
    * - `no-track` — the ride genuinely has no recorded full track to export (a clear,
    *   non-retryable condition the user should see).
-   * - `other` — everything else (auth, malformed responses, …).
+   * - `expired` — the session's id token was rejected as expired/invalid (HTTP
+   *   401/403, or a failed refresh). The source uses this to renew + retry once.
+   * - `other` — everything else (malformed responses, …).
    */
-  readonly kind: "unreachable" | "no-track" | "other";
-  constructor(message: string, kind: "unreachable" | "no-track" | "other" = "other") {
+  readonly kind: "unreachable" | "no-track" | "expired" | "other";
+  /** The HTTP status that caused this error, when one was received (else undefined). */
+  readonly status?: number;
+  constructor(
+    message: string,
+    kind: "unreachable" | "no-track" | "expired" | "other" = "other",
+    status?: number,
+  ) {
     super(message);
     this.name = "BeelineError";
     this.kind = kind;
+    this.status = status;
   }
 }
 
@@ -90,7 +103,14 @@ export interface BeelineSession {
   idToken: string;
   uid: string;
   email: string;
-  /** Epoch ms after which `idToken` is expired (the app re-prompts rather than refreshing). */
+  /**
+   * Firebase refresh token. Long-lived; used to silently mint a fresh `idToken`
+   * (via `refreshSession`) when the current one is near expiry or rejected, so an
+   * in-session batch that outlasts the ~1h token never breaks. Kept in memory only
+   * (never persisted) — a reload drops it and the app re-prompts for the password.
+   */
+  refreshToken: string;
+  /** Epoch ms after which `idToken` is expired (renewed silently via `refreshSession`). */
   expiresAt: number;
 }
 
@@ -186,8 +206,13 @@ async function request<T>(
   }
   if (!resp.ok) {
     const detail = await resp.text().catch(() => "");
+    // A rejected id token comes back as 401/403; tag it `expired` so the source can
+    // renew the session and retry once rather than surfacing a hard failure.
+    const kind = resp.status === 401 || resp.status === 403 ? "expired" : "other";
     throw new BeelineError(
       `Beeline ${method} ${shortUrl(url)} failed: HTTP ${resp.status} ${detail.slice(0, 300)}`,
+      kind,
+      resp.status,
     );
   }
   const text = await resp.text();
@@ -210,21 +235,117 @@ interface SignInResponse {
   expiresIn: string;
 }
 
+/**
+ * Map a Firebase Identity-Toolkit error code (carried in the verifyPassword 400
+ * body, e.g. `EMAIL_NOT_FOUND`) to a short, human sign-in message. Firebase's raw
+ * response — an HTTP line plus a nested JSON error blob — is unreadable to a user,
+ * so we translate the codes we know and fall back to a generic line otherwise.
+ */
+function friendlySignInError(rawMessage: string): string {
+  if (/EMAIL_NOT_FOUND/.test(rawMessage)) {
+    return "No Beeline account found for that email.";
+  }
+  if (/INVALID_PASSWORD|INVALID_LOGIN_CREDENTIALS/.test(rawMessage)) {
+    return "Incorrect email or password.";
+  }
+  if (/INVALID_EMAIL/.test(rawMessage)) {
+    return "That doesn't look like a valid email address.";
+  }
+  if (/MISSING_PASSWORD/.test(rawMessage)) {
+    return "Enter your Beeline password.";
+  }
+  if (/USER_DISABLED/.test(rawMessage)) {
+    return "This Beeline account has been disabled.";
+  }
+  if (/TOO_MANY_ATTEMPTS_TRY_LATER|OPERATION_NOT_ALLOWED/.test(rawMessage)) {
+    return "Too many sign-in attempts. Please wait a moment and try again.";
+  }
+  // Network/CORS failures keep their own message — they're already user-facing.
+  if (/network error/i.test(rawMessage)) return rawMessage;
+  return "Couldn't sign in to Beeline. Please check your email and password and try again.";
+}
+
 /** Sign in with Beeline (Firebase) email + password, returning a session. */
 export async function signIn(email: string, password: string): Promise<BeelineSession> {
-  const res = await request<SignInResponse>(
-    "POST",
-    `${IDENTITY_BASE}/verifyPassword?key=${FIREBASE_API_KEY}`,
-    {
-      headers: { "X-Android-Package": ANDROID_PACKAGE, "X-Android-Cert": ANDROID_CERT },
-      body: { email, password, returnSecureToken: true },
-    },
-  );
+  let res: SignInResponse;
+  try {
+    res = await request<SignInResponse>(
+      "POST",
+      `${IDENTITY_BASE}/verifyPassword?key=${FIREBASE_API_KEY}`,
+      {
+        headers: { "X-Android-Package": ANDROID_PACKAGE, "X-Android-Cert": ANDROID_CERT },
+        body: { email, password, returnSecureToken: true },
+      },
+    );
+  } catch (err) {
+    // Translate Firebase's raw HTTP/JSON error into a clean message; bad creds are
+    // an `expired`/auth-class failure the caller treats as a sign-in rejection.
+    const raw = err instanceof Error ? err.message : String(err);
+    throw new BeelineError(friendlySignInError(raw), "expired");
+  }
   return {
     idToken: res.idToken,
     uid: res.localId,
     email: res.email || email,
+    refreshToken: res.refreshToken,
     expiresAt: Date.now() + (Number(res.expiresIn) || 3600) * 1000,
+  };
+}
+
+interface RefreshResponse {
+  id_token: string;
+  refresh_token: string;
+  expires_in: string;
+  user_id: string;
+}
+
+/**
+ * Silently renew a session's id token using its refresh token — no password needed.
+ * Returns a NEW session (fresh `idToken`/`expiresAt`, and the rotated refresh token
+ * when Firebase returns one). Throws a `BeelineError` of kind `expired` when the
+ * refresh token itself is rejected (revoked / signed out elsewhere), so the caller
+ * falls back to a full password sign-in.
+ *
+ * The secure-token endpoint speaks `application/x-www-form-urlencoded` (not JSON) and
+ * the API key is Android-restricted, so it carries the same `X-Android-*` headers as
+ * `verifyPassword`.
+ */
+export async function refreshSession(session: BeelineSession): Promise<BeelineSession> {
+  let resp: Response;
+  try {
+    resp = await fetch(`${SECURETOKEN_BASE}?key=${FIREBASE_API_KEY}`, {
+      method: "POST",
+      credentials: "same-origin",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/x-www-form-urlencoded",
+        "X-Android-Package": ANDROID_PACKAGE,
+        "X-Android-Cert": ANDROID_CERT,
+      },
+      body:
+        `grant_type=refresh_token&refresh_token=${encodeURIComponent(session.refreshToken)}`,
+    });
+  } catch (err) {
+    throw new BeelineError(
+      `network error renewing Beeline session: ${(err as Error).message}`,
+      "expired",
+    );
+  }
+  if (!resp.ok) {
+    const detail = await resp.text().catch(() => "");
+    throw new BeelineError(
+      `couldn't renew Beeline session: HTTP ${resp.status} ${detail.slice(0, 300)}`,
+      "expired",
+      resp.status,
+    );
+  }
+  const res = JSON.parse(await resp.text()) as RefreshResponse;
+  return {
+    idToken: res.id_token,
+    uid: res.user_id || session.uid,
+    email: session.email,
+    refreshToken: res.refresh_token || session.refreshToken,
+    expiresAt: Date.now() + (Number(res.expires_in) || 3600) * 1000,
   };
 }
 
