@@ -53,11 +53,13 @@ import {
   cumulativeKm,
   decodePolyline,
   type FullTrack,
+  filledTimes,
   fullTrackSpeedsKmh,
   fullTrackSummary,
   hasElevation,
   hasTimes,
   movingAverage,
+  stableStoppedRanges,
 } from "./track";
 import type { PointWind } from "./weather";
 import { cellBounds } from "./weather";
@@ -216,6 +218,22 @@ function hideSources(): void {
   picker?.classList.remove("reauth", "welcome");
   // Dismissing the prompt abandons any action that was waiting on sign-in.
   afterBeelineSignIn = null;
+}
+
+/** Open the Settings dialog, syncing each control to the persisted setting. */
+function showSettings(): void {
+  const modal = document.getElementById("settingsModal");
+  if (!modal) return;
+  const thresh = STATE.settings.movingThresholdKmh;
+  const slider = document.getElementById("setMovingThresh") as HTMLInputElement | null;
+  if (slider) slider.value = String(thresh);
+  const out = document.getElementById("setMovingThreshOut") as HTMLOutputElement | null;
+  if (out) out.value = `${thresh} km/h`;
+  modal.classList.remove("hidden");
+}
+
+function hideSettings(): void {
+  document.getElementById("settingsModal")?.classList.add("hidden");
 }
 
 function setBeelineError(message: string): void {
@@ -566,6 +584,7 @@ let STATE: AppState = {
     speedTrimFastPct: 0,
     heatRadius: 12,
     beelineUploadConcurrency: 4,
+    movingThresholdKmh: 1,
   },
   connected: false,
   device: "",
@@ -910,6 +929,8 @@ function hexLerp(a: string, b: string, t: number): string {
 let rideMapBig: L.Map | null = null;
 /** Layer group holding the route line(s) — one orange line, or recoloured segments. */
 let rideMapLineLayer: L.LayerGroup | null = null;
+/** Observes the open ride-map bar's width to re-evaluate the icon-collapse on resize. */
+let rideMapBarObserver: ResizeObserver | null = null;
 let rideMapMarker: L.CircleMarker | null = null;
 /** The ride key currently open in the full-screen map (null when closed). */
 let rideMapKey: string | null = null;
@@ -920,6 +941,9 @@ let rideMapProfileShown = true;
 /** Which metric the profile graphs: elevation vs distance, or speed vs distance.
  *  Falls back to whichever is available when the chosen one has no data. */
 let rideMapProfileMetric: "elevation" | "speed" = "elevation";
+/** The profile's x-axis: along-track distance, or recorded time (only when the full
+ *  track carries timestamps). Time stretches idle stretches out so stops read true. */
+let rideMapProfileAxis: "distance" | "time" = "distance";
 /** Cached hover state for the open ride map, recomputed on pan/zoom/resize. */
 let rideHover: {
   pts: [number, number][];
@@ -932,6 +956,9 @@ let rideHover: {
   full: FullTrack | null;
   /** Smoothed per-point speed (km/h) when a full track with timestamps is loaded. */
   speeds: (number | null)[] | null;
+  /** viewBox x (0..1000) per point under the current axis mode; set by the profile
+   *  render and reused for cursor↔distance mapping. Null until the profile draws. */
+  axisX: number[] | null;
 } | null = null;
 
 /** Seconds → "H:MM:SS" / "M:SS" for the hover readout. */
@@ -942,6 +969,19 @@ function fmtSecsShort(sec: number): string {
   const ss = s % 60;
   const p2 = (n: number) => String(n).padStart(2, "0");
   return hh > 0 ? `${hh}:${p2(mm)}:${p2(ss)}` : `${mm}:${p2(ss)}`;
+}
+
+/**
+ * Set a ride-map bar button's text label without clobbering its leading icon: writes
+ * to the `.lbl` span (added for the icon-collapse) when present, else falls back to
+ * the button's own text. Lets the icon survive every dynamic relabel (Fetch →
+ * Fetching…, Resolve wind → Wind: on, Hide ↔ Show profile, …).
+ */
+function setRmbLabel(btn: HTMLElement | null, text: string): void {
+  if (!btn) return;
+  const lbl = btn.querySelector<HTMLElement>(".lbl");
+  if (lbl) lbl.textContent = text;
+  else btn.textContent = text;
 }
 
 /**
@@ -1112,7 +1152,8 @@ function effectiveProfileMetric(): "elevation" | "speed" | null {
   return null;
 }
 
-/** Render the elevation- or speed-vs-distance profile below the map from the full track. */
+/** Render the elevation/speed profile below the map from the full track, against a
+ *  distance or time x-axis, with grey bands over the stretches detected as stopped. */
 function renderRideProfile(): void {
   const host = document.getElementById("rideMapProfile");
   if (!host) return;
@@ -1129,7 +1170,7 @@ function renderRideProfile(): void {
 
   const cum = rideHover!.cum;
   // Elevation vs speed differ only in the source array, axis unit and label; the
-  // x-axis (distance) and the cursor sync are identical, so they share this body.
+  // x-axis (distance or time) and the cursor sync are identical, so they share this body.
   const speed = metric === "speed";
   const values = speed ? (rideHover!.speeds ?? []) : full.eles;
   const unit = speed ? "km/h" : "m";
@@ -1143,13 +1184,59 @@ function renderRideProfile(): void {
   const padX = 4;
   const padTop = 8;
   const padBot = 18;
+  const innerW = W - 2 * padX;
   const totalKm = rideHover!.totalKm || 1;
+
+  // The recorded times (gaps interpolated) drive the time axis AND the stop-band
+  // tooltips; null when the track has no timestamps (then only distance is offered).
+  const times = hasTimes(full) ? filledTimes(full.times) : null;
+  const useTime = rideMapProfileAxis === "time" && times != null;
+
+  // Per-point viewBox x under the active axis. Both cum and times are non-decreasing,
+  // so axisX is monotonic — the cursor sync (below) inverts it back to distance.
+  const axisX = new Array<number>(cum.length);
+  if (useTime && times) {
+    const t0 = times[0];
+    const tSpan = times[times.length - 1] - t0 || 1;
+    for (let i = 0; i < cum.length; i++) axisX[i] = padX + ((times[i] - t0) / tSpan) * innerW;
+  } else {
+    for (let i = 0; i < cum.length; i++) axisX[i] = padX + (cum[i] / totalKm) * innerW;
+  }
+  rideHover!.axisX = axisX;
+
   // Anchor a speed profile's fill at zero so the height reads as absolute speed;
   // elevation keeps its own min so modest hills aren't flattened against the floor.
   const lo = speed ? Math.min(0, range.lo) : range.lo;
   const vSpan = range.hi - lo || 1;
-  const xOf = (km: number) => padX + (km / totalKm) * (W - 2 * padX);
   const yOf = (v: number) => padTop + (1 - (v - lo) / vSpan) * (H - padTop - padBot);
+  // Bands over the stretches we classified as not moving (same threshold as the
+  // moving-avg figure). Drawn ON TOP of the filled area (but under the line) as a dark
+  // dim, so a stop reads as the chart RECEDING — never as a brighter highlight. A
+  // stopped hop run [s, e] spans points s … e+1, so its x runs axisX[s] → axisX[e+1];
+  // a min width keeps a brief stop visible on the distance axis (where idle time barely
+  // advances), while the time axis shows its true duration.
+  const bandTop = padTop;
+  const bandH = H - padTop - padBot;
+  const minBandW = 3;
+  let stops = "";
+  const speeds = rideHover!.speeds;
+  if (speeds && full) {
+    for (const [s, e] of stableStoppedRanges(full, STATE.settings.movingThresholdKmh, speeds)) {
+      let x1 = axisX[s];
+      let x2 = axisX[Math.min(e + 1, axisX.length - 1)];
+      if (x2 - x1 < minBandW) {
+        const mid = (x1 + x2) / 2;
+        x1 = Math.max(padX, mid - minBandW / 2);
+        x2 = Math.min(W - padX, mid + minBandW / 2);
+      }
+      const tip = times
+        ? `stopped ${fmtSecsShort((times[Math.min(e + 1, times.length - 1)] - times[s]) / 1000)}`
+        : "stopped";
+      stops +=
+        `<rect class="rp-stop" x="${x1.toFixed(1)}" y="${bandTop}" ` +
+        `width="${Math.max(0, x2 - x1).toFixed(1)}" height="${bandH}"><title>${tip}</title></rect>`;
+    }
+  }
 
   // Build the area + line path over points that carry a value.
   let line = "";
@@ -1159,7 +1246,7 @@ function renderRideProfile(): void {
   for (let i = 0; i < values.length; i++) {
     const v = values[i];
     if (v == null) continue;
-    const x = xOf(cum[i]);
+    const x = axisX[i];
     const y = yOf(v);
     if (!started) {
       firstX = x;
@@ -1173,15 +1260,56 @@ function renderRideProfile(): void {
   const baseY = (H - padBot).toFixed(1);
   const area = `${line} L${lastX.toFixed(1)},${baseY} L${firstX.toFixed(1)},${baseY} Z`;
   const fmt = (v: number) => (speed ? v.toFixed(0) : Math.round(v).toString());
+  // Bottom-right: the axis's full extent, so distance vs time reads at a glance.
+  const extentLabel = useTime
+    ? fmtSecsShort((times![times!.length - 1] - times![0]) / 1000)
+    : `${totalKm.toFixed(1)} km`;
   host.innerHTML =
     `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" ` +
-    `aria-label="${speed ? "Speed" : "Elevation"} profile">` +
+    `aria-label="${speed ? "Speed" : "Elevation"} profile vs ${useTime ? "time" : "distance"}">` +
     `<path class="rp-area" d="${area}"/>` +
+    stops +
     `<path class="rp-line" d="${line}"/>` +
     `<line class="rp-cursor" id="rpCursor" x1="0" y1="${padTop}" x2="0" y2="${baseY}" style="display:none"/>` +
     `<text class="rp-axis" x="${padX}" y="12">${fmt(range.hi)} ${unit}</text>` +
     `<text class="rp-axis" x="${padX}" y="${H - 5}">${fmt(lo)} ${unit}</text>` +
+    `<text class="rp-axis" x="${W - padX}" y="${H - 5}" text-anchor="end">${extentLabel}</text>` +
     `</svg>`;
+}
+
+/** Map an along-track distance (km) to its viewBox x under the active profile axis,
+ *  by interpolating the per-point `axisX` the profile laid down. Works for both the
+ *  distance axis (linear) and the time axis (idle stretches widened), so the cursor
+ *  lands on the same x the line was drawn at. */
+function profileXForKm(km: number): number {
+  const padX = 4;
+  const axisX = rideHover?.axisX;
+  const cum = rideHover?.cum;
+  if (!axisX || !cum || cum.length === 0) return padX;
+  const n = cum.length;
+  if (km <= cum[0]) return axisX[0];
+  if (km >= cum[n - 1]) return axisX[n - 1];
+  let i = 1;
+  while (i < n - 1 && cum[i] < km) i++;
+  const seg = cum[i] - cum[i - 1];
+  const f = seg > 0 ? (km - cum[i - 1]) / seg : 0;
+  return axisX[i - 1] + f * (axisX[i] - axisX[i - 1]);
+}
+
+/** Inverse of `profileXForKm`: a viewBox x (0..1000) back to along-track distance (km),
+ *  so a hover/scrub on the profile resolves to the right point on the route. */
+function profileKmForX(xView: number): number {
+  const axisX = rideHover?.axisX;
+  const cum = rideHover?.cum;
+  if (!axisX || !cum || cum.length === 0) return 0;
+  const n = cum.length;
+  if (xView <= axisX[0]) return cum[0];
+  if (xView >= axisX[n - 1]) return cum[n - 1];
+  let i = 1;
+  while (i < n - 1 && axisX[i] < xView) i++;
+  const seg = axisX[i] - axisX[i - 1];
+  const f = seg > 0 ? (xView - axisX[i - 1]) / seg : 0;
+  return cum[i - 1] + f * (cum[i] - cum[i - 1]);
 }
 
 /** Move the elevation-profile cursor to a given along-track distance (km). */
@@ -1192,9 +1320,7 @@ function moveProfileCursor(km: number | null): void {
     cursor.style.display = "none";
     return;
   }
-  const W = 1000;
-  const padX = 4;
-  const x = padX + (km / (rideHover.totalKm || 1)) * (W - 2 * padX);
+  const x = profileXForKm(km);
   cursor.setAttribute("x1", x.toFixed(1));
   cursor.setAttribute("x2", x.toFixed(1));
   cursor.style.display = "";
@@ -1216,7 +1342,7 @@ function renderRideSummary(): void {
     host.innerHTML = "";
     return;
   }
-  const s = fullTrackSummary(full);
+  const s = fullTrackSummary(full, STATE.settings.movingThresholdKmh);
   const chip = (label: string, value: string) =>
     `<span class="rms-chip"><b>${value}</b> ${label}</span>`;
   const chips: string[] = [
@@ -1229,6 +1355,19 @@ function renderRideSummary(): void {
   if (s.recordedSec != null) chips.push(chip("recording time", fmtSecsShort(s.recordedSec)));
   if (s.maxKmh != null) chips.push(chip("max speed", `${s.maxKmh.toFixed(1)} km/h`));
   if (s.avgKmh != null) chips.push(chip("avg speed", `${s.avgKmh.toFixed(1)} km/h`));
+  if (s.movingAvgKmh != null)
+    chips.push(chip("moving avg", `${s.movingAvgKmh.toFixed(1)} km/h`));
+  // Subtle hint: how much of the recording was spent stopped (idling), excluded from
+  // the moving average. Shown only when it's a meaningful pause (≥ 1 min), so GPS
+  // jitter doesn't add noise.
+  if (s.recordedSec != null && s.movingSec != null) {
+    const stoppedSec = s.recordedSec - s.movingSec;
+    if (stoppedSec >= 60) {
+      chips.push(
+        `<span class="rms-chip subtle" title="Time stopped below ${STATE.settings.movingThresholdKmh} km/h — excluded from the moving average"><b>${fmtSecsShort(stoppedSec)}</b> not moving</span>`,
+      );
+    }
+  }
   host.innerHTML = chips.join("");
   host.classList.remove("hidden");
 }
@@ -1473,13 +1612,11 @@ function onRideProfileHover(e: PointerEvent): void {
   if (!svg) return;
   const rect = svg.getBoundingClientRect();
   if (rect.width <= 0) return;
-  // The profile path maps padX..(W-padX) viewBox units to 0..totalKm, so convert
-  // the cursor's fractional X through the same padding to line up with the line.
+  // Convert the pointer to a viewBox x, then back through the profile's own axis
+  // mapping (distance- or time-based) so the lit point matches where the cursor sits.
   const W = 1000;
-  const padX = 4;
   const xView = ((e.clientX - rect.left) / rect.width) * W;
-  const frac = Math.max(0, Math.min(1, (xView - padX) / (W - 2 * padX)));
-  const km = frac * rideHover.totalKm;
+  const km = profileKmForX(xView);
   const at = trackPointAtKm(km);
   if (at) showRideTrackPoint(at.latLng, at.idx, km);
 }
@@ -1492,28 +1629,34 @@ function syncRideMapControls(): void {
   const colorSeg = document.getElementById("rideMapColor");
   const profileBtn = document.getElementById("btnRideMapProfile") as HTMLButtonElement | null;
   const metricSeg = document.getElementById("rideMapProfileMetric");
+  const axisSeg = document.getElementById("rideMapProfileAxis");
   const est = document.getElementById("rideMapEst");
   const hasTime = (ride?.elapsed_sec || ride?.moving_sec || 0) > 0;
 
-  // The Wind action is available for any ride with a route (it works off the rough
-  // polyline + synthesized times when no full GPX is loaded). Its label tracks the
-  // explicit lifecycle: Resolve → Resolving… → toggle on/off.
+  // The standalone Wind action is the fallback for rides with NO full GPX (no
+  // advanced controls): it works off the rough polyline + synthesized times. Once a
+  // full track is loaded Wind becomes the 4th pillar in the colour seg, so this
+  // button hides and the seg owns wind. Its label tracks the lifecycle: Resolve →
+  // Resolving… → toggle on/off.
   const windBtn = document.getElementById("btnRideMapWind") as HTMLButtonElement | null;
   if (windBtn && rideMapKey) {
     const resolving = controller.isResolvingWind(rideMapKey);
     const resolved = controller.hasResolvedWind(rideMapKey);
     const on = rideMapColorMode === "wind";
-    windBtn.classList.toggle("hidden", !ride?.track);
+    windBtn.classList.toggle("hidden", !ride?.track || !!full);
     windBtn.disabled = resolving;
     windBtn.classList.toggle("active", on);
     windBtn.setAttribute("aria-pressed", String(on));
-    windBtn.textContent = resolving
-      ? "Resolving wind…"
-      : !resolved
-        ? "Resolve wind"
-        : on
-          ? "Wind: on"
-          : "Show wind";
+    setRmbLabel(
+      windBtn,
+      resolving
+        ? "Resolving wind…"
+        : !resolved
+          ? "Resolve wind"
+          : on
+            ? "Wind: on"
+            : "Show wind",
+    );
   }
 
   if (full) {
@@ -1531,9 +1674,17 @@ function syncRideMapControls(): void {
     colorSeg?.querySelectorAll<HTMLButtonElement>("button").forEach((b) => {
       b.classList.toggle("active", b.dataset.color === rideMapColorMode);
     });
+    // Wind is the 4th colour pillar once a full track is loaded; show its resolve
+    // lifecycle on the seg button (disabled + "Wind…" while the networked lookup runs).
+    const windSegBtn = colorSeg?.querySelector<HTMLButtonElement>('button[data-color="wind"]');
+    if (windSegBtn && rideMapKey) {
+      const resolving = controller.isResolvingWind(rideMapKey);
+      windSegBtn.disabled = resolving;
+      setRmbLabel(windSegBtn, resolving ? "Wind…" : "Wind");
+    }
     if (profileBtn) {
       const shown = rideMapProfileShown && showProfileBtn;
-      profileBtn.textContent = shown ? "Hide profile" : "Show profile";
+      setRmbLabel(profileBtn, shown ? "Hide profile" : "Show profile");
       profileBtn.setAttribute("aria-pressed", String(shown));
     }
     // Profile-metric segmented control: visible only with both metrics + profile open.
@@ -1543,17 +1694,48 @@ function syncRideMapControls(): void {
     metricSeg?.querySelectorAll<HTMLButtonElement>("button").forEach((b) => {
       b.classList.toggle("active", b.dataset.profile === eff);
     });
+    // Profile x-axis control: a distance↔time switch, offered only when the track
+    // carries timestamps (else time is meaningless) and the profile is open.
+    const showAxisSeg = !!full && hasTimes(full) && rideMapProfileShown;
+    axisSeg?.classList.toggle("hidden", !showAxisSeg);
+    axisSeg?.querySelectorAll<HTMLButtonElement>("button").forEach((b) => {
+      b.classList.toggle("active", b.dataset.axis === rideMapProfileAxis);
+    });
   } else {
     if (fetchBtn) {
       fetchBtn.classList.remove("hidden");
       fetchBtn.disabled = false;
-      fetchBtn.textContent = "Fetch full track";
+      setRmbLabel(fetchBtn, "Fetch full track");
     }
     colorSeg?.classList.add("hidden");
     profileBtn?.classList.add("hidden");
     metricSeg?.classList.add("hidden");
+    axisSeg?.classList.add("hidden");
     est?.classList.toggle("hidden", !hasTime);
   }
+  syncRideMapBarCompact();
+}
+
+/**
+ * Fold the ride-map bar's controls to icon-only when the row would otherwise overflow
+ * its width (the honest "not enough space" test, since the map is full-screen at every
+ * viewport). Synchronous (one forced reflow on a single row), so no flicker is painted.
+ *
+ * `allowExpand` makes the two callers asymmetric on purpose:
+ *  - a genuine width change (the ResizeObserver) passes `true` → fully re-evaluate, so
+ *    widening the window relaxes back to labels;
+ *  - a CONTENT change (controls shown/hidden, e.g. toggling the profile) passes `false`
+ *    → it may only collapse further, never expand. Otherwise hiding the profile frees
+ *    the metric/axis segs' width and the still-visible controls would jarringly unfold
+ *    from icons back to labels mid-session.
+ */
+function syncRideMapBarCompact(allowExpand = false): void {
+  const bar = document.querySelector<HTMLElement>(".ridemap-bar");
+  if (!bar) return;
+  if (allowExpand) bar.classList.remove("compact");
+  // A small slack so we don't toggle on a sub-pixel overshoot. (When already compact and
+  // not allowed to expand, this is a no-op — the bar stays folded.)
+  if (bar.scrollWidth > bar.clientWidth + 1) bar.classList.add("compact");
 }
 
 /** Build the hover/line/profile state for the open ride from its display track and
@@ -1586,6 +1768,7 @@ function buildRideMapState(): void {
     px: [],
     full: full && full.points.length >= 2 ? full : null,
     speeds,
+    axisX: null,
   };
   rideMapMarker = null;
   drawRideLine();
@@ -1611,6 +1794,7 @@ function openRideMap(key: string): void {
   rideMapKey = key;
   rideMapColorMode = "none";
   rideMapProfileMetric = "elevation";
+  rideMapProfileAxis = "distance";
   setRideMapStatus("");
   // If this ride's wind was resolved earlier, recompute its overlay from the cache
   // (no network) so the "Show wind" toggle paints instantly; never auto-fetches.
@@ -1626,6 +1810,15 @@ function openRideMap(key: string): void {
 
   modal.classList.remove("hidden");
   document.body.classList.add("ridemap-open");
+
+  // Re-evaluate the bar's icon-collapse whenever its width changes (window resize),
+  // not just on control changes. One observer for the modal's lifetime.
+  const bar = modal.querySelector<HTMLElement>(".ridemap-bar");
+  if (bar && "ResizeObserver" in window) {
+    rideMapBarObserver?.disconnect();
+    rideMapBarObserver = new ResizeObserver(() => syncRideMapBarCompact(true));
+    rideMapBarObserver.observe(bar);
+  }
 
   // Build (or rebuild) the map fresh each open — cheap, and avoids stale layers.
   if (rideMapBig) {
@@ -1690,7 +1883,7 @@ function fetchRideMapFull(): void {
       if (rideMapKey !== key) return; // user moved on while signing in
       if (fetchBtn) {
         fetchBtn.disabled = true;
-        fetchBtn.textContent = "Fetching…";
+        setRmbLabel(fetchBtn, "Fetching…");
       }
       setRideMapStatus("Downloading the full recorded track…", "info");
       controller
@@ -1716,7 +1909,7 @@ function fetchRideMapFull(): void {
             setRideMapStatus("");
             if (fetchBtn) {
               fetchBtn.disabled = false;
-              fetchBtn.textContent = "Retry full track";
+              setRmbLabel(fetchBtn, "Retry full track");
             }
           }
           toast(`Couldn't fetch the full track: ${msg}`, true);
@@ -1733,21 +1926,15 @@ function setRideMapColor(mode: "none" | "height" | "speed"): void {
 }
 
 /**
- * The explicit Wind action on the big map. Wind is NEVER fetched automatically —
- * this is the deliberate trigger. When the open ride has no resolved wind yet, it
- * kicks off the (networked) resolution job and switches the route colouring to wind
- * so the overlay paints as soon as it lands; when already resolved, it toggles the
- * wind colouring on/off (no network).
+ * Enable wind colouring on the open ride (select semantics — no toggle-off, since
+ * this backs the colour seg's Wind pillar where picking another mode switches away).
+ * Wind is NEVER fetched automatically; selecting it is the deliberate trigger: when
+ * the ride has no resolved wind yet it kicks off the (networked) resolution and
+ * paints as soon as it lands, otherwise it recomputes the overlay from cache.
  */
-function toggleRideMapWind(): void {
+function enableRideMapWind(): void {
   const key = rideMapKey;
-  if (!key) return;
-  if (rideMapColorMode === "wind") {
-    // Toggle the wind colouring back off (leaves the data cached).
-    setRideMapColor("none");
-    renderRideMapWind();
-    return;
-  }
+  if (!key || rideMapColorMode === "wind") return;
   rideMapColorMode = "wind";
   if (!controller.hasResolvedWind(key) && !controller.isResolvingWind(key)) {
     const n = controller.resolveWind([key]);
@@ -1758,6 +1945,22 @@ function toggleRideMapWind(): void {
   drawRideLine();
   syncRideMapControls();
   renderRideMapWind();
+}
+
+/**
+ * The standalone Wind button's action (the no-full-GPX fallback). A true toggle:
+ * turns wind colouring back off when it's already on (data stays cached), else
+ * enables it via `enableRideMapWind`.
+ */
+function toggleRideMapWind(): void {
+  if (!rideMapKey) return;
+  if (rideMapColorMode === "wind") {
+    // Toggle the wind colouring back off (leaves the data cached).
+    setRideMapColor("none");
+    renderRideMapWind();
+    return;
+  }
+  enableRideMapWind();
 }
 
 /**
@@ -1822,11 +2025,20 @@ function setRideMapProfileMetric(metric: "elevation" | "speed"): void {
   syncRideMapControls();
 }
 
+/** Switch the profile x-axis (distance vs time), redrawing the graph in place. */
+function setRideMapProfileAxis(axis: "distance" | "time"): void {
+  rideMapProfileAxis = axis;
+  renderRideProfile();
+  syncRideMapControls();
+}
+
 /** Close the full-screen route map and release its Leaflet instance. */
 function closeRideMap(): void {
   const modal = document.getElementById("rideMapModal");
   modal?.classList.add("hidden");
   document.body.classList.remove("ridemap-open");
+  rideMapBarObserver?.disconnect();
+  rideMapBarObserver = null;
   if (rideMapBig) {
     rideMapBig.remove();
     rideMapBig = null;
@@ -3530,7 +3742,7 @@ function render(): void {
     if (cacheCount || windCount) {
       rows.push(sub("Caches"));
       if (cacheCount)
-        rows.push(row("Download cache", fmtBytes(controller.gpxCacheBytes()), "gpx"));
+        rows.push(row("Beeline tracks", fmtBytes(controller.gpxCacheBytes()), "gpx"));
       if (windCount) rows.push(row("Wind cache", fmtBytes(controller.windCacheBytes()), "wind"));
     }
     storageInfo.innerHTML = rows.join("");
@@ -4032,9 +4244,7 @@ function stateSig(): string {
   // one ride at a time, and including them would rebuild the whole list (remounting
   // maps) on every resolved ride. Weather changes are applied in place by
   // applyWeatherUpdate instead (toggling the small wind badge), no list rebuild.
-  const ridesSig = JSON.stringify(
-    rides.map(({ wind_resolved, wind_speed_kmh, ...r }) => r),
-  );
+  const ridesSig = JSON.stringify(rides.map(({ wind_resolved, wind_speed_kmh, ...r }) => r));
   return (
     JSON.stringify(rest) +
     "#" +
@@ -4265,7 +4475,7 @@ async function flushGpxCache(): Promise<void> {
     return;
   }
   await controller.flushGpxCache();
-  toast("Download cache cleared.");
+  toast("Beeline tracks cleared.");
 }
 
 /** Clear the global historical-wind cache (re-fetched from Open-Meteo on demand). */
@@ -4333,12 +4543,17 @@ document.addEventListener("click", (e) => {
     return toggleRideMapWind();
   }
   if (t.dataset?.color && t.closest("#rideMapColor")) {
-    // Choosing an explicit elevation/speed/route mode turns wind colouring off.
+    // Wind is the seg's 4th pillar — selecting it resolves/enables wind colouring;
+    // any other mode turns wind colouring off and hides its summary line.
+    if (t.dataset.color === "wind") return enableRideMapWind();
     document.getElementById("rideMapWind")?.classList.add("hidden");
     return setRideMapColor(t.dataset.color as "none" | "height" | "speed");
   }
   if (t.dataset?.profile && t.closest("#rideMapProfileMetric")) {
     return setRideMapProfileMetric(t.dataset.profile as "elevation" | "speed");
+  }
+  if (t.dataset?.axis && t.closest("#rideMapProfileAxis")) {
+    return setRideMapProfileAxis(t.dataset.axis as "distance" | "time");
   }
   if (t.id === "btnRideMapProfile") {
     return toggleRideMapProfile();
@@ -4467,6 +4682,10 @@ document.addEventListener("click", (e) => {
     return;
   }
   if (t.id === "btnSource") return showSources();
+  if (t.id === "btnSettings") return showSettings();
+  if (t.id === "btnSettingsClose") return hideSettings();
+  // Click on the Settings backdrop (outside the card) dismisses it.
+  if (target.id === "settingsModal") return hideSettings();
   if (t.id === "btnImport") return void ($("#importFile") as HTMLInputElement).click();
   if (t.id === "btnExport") return exportRides();
   if (t.dataset?.clear === "gpx") return void flushGpxCache();
@@ -4687,6 +4906,11 @@ document.addEventListener("click", (e) => {
 // Escape closes an open split-button menu (GPX or Check), or the source picker.
 document.addEventListener("keydown", (e) => {
   if (e.key !== "Escape") return;
+  const settingsM = document.getElementById("settingsModal");
+  if (settingsM && !settingsM.classList.contains("hidden")) {
+    hideSettings();
+    return;
+  }
   const confirmM = document.getElementById("confirmModal");
   if (confirmM && !confirmM.classList.contains("hidden")) {
     closeConfirm(false);
@@ -4827,12 +5051,33 @@ document.addEventListener("input", (e) => {
     run(() => controller.setHeatRadius(v));
     return;
   }
+  if (el.id === "setMovingThresh") {
+    // Cheap live label only — persisting (whole-blob save) + re-rendering on every
+    // drag tick made the slider crawl. The actual setting is committed once on
+    // `change` (slider release); nothing recomputes live here anyway (the moving-avg
+    // chip lives on the ride map, which isn't open while this popup is).
+    const v = Number(el.value);
+    const thresh = Number.isFinite(v) ? v : 1;
+    ($("#setMovingThreshOut") as HTMLOutputElement).value = `${thresh} km/h`;
+    return;
+  }
   if (el.id !== "trimSlow" && el.id !== "trimFast") return;
   const slow = parseInt($<HTMLInputElement>("#trimSlow").value, 10) || 0;
   const fast = parseInt($<HTMLInputElement>("#trimFast").value, 10) || 0;
   ($("#trimSlowOut") as HTMLOutputElement).value = `${slow}%`;
   ($("#trimFastOut") as HTMLOutputElement).value = `${fast}%`;
   run(() => controller.setSpeedTrim(slow, fast));
+});
+
+// Commit the moving-speed threshold once when the slider is released (`change`),
+// not on every `input` tick — see the live-label handler above. This is the single
+// whole-blob save + re-render for the whole drag.
+document.addEventListener("change", (e) => {
+  const el = e.target as HTMLInputElement;
+  if (el.id !== "setMovingThresh") return;
+  const v = Number(el.value);
+  const thresh = Number.isFinite(v) ? v : 1;
+  run(() => controller.setMovingThreshold(thresh));
 });
 
 // Elevation profile ↔ route map sync: hovering the full-screen ride map's profile

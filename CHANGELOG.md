@@ -17,6 +17,24 @@ humans and the assistant can read this file as a compressed history of decisions
 
 ---
 
+## Moving-average speed & an inactivity-aware ride map
+- **What:** The full-screen ride map now distinguishes riding from idling. The summary strip
+  adds a **moving avg** speed (excludes hops below a stop threshold) + a subtle "not moving Xm"
+  chip; the elevation/speed profile dims the stopped stretches (`stoppedRanges`, "stopped M:SS"
+  tooltip) and gains a **Distance ↔ Time** x-axis toggle (time stretches idle spans to their
+  true width, cursor↔map sync generalized via per-point `axisX`). The stop threshold is a new
+  persisted setting (`movingThresholdKmh`, default 1 km/h, 0–5) tuned in a new minimal
+  **Settings** popup. **Wind** folded into the Route/Height/Speed colour seg as a 4th pillar
+  when a full track is loaded (standalone button kept as the no-full-GPX fallback), and the now-
+  crowded control bar collapses its buttons to icons (`.compact`) when it would overflow. Also
+  renamed the vague "Download cache" storage row to **"Beeline tracks"**.
+- **Why:** The plain distance/elapsed average is dragged down by stops (lights, photos, coffee),
+  so it misrepresents how the ride felt — splitting out moving time gives a truthful pace, and
+  dim bands + the time axis show *where* and *how long* you stopped. Wind is just another route
+  colouring, so it belongs in the seg once advanced controls appear; icon-collapse keeps the
+  fuller bar uncrowded without dropping any control; and the clearer label makes the
+  data-vs-cache split obvious. Gave the app its first real home for preferences.
+
 ## App logo & favicon: bike-on-a-route badge
 - **What:** Introduced a single brand mark (`public/logo.svg`) — a rounded Strava-orange badge of a
   bike riding a route ribbon — and used it everywhere: the header brand mark (replacing the bare

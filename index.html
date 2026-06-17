@@ -55,7 +55,8 @@
           </span>
           <span class="menu-section">App data</span>
           <span class="menu-storage" id="storageInfo" aria-live="polite"></span>
-          <button class="ghost small" id="btnImport" title="Merge a previously exported (or Python tool) state file into this browser">Import…</button>
+          <button class="ghost small" id="btnSettings" title="Open application settings">Settings</button>
+          <button class="ghost small" id="btnImport" title="Merge a previously exported (or Python tool) state file into this browser">Import</button>
           <button class="ghost small" id="btnExport" title="Download all locally stored rides, settings and status as a JSON backup">Export</button>
           <button class="ghost small danger" id="btnReset" title="Erase ALL locally stored data — rides, settings, cached downloads and imported GPX files — then return to the source-selection screen.">Reset</button>
         </span>
@@ -224,20 +225,25 @@
     <span class="ridemap-est" id="rideMapEst" title="Beeline's route polyline has no per-point timestamps, so the time/clock shown on hover is estimated — interpolated from the ride's start/end (total elapsed) time assuming an even pace, not measured. Fetch the full track for the real recorded time.">~ time is estimated</span>
     <span class="ridemap-tools">
       <span class="ridemap-status" id="rideMapStatus" role="status" aria-live="polite"></span>
-      <button class="small ghost" id="btnRideMapFull" type="button" title="Download the full recorded track (real per-point timestamps + elevation) and use it for this map">Fetch full track</button>
-      <button class="small ghost" id="btnRideMapWind" type="button" title="Resolve historical wind for this ride (from Open-Meteo) and colour the route by head/tailwind">Resolve wind</button>
+      <button class="small ghost rmb" id="btnRideMapFull" type="button" title="Download the full recorded track (real per-point timestamps + elevation) and use it for this map"><svg class="rmb-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0l-4-4m4 4l4-4M5 21h14"/></svg><span class="lbl">Fetch full track</span></button>
+      <button class="small ghost rmb" id="btnRideMapWind" type="button" title="Resolve historical wind for this ride (from Open-Meteo) and colour the route by head/tailwind"><svg class="rmb-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 8h10a2.5 2.5 0 1 0-2.5-2.5M3 16h14a2.5 2.5 0 1 1-2.5 2.5M3 12h7"/></svg><span class="lbl">Resolve wind</span></button>
       <span class="seg ridemap-color hidden" id="rideMapColor" role="group" aria-label="Colour the route by">
-        <button data-color="none" class="active" type="button" title="Plain route line">Route</button>
-        <button data-color="height" type="button" title="Colour the route by elevation">Height</button>
-        <button data-color="speed" type="button" title="Colour the route by speed">Speed</button>
+        <button data-color="none" class="active rmb" type="button" title="Plain route line"><svg class="rmb-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20L20 4"/><circle cx="4" cy="20" r="1.6" fill="currentColor" stroke="none"/><circle cx="20" cy="4" r="1.6" fill="currentColor" stroke="none"/></svg><span class="lbl">Route</span></button>
+        <button data-color="height" class="rmb" type="button" title="Colour the route by elevation"><svg class="rmb-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 20l6-9 4 5 2-3 6 7z"/></svg><span class="lbl">Height</span></button>
+        <button data-color="speed" class="rmb" type="button" title="Colour the route by speed"><svg class="rmb-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 18a8 8 0 1 1 14 0"/><path d="M12 14l4-4"/></svg><span class="lbl">Speed</span></button>
+        <button data-color="wind" class="rmb" type="button" title="Colour the route by head/tailwind (resolves historical wind from Open-Meteo)"><svg class="rmb-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 8h10a2.5 2.5 0 1 0-2.5-2.5M3 16h14a2.5 2.5 0 1 1-2.5 2.5M3 12h7"/></svg><span class="lbl">Wind</span></button>
       </span>
       <span class="seg ridemap-profmetric hidden" id="rideMapProfileMetric" role="group" aria-label="Profile metric">
-        <button data-profile="elevation" class="active" type="button" title="Graph elevation vs distance">Elevation</button>
-        <button data-profile="speed" type="button" title="Graph speed vs distance">Speed</button>
+        <button data-profile="elevation" class="active rmb" type="button" title="Graph elevation vs distance"><svg class="rmb-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 20l6-9 4 5 2-3 6 7z"/></svg><span class="lbl">Elevation</span></button>
+        <button data-profile="speed" class="rmb" type="button" title="Graph speed vs distance"><svg class="rmb-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 18a8 8 0 1 1 14 0"/><path d="M12 14l4-4"/></svg><span class="lbl">Speed</span></button>
       </span>
-      <button class="small ghost hidden" id="btnRideMapProfile" type="button" aria-pressed="true" title="Show or hide the profile graph">Hide profile</button>
+      <span class="seg ridemap-profaxis hidden" id="rideMapProfileAxis" role="group" aria-label="Profile x-axis">
+        <button data-axis="distance" class="active rmb" type="button" title="Plot the profile against distance along the route"><svg class="rmb-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 9h18v6H3z"/><path d="M8 9v3M13 9v3M18 9v3"/></svg><span class="lbl">Distance</span></button>
+        <button data-axis="time" class="rmb" type="button" title="Plot the profile against recorded time — stops show their true duration"><svg class="rmb-ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/></svg><span class="lbl">Time</span></button>
+      </span>
+      <button class="small ghost rmb hidden" id="btnRideMapProfile" type="button" aria-pressed="true" title="Show or hide the profile graph"><svg class="rmb-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19V5m0 14h16M8 15l3-4 3 2 4-6"/></svg><span class="lbl">Hide profile</span></button>
     </span>
-    <button class="small ghost" id="btnRideMapClose" type="button" title="Close (Esc)" aria-label="Close">Close</button>
+    <button class="small ghost rmb" id="btnRideMapClose" type="button" title="Close (Esc)" aria-label="Close"><svg class="rmb-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg><span class="lbl">Close</span></button>
   </div>
   <div class="ridemap-summary hidden" id="rideMapSummary" aria-live="polite"></div>
   <div class="ridemap-wind hidden" id="rideMapWind" aria-live="polite"></div>
@@ -285,6 +291,23 @@
           <button class="primary small" type="button" id="btnGpxSource">Choose GPX files…</button>
         </div>
       </div>
+    </div>
+  </div>
+</div>
+
+<div class="settings hidden" id="settingsModal" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
+  <div class="settings-card">
+    <button class="settings-close" id="btnSettingsClose" type="button" aria-label="Close" title="Close">
+      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+    </button>
+    <h2 class="settings-title" id="settingsTitle">Settings</h2>
+    <div class="settings-row">
+      <label class="settings-label" for="setMovingThresh">Treat as stopped below</label>
+      <div class="settings-control">
+        <input type="range" id="setMovingThresh" min="0" max="5" step="0.1" value="1" />
+        <output id="setMovingThreshOut">1 km/h</output>
+      </div>
+      <p class="settings-hint">Speed under which a moment counts as not moving — its time is excluded from the <b>moving avg</b> speed shown on a ride's map. Lower it toward 0 to only drop a true standstill.</p>
     </div>
   </div>
 </div>

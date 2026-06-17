@@ -2008,6 +2008,45 @@ body.ridemap-open {
 .ridemap-tools .hidden {
   display: none;
 }
+/* Icon-collapse: each bar control carries an inline-SVG icon plus its text label.
+   Normally the label shows and the icon is hidden; when the bar runs out of room the
+   JS adds `.compact` and we flip to icon-only (meaning kept in title/aria-label),
+   reclaiming width without dropping any control — same icon-only vocabulary as the
+   floating map buttons. */
+.ridemap-bar .rmb-ico {
+  display: none;
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.ridemap-bar.compact .rmb .lbl {
+  display: none;
+}
+.ridemap-bar.compact .rmb-ico {
+  display: block;
+}
+/* In compact mode the labelled push-buttons and seg buttons become square icon
+   tiles so the row reads as a tidy strip of icons. */
+.ridemap-bar.compact .rmb {
+  display: inline-grid;
+  place-items: center;
+  padding: 6px;
+  min-width: 30px;
+}
+.ridemap-bar.compact .seg button.rmb {
+  padding: 6px 9px;
+}
+/* A hidden control stays hidden in compact mode too: the `.compact .rmb` rule above
+   outranks the plain `.hidden` utility, so re-assert the hide with higher specificity.
+   Without this, a button the JS hid (e.g. Fetch full track / Resolve wind once both
+   the track and wind are already loaded) would wrongly reappear as an icon. */
+.ridemap-bar.compact .rmb.hidden {
+  display: none;
+}
 .ridemap-color button {
   cursor: pointer;
 }
@@ -2080,6 +2119,15 @@ body.ridemap-open {
   font-variant-numeric: tabular-nums;
   font-weight: 600;
 }
+/* The "not moving" hint: a quieter chip so the excluded-idle-time note reads as a
+   subtle footnote to the moving average, not a headline stat. */
+.rms-chip.subtle {
+  opacity: 0.62;
+}
+.rms-chip.subtle b {
+  color: var(--muted);
+  font-weight: 500;
+}
 .ridemap-profile svg {
   width: 100%;
   height: 100%;
@@ -2089,6 +2137,13 @@ body.ridemap-open {
 }
 .ridemap-profile .rp-area {
   fill: rgba(252, 82, 0, 0.16);
+}
+/* Bands marking the stretches detected as not moving (below the stop threshold).
+   Drawn ON TOP of the filled area (under the line) as a dark dim, so a stop reads as
+   the chart receding — never a brighter highlight. On the distance axis they mark
+   WHERE a stop was; on the time axis their width is the stop's true duration. */
+.ridemap-profile .rp-stop {
+  fill: rgba(5, 7, 10, 0.55);
 }
 .ridemap-profile .rp-line {
   fill: none;
@@ -3786,6 +3841,95 @@ body.dragging-files::after {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
+}
+
+/* --- Settings dialog ------------------------------------------------------
+   A minimal preferences popup. Reuses the confirm/source-picker overlay + dark
+   card vocabulary so it reads as the same product, with the source-picker's
+   corner close button. */
+.settings {
+  position: fixed;
+  inset: 0;
+  z-index: 1010;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(5, 7, 10, 0.78);
+  backdrop-filter: blur(3px);
+  overflow: auto;
+}
+.settings.hidden {
+  display: none;
+}
+.settings-card {
+  position: relative;
+  width: min(420px, 100%);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 22px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.55);
+}
+.settings-title {
+  margin: 0 0 16px;
+  font-size: 16px;
+  font-weight: 600;
+}
+.settings-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  cursor: pointer;
+}
+.settings-close:hover {
+  color: var(--text);
+  border-color: var(--muted);
+}
+.settings-close svg {
+  width: 16px;
+  height: 16px;
+}
+.settings-row {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.settings-label {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text);
+}
+.settings-control {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.settings-control input[type="range"] {
+  flex: 1;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+.settings-control output {
+  min-width: 64px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  color: var(--text);
+}
+.settings-hint {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12.5px;
+  line-height: 1.45;
 }
 
 /* The "Pull from Beeline" sync button lives in the header connection cluster and is

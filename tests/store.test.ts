@@ -2,7 +2,14 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 import { type KeyValueStore, memoryBackend } from "../src/kv";
 import { rideUid } from "../src/parsing";
-import { DEFAULT_TRACK_POINTS_PER_KM, SCHEMA_VERSION, STORAGE_KEY, Store } from "../src/store";
+import {
+  DEFAULT_TRACK_POINTS_PER_KM,
+  MOVING_THRESHOLD_MAX_KMH,
+  SCHEMA_VERSION,
+  STORAGE_KEY,
+  Store,
+} from "../src/store";
+import { DEFAULT_MOVING_THRESHOLD_KMH } from "../src/track";
 
 /** A current-schema persisted blob wrapping the given ride records (keyed by uid). */
 function blob(rides: Record<string, Record<string, unknown>>): string {
@@ -183,6 +190,16 @@ describe("Store", () => {
     s.setTrackPointsPerKm(25);
     await s.flush();
     expect((await Store.load(backend)).settings.trackPointsPerKm).toBe(25);
+  });
+
+  it("defaults, clamps, and round-trips the moving-speed threshold", async () => {
+    const s = await Store.load(backend);
+    expect(s.settings.movingThresholdKmh).toBe(DEFAULT_MOVING_THRESHOLD_KMH);
+    expect(s.setMovingThreshold(-5)).toBe(0); // clamped up to the floor
+    expect(s.setMovingThreshold(9999)).toBe(MOVING_THRESHOLD_MAX_KMH); // clamped to the ceiling
+    expect(s.setMovingThreshold(2.5)).toBe(2.5); // fractional kept
+    await s.flush();
+    expect((await Store.load(backend)).settings.movingThresholdKmh).toBe(2.5);
   });
 
   it("persists a per-ride rough track", async () => {

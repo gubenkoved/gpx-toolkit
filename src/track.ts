@@ -141,6 +141,14 @@ export function movingAverage(values: (number | null)[], radius: number): (numbe
   return out;
 }
 
+/**
+ * Default "stopped" threshold (km/h): a hop whose smoothed speed is below this is
+ * treated as not moving, so it's excluded from moving time / moving average speed.
+ * User-tunable (see `Settings.movingThresholdKmh`); 1 km/h means only a near-total
+ * standstill counts as stopped.
+ */
+export const DEFAULT_MOVING_THRESHOLD_KMH = 1;
+
 /** Rich, full-track-only stats — what fetching the recorded trace unlocks beyond
  *  the downsampled polyline. Fields are null when the track lacks the inputs. */
 export interface FullTrackSummary {
@@ -156,6 +164,10 @@ export interface FullTrackSummary {
   /** Peak / average speed in km/h derived from the per-point timestamps; null without times. */
   maxKmh: number | null;
   avgKmh: number | null;
+  /** Seconds spent actually moving (hops at/above the stop threshold); null without times. */
+  movingSec: number | null;
+  /** Average speed over only the moving hops (km/h); null without times or no moving hop. */
+  movingAvgKmh: number | null;
 }
 
 /**
@@ -163,8 +175,16 @@ export interface FullTrackSummary {
  * point count, measured distance, real elevation gain/loss, recording span and
  * peak/average speed. Elevation and time-based fields fall back to null when the
  * track carries no `<ele>` / `<time>`, so callers render only what's real.
+ *
+ * `movingThresholdKmh` is the smoothed-speed floor below which a hop counts as
+ * stopped: such hops are dropped from `movingSec` / `movingAvgKmh`, so the moving
+ * average reflects only time actually spent riding (idling at lights, pausing for
+ * a photo, etc. are excluded).
  */
-export function fullTrackSummary(ft: FullTrack): FullTrackSummary {
+export function fullTrackSummary(
+  ft: FullTrack,
+  movingThresholdKmh: number = DEFAULT_MOVING_THRESHOLD_KMH,
+): FullTrackSummary {
   const distanceKm = trackLengthKm(ft.points);
 
   let gainM: number | null = null;
@@ -189,6 +209,8 @@ export function fullTrackSummary(ft: FullTrack): FullTrackSummary {
   let recordedSec: number | null = null;
   let maxKmh: number | null = null;
   let avgKmh: number | null = null;
+  let movingSec: number | null = null;
+  let movingAvgKmh: number | null = null;
   if (hasTimes(ft)) {
     const times = ft.times.filter((t): t is number => t != null);
     const span = (times[times.length - 1] - times[0]) / 1000;
@@ -199,9 +221,156 @@ export function fullTrackSummary(ft: FullTrack): FullTrackSummary {
     for (const s of speeds) if (s != null && s > max) max = s;
     maxKmh = max > 0 ? max : null;
     if (recordedSec) avgKmh = distanceKm / (recordedSec / 3600);
+
+    // Moving time/speed: a hop counts as MOVING unless it sits inside a *stable* stop
+    // (see `stableStoppedRanges` — brief sub-threshold flicker is smoothed out so the
+    // split doesn't fragment into slivers). `speeds[i]` aligns with the hop point i → i+1.
+    const stops = stableStoppedRanges(ft, movingThresholdKmh, speeds);
+    const stoppedHop = new Uint8Array(Math.max(0, ft.points.length - 1));
+    for (const [s, e] of stops) for (let i = s; i <= e; i++) stoppedHop[i] = 1;
+    let movingKm = 0;
+    let movingSecAcc = 0;
+    for (let i = 0; i < ft.points.length - 1; i++) {
+      if (stoppedHop[i]) continue;
+      const t0 = ft.times[i];
+      const t1 = ft.times[i + 1];
+      if (t0 == null || t1 == null) continue;
+      const dtSec = (t1 - t0) / 1000;
+      if (dtSec <= 0) continue;
+      movingKm += haversineKm(ft.points[i], ft.points[i + 1]);
+      movingSecAcc += dtSec;
+    }
+    if (movingSecAcc > 0) {
+      movingSec = movingSecAcc;
+      movingAvgKmh = movingKm / (movingSecAcc / 3600);
+    }
   }
 
-  return { points: ft.points.length, distanceKm, gainM, lossM, recordedSec, maxKmh, avgKmh };
+  return {
+    points: ft.points.length,
+    distanceKm,
+    gainM,
+    lossM,
+    recordedSec,
+    maxKmh,
+    avgKmh,
+    movingSec,
+    movingAvgKmh,
+  };
+}
+
+/**
+ * RAW contiguous runs of "not moving", as inclusive **hop** index ranges `[start, end]`.
+ * A hop `i` (the segment from point `i` to `i+1`) counts as stopped when its smoothed
+ * speed is known and below `thresholdKmh`. This is the unsmoothed primitive — it crosses
+ * the threshold hop-by-hop, so noisy ~1 Hz GPS fragments it; callers wanting a stable
+ * split use `stableStoppedRanges`, which builds on this. `speeds` is the smoothed
+ * per-point series (`movingAverage(fullTrackSpeedsKmh)`); its final entry repeats the
+ * previous point and carries no real hop, so it's ignored. A range `[s, e]` spans points
+ * `s … e+1` (so its distance is `cum[s]…cum[e+1]` and its time `times[s]…times[e+1]`).
+ */
+export function stoppedRanges(
+  speeds: (number | null)[],
+  thresholdKmh: number,
+): Array<[number, number]> {
+  const threshold = Math.max(0, thresholdKmh);
+  const ranges: Array<[number, number]> = [];
+  const lastHop = speeds.length - 1; // the last point has no onward hop
+  let start = -1;
+  for (let i = 0; i < lastHop; i++) {
+    const sp = speeds[i];
+    const stopped = sp != null && sp < threshold;
+    if (stopped && start < 0) start = i;
+    else if (!stopped && start >= 0) {
+      ranges.push([start, i - 1]);
+      start = -1;
+    }
+  }
+  if (start >= 0) ranges.push([start, lastHop - 1]);
+  return ranges;
+}
+
+/**
+ * A stop shorter than this many seconds is treated as flicker (ignored), and a moving
+ * blip shorter than this between two stops is absorbed into the surrounding stop. This
+ * smooths the moving/stopped split so noisy ~1 Hz GPS doesn't shatter it into slivers.
+ */
+export const STOP_STABILITY_SEC = 10;
+
+/**
+ * STABLE stopped hop-ranges — `stoppedRanges` (raw per-hop threshold crossings) cleaned
+ * up so brief noise doesn't fragment the result, by two passes over the real recorded
+ * durations: (1) merge stops separated by only a sub-`minMoveSec` moving blip into one
+ * stop, then (2) drop stops shorter than `minStopSec`. A hop with no timestamp counts as
+ * 0 s, so it can't sustain a stop on its own. `smoothedSpeeds` defaults to the same
+ * radius-3 smoothing the summary uses — pass the already-computed series to avoid
+ * recomputing it. This is the single source of truth for "where did the ride stop",
+ * shared by `fullTrackSummary` (moving time/speed) and the profile's grey bands, so the
+ * two always agree. Returns inclusive hop ranges `[s, e]` (hop i = point i → i+1).
+ */
+export function stableStoppedRanges(
+  ft: FullTrack,
+  thresholdKmh: number,
+  smoothedSpeeds: (number | null)[] = movingAverage(fullTrackSpeedsKmh(ft), 3),
+  minStopSec: number = STOP_STABILITY_SEC,
+  minMoveSec: number = STOP_STABILITY_SEC,
+): Array<[number, number]> {
+  const raw = stoppedRanges(smoothedSpeeds, thresholdKmh);
+  if (raw.length === 0) return [];
+  const hopSec = (i: number): number => {
+    const t0 = ft.times[i];
+    const t1 = ft.times[i + 1];
+    return t0 != null && t1 != null && t1 > t0 ? (t1 - t0) / 1000 : 0;
+  };
+  const spanSec = (s: number, e: number): number => {
+    let acc = 0;
+    for (let i = s; i <= e; i++) acc += hopSec(i);
+    return acc;
+  };
+  // 1. Merge stops separated by only a brief moving blip into one continuous stop.
+  const merged: Array<[number, number]> = [[raw[0][0], raw[0][1]]];
+  for (let k = 1; k < raw.length; k++) {
+    const prev = merged[merged.length - 1];
+    const [cs, ce] = raw[k];
+    if (spanSec(prev[1] + 1, cs - 1) < minMoveSec) prev[1] = ce;
+    else merged.push([cs, ce]);
+  }
+  // 2. Drop stops too short to be real (flicker below the duration floor).
+  return merged.filter(([s, e]) => spanSec(s, e) >= minStopSec);
+}
+
+/**
+ * Per-point epoch-ms with internal `null` gaps linearly interpolated and the ends
+ * held constant, so the series is dense and non-decreasing — what a time x-axis needs
+ * to position every point even when a few `<time>` tags were missing. When the track
+ * carries no timestamps at all it falls back to the point index (callers gate the time
+ * axis on `hasTimes`, so that branch is only a safety net).
+ */
+export function filledTimes(times: (number | null)[]): number[] {
+  const n = times.length;
+  const out = new Array<number>(n);
+  let lastKnown = -1;
+  for (let i = 0; i < n; i++) {
+    const t = times[i];
+    if (t == null) continue;
+    if (lastKnown < 0) {
+      for (let j = 0; j < i; j++) out[j] = t; // back-fill the leading gap
+    } else {
+      const t0 = times[lastKnown] as number;
+      for (let j = lastKnown + 1; j < i; j++) {
+        out[j] = t0 + ((t - t0) * (j - lastKnown)) / (i - lastKnown);
+      }
+    }
+    out[i] = t;
+    lastKnown = i;
+  }
+  if (lastKnown < 0) {
+    for (let i = 0; i < n; i++) out[i] = i; // no times at all
+  } else {
+    const tail = times[lastKnown] as number;
+    for (let j = lastKnown + 1; j < n; j++) out[j] = tail; // forward-fill the trailing gap
+  }
+  return out;
 }
 
 /** Great-circle distance between two lat/lon points, in kilometres (haversine). */

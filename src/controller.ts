@@ -1476,6 +1476,13 @@ export class Controller {
     return v;
   }
 
+  /** Update the moving/stopped speed threshold (km/h, persisted). Returns the clamped value. */
+  setMovingThreshold(n: number): number {
+    const v = this.store.setMovingThreshold(n);
+    this.notify();
+    return v;
+  }
+
   cancel(id: number | null): void {
     if (id === null) this.jobs.cancelAll();
     else this.jobs.cancel(id);

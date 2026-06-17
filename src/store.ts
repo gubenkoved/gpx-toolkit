@@ -26,6 +26,7 @@ import {
   type StravaStatus,
   splitUid,
 } from "./parsing";
+import { DEFAULT_MOVING_THRESHOLD_KMH } from "./track";
 
 /** Key under which the single serialized state blob is stored in the backend. */
 export const STORAGE_KEY = "gpx-toolkit-state";
@@ -95,6 +96,17 @@ function clampConcurrency(n: number): number {
   return Math.max(BEELINE_CONCURRENCY_MIN, Math.min(BEELINE_CONCURRENCY_MAX, Math.round(n)));
 }
 
+/** Largest "stopped" threshold (km/h) the user can set before everything reads as moving. */
+export const MOVING_THRESHOLD_MAX_KMH = 5;
+
+/** Clamp the moving/stopped speed threshold into [0, MOVING_THRESHOLD_MAX_KMH] km/h
+ *  (fractional allowed, rounded to one decimal). */
+function clampMovingThreshold(n: number): number {
+  if (!Number.isFinite(n)) return DEFAULT_MOVING_THRESHOLD_KMH;
+  const clamped = Math.max(0, Math.min(MOVING_THRESHOLD_MAX_KMH, n));
+  return Math.round(clamped * 10) / 10;
+}
+
 /**
  * One persisted, user-tunable setting: its default and a `clamp` that sanitizes an
  * untrusted loaded value back into range. Declaring settings here (rather than as a
@@ -126,6 +138,11 @@ const SETTINGS_SPEC = {
   beelineUploadConcurrency: {
     default: DEFAULT_BEELINE_CONCURRENCY,
     clamp: (v: unknown) => clampConcurrency(Number(v)),
+  },
+  /** Smoothed speed (km/h) below which a hop counts as stopped (excluded from moving avg). */
+  movingThresholdKmh: {
+    default: DEFAULT_MOVING_THRESHOLD_KMH,
+    clamp: (v: unknown) => clampMovingThreshold(Number(v)),
   },
 } satisfies Record<string, SettingSpec<unknown>>;
 
@@ -573,6 +590,13 @@ export class Store {
     this.settings.beelineUploadConcurrency = clampConcurrency(n);
     this.save();
     return this.settings.beelineUploadConcurrency;
+  }
+
+  /** Update the moving/stopped speed threshold (km/h) and persist. Returns the clamped value. */
+  setMovingThreshold(n: number): number {
+    this.settings.movingThresholdKmh = clampMovingThreshold(n);
+    this.save();
+    return this.settings.movingThresholdKmh;
   }
 
   /**

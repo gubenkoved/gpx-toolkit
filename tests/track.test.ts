@@ -5,6 +5,7 @@ import {
   encodePolyline,
   extractFullTrack,
   extractTrack,
+  filledTimes,
   fullTrackSpeedsKmh,
   fullTrackSummary,
   gpxToRoughTrack,
@@ -13,6 +14,8 @@ import {
   type LatLon,
   movingAverage,
   simplify,
+  stoppedRanges,
+  stableStoppedRanges,
   trackLengthKm,
 } from "../src/track";
 
@@ -119,6 +122,9 @@ describe("fullTrackSummary", () => {
     expect(s.recordedSec).toBeCloseTo(20, 6);
     expect(s.maxKmh).toBeGreaterThan(0);
     expect(s.avgKmh).toBeGreaterThan(0);
+    // Every hop is moving (~40 km/h), so moving time/speed match the overall figures.
+    expect(s.movingSec).toBeCloseTo(20, 6);
+    expect(s.movingAvgKmh).toBeCloseTo(s.avgKmh as number, 6);
   });
 
   it("leaves elevation/time fields null when the track lacks them", () => {
@@ -135,6 +141,52 @@ describe("fullTrackSummary", () => {
     expect(s.recordedSec).toBeNull();
     expect(s.maxKmh).toBeNull();
     expect(s.avgKmh).toBeNull();
+    expect(s.movingSec).toBeNull();
+    expect(s.movingAvgKmh).toBeNull();
+  });
+});
+
+// A track that rides for a while, then sits parked (same position, clock advancing),
+// to exercise the moving-time / moving-average-speed split.
+function trackWithStop(): string {
+  const pts: string[] = [];
+  let t = 0;
+  const push = (lat: number) => {
+    const iso = new Date(t * 1000).toISOString();
+    pts.push(`<trkpt lat="${lat.toFixed(6)}" lon="5.000000"><time>${iso}</time></trkpt>`);
+    t += 10;
+  };
+  // Moving: 21 points 0.001° apart every 10 s ≈ 40 km/h (200 s of riding).
+  for (let i = 0; i < 21; i++) push(52 + i * 0.001);
+  // Stopped: 25 points at the final position, clock still advancing (240 s parked).
+  for (let i = 0; i < 25; i++) push(52.02);
+  return `<gpx version="1.1"><trk><trkseg>${pts.join("")}</trkseg></trk></gpx>`;
+}
+
+describe("fullTrackSummary moving speed", () => {
+  it("excludes stopped time so the moving average beats the overall average", () => {
+    const ft = extractFullTrack(trackWithStop());
+    const s = fullTrackSummary(ft);
+    expect(s.recordedSec).toBeCloseTo(450, 6);
+    expect(s.movingSec).not.toBeNull();
+    expect(s.movingAvgKmh).not.toBeNull();
+    // Moving time drops the long park, so it's well under the full recording span.
+    expect(s.movingSec as number).toBeLessThan(s.recordedSec as number);
+    // The moving average reflects the ~40 km/h riding, far above the stop-diluted overall.
+    expect(s.movingAvgKmh as number).toBeGreaterThan(30);
+    expect(s.movingAvgKmh as number).toBeGreaterThan(s.avgKmh as number);
+  });
+
+  it("counts a hop as moving relative to the configured threshold", () => {
+    const ft = extractFullTrack(trackWithStop());
+    // A threshold above the riding speed marks the whole track stopped.
+    const strict = fullTrackSummary(ft, 50);
+    expect(strict.movingSec).toBeNull();
+    expect(strict.movingAvgKmh).toBeNull();
+    // A zero threshold keeps every timed hop, so moving == overall.
+    const lax = fullTrackSummary(ft, 0);
+    expect(lax.movingSec).toBeCloseTo(lax.recordedSec as number, 6);
+    expect(lax.movingAvgKmh).toBeCloseTo(lax.avgKmh as number, 6);
   });
 });
 
@@ -143,6 +195,85 @@ describe("movingAverage", () => {
     expect(movingAverage([1, 2, 3, 4, 5], 1)).toEqual([1.5, 2, 3, 4, 4.5]);
     expect(movingAverage([2, null, 4], 1)).toEqual([2, 3, 4]);
     expect(movingAverage([null, null], 1)).toEqual([null, null]);
+  });
+});
+
+describe("stoppedRanges", () => {
+  it("returns contiguous hop runs below the threshold (ignoring the trailing point)", () => {
+    // Hops:        [0]=5  [1]=0.5 [2]=0.2 [3]=8  [4]=0.1 (repeat, ignored)
+    const speeds = [5, 0.5, 0.2, 8, 0.1];
+    // Below 1 km/h: hops 1,2 (contiguous) — hop 4 is the repeated last point, ignored.
+    expect(stoppedRanges(speeds, 1)).toEqual([[1, 2]]);
+  });
+
+  it("treats null (untimed) hops as moving, splitting runs", () => {
+    const speeds = [0.2, null, 0.3, 9];
+    // The null breaks the run, so [0,0] then [2,2] (hop 3 carries the ignored tail).
+    expect(stoppedRanges(speeds, 1)).toEqual([
+      [0, 0],
+      [2, 2],
+    ]);
+  });
+
+  it("finds nothing at a zero threshold (a real standstill never reads negative)", () => {
+    expect(stoppedRanges([0, 0, 0, 5], 0)).toEqual([]);
+  });
+
+  it("closes an open run at the last real hop", () => {
+    // All but the trailing repeat are stopped → one run over hops 0..1.
+    expect(stoppedRanges([0.1, 0.2, 0.2], 1)).toEqual([[0, 1]]);
+  });
+});
+
+describe("stableStoppedRanges", () => {
+  // A FullTrack whose only relevant field here is `times` (seconds → ms); geometry is
+  // filler since stableStoppedRanges weights runs by real hop durations, not distance.
+  const ftAtSeconds = (secs: number[]) => ({
+    points: secs.map((_, i) => [i * 0.001, 0] as LatLon),
+    eles: secs.map(() => null),
+    times: secs.map((s) => s * 1000),
+  });
+
+  it("drops a stop shorter than the minimum duration (flicker)", () => {
+    const speeds = [5, 0, 0, 5, 5]; // raw stop at hops 1–2 (2 s at 1 s/hop)
+    const ft = ftAtSeconds([0, 1, 2, 3, 4]);
+    expect(stableStoppedRanges(ft, 1, speeds, 5, 5)).toEqual([]); // 2 s < 5 s → gone
+    expect(stableStoppedRanges(ft, 1, speeds, 1, 5)).toEqual([[1, 2]]); // kept at 1 s floor
+  });
+
+  it("merges two stops separated by a brief moving blip", () => {
+    const speeds = [5, 0, 0, 5, 5, 0, 0, 5, 5]; // raw stops at hops 1–2 and 5–6
+    const ft = ftAtSeconds([0, 1, 2, 3, 4, 5, 6, 7, 8]);
+    // Moving gap (hops 3–4) is 2 s: < 5 s merges into one stop, ≥ its own length keeps it.
+    expect(stableStoppedRanges(ft, 1, speeds, 1, 5)).toEqual([[1, 6]]);
+    // A tiny merge window leaves them separate.
+    expect(stableStoppedRanges(ft, 1, speeds, 1, 1)).toEqual([
+      [1, 2],
+      [5, 6],
+    ]);
+  });
+
+  it("weights runs by real seconds, not hop count", () => {
+    const speeds = [5, 0, 5]; // one stopped hop (index 1)
+    // That single hop spans 59 s, so it survives a 10 s minimum a hop-count rule would drop.
+    const ft = ftAtSeconds([0, 1, 60]);
+    expect(stableStoppedRanges(ft, 1, speeds, 10, 10)).toEqual([[1, 1]]);
+  });
+
+  it("returns nothing when no hop is below the threshold", () => {
+    const speeds = [9, 9, 9, 9];
+    const ft = ftAtSeconds([0, 1, 2, 3]);
+    expect(stableStoppedRanges(ft, 1, speeds)).toEqual([]);
+  });
+});
+
+describe("filledTimes", () => {
+  it("linearly interpolates internal gaps and holds the ends constant", () => {
+    expect(filledTimes([null, 100, null, 400, null])).toEqual([100, 100, 250, 400, 400]);
+  });
+
+  it("falls back to the index when no timestamps exist", () => {
+    expect(filledTimes([null, null, null])).toEqual([0, 1, 2]);
   });
 });
 
