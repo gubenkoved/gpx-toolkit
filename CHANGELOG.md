@@ -17,6 +17,30 @@ humans and the assistant can read this file as a compressed history of decisions
 
 ---
 
+## Wind vs speed analytics (new Wind tab)
+- **What:** A fourth view, **Wind**, plots how much the wind helps or hurts you. Each ride
+  is split into roughly-straight moving segments (`src/windspeed.ts`); every segment is a
+  point on a Canvas-2D scatter (`src/windchart.ts`) of along-track wind (X: ← headwind /
+  tailwind →) vs average moving speed (Y), sized by distance. A distance-weighted fit
+  reports **still-air speed** (intercept), **km/h per km/h of tailwind** (slope) and
+  **R²**. Controls: a **Flat segments only** toggle and a **Max speed** cap that drops
+  GPS-glitch segments above a plausible speed (a physical filter that, unlike trimming the
+  fast/slow tails, keeps every real headwind/tailwind point so the slope isn't flattened).
+  Uses **only rides with full GPX** (real timestamps — otherwise speed is synthetic);
+  context-aware **Resolve wind** / **Fetch full GPX** buttons appear with a count only when
+  some in-range ride actually needs (and can take) the action. A big library analyses with
+  a live progress bar; the layout stays put while dragging the date slider (gaps show as a
+  calm chart overlay, not a page swap). Controller gains `windSamples()` (cache-only,
+  aligned along-wind + elevation + `realTimes` flag). New tests cover segmentation, the
+  weighted regression, the speed cap and the chart's scale/tick helpers.
+- **Why:** "How much does the wind actually slow me down?" was unanswerable from the
+  per-ride summary, because a ride's average along-wind cancels out on an out-and-back.
+  Single-heading segments keep the headwind and tailwind legs apart so the regression can
+  quantify the effect. Honest speed needs a full timed track (hence the GPX gate), and
+  capping by plausible speed removes only impossible glitches, not the genuine extremes
+  that carry the wind signal. Segments are memoized per ride so the slider and toggles stay
+  instant even at thousands of rides.
+
 ## Moving-average speed & an inactivity-aware ride map
 - **What:** The full-screen ride map now distinguishes riding from idling. The summary strip
   adds a **moving avg** speed (excludes hops below a stop threshold) + a subtle "not moving Xm"

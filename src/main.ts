@@ -41,6 +41,14 @@ import {
 } from "./parsing";
 import { computeStats, type PeriodRecord } from "./stats";
 import "leaflet.heat";
+import { drawWindSpeedChart } from "./windchart";
+import {
+  linearRegression,
+  segmentRide,
+  type SegmentOpts,
+  speedCapIndices,
+  type WindSeg,
+} from "./windspeed";
 import { DEMO_BEELINE_EMAIL, demoBeelineDeps } from "./beeline-demo";
 import { BeelineRideSource, type BeelineSourceDeps } from "./beeline-source";
 import { GpxRideSource } from "./gpx-source";
@@ -715,12 +723,12 @@ function escHtml(s: string): string {
 // Top-level view ("Explore" = the rides list/stats; "Map" = all-rides heatmap).
 // Remembered across reloads; defaults to Explore on first run.
 // --------------------------------------------------------------------------- //
-type ViewName = "explore" | "map" | "stats";
+type ViewName = "explore" | "map" | "stats" | "analytics";
 const VIEW_KEY = "beeline_uploader.view";
 const readView = (): ViewName => {
   try {
     const v = localStorage.getItem(VIEW_KEY);
-    return v === "map" || v === "stats" ? v : "explore";
+    return v === "map" || v === "stats" || v === "analytics" ? v : "explore";
   } catch {
     return "explore";
   }
@@ -2102,7 +2110,7 @@ const sameKeys = (a: string[], b: string[]): boolean =>
 //   *Range*  = the user's current selection within those bounds.
 // Rides with an unparseable date are never hidden (see filterRidesByRange).
 // --------------------------------------------------------------------------- //
-type RangeView = "map" | "stats";
+type RangeView = "map" | "stats" | "analytics";
 const DAY_MS = 86_400_000;
 // Selection is stored as day-start timestamps (local 00:00) for both edges; the
 // slider works in whole-day INDICES (0…N) so stepping is exact and DST-safe, and
@@ -2111,6 +2119,8 @@ let mapRange: DateRange | null = null;
 let mapRangeBounds: DateRange | null = null;
 let statsRange: DateRange | null = null;
 let statsRangeBounds: DateRange | null = null;
+let analyticsRange: DateRange | null = null;
+let analyticsRangeBounds: DateRange | null = null;
 
 const startOfDayMs = (ms: number): number => {
   const d = new Date(ms);
@@ -2176,16 +2186,38 @@ function refreshRange(which: RangeView): void {
   if (which === "map") {
     mapRange = bounds ? reconcileRange(mapRange, mapRangeBounds, bounds) : null;
     mapRangeBounds = bounds;
-  } else {
+  } else if (which === "stats") {
     statsRange = bounds ? reconcileRange(statsRange, statsRangeBounds, bounds) : null;
     statsRangeBounds = bounds;
+  } else {
+    analyticsRange = bounds
+      ? reconcileRange(analyticsRange, analyticsRangeBounds, bounds)
+      : null;
+    analyticsRangeBounds = bounds;
   }
 }
 
 const rangeOf = (which: RangeView): DateRange | null =>
-  which === "map" ? mapRange : statsRange;
+  which === "map" ? mapRange : which === "stats" ? statsRange : analyticsRange;
 const boundsOf = (which: RangeView): DateRange | null =>
-  which === "map" ? mapRangeBounds : statsRangeBounds;
+  which === "map" ? mapRangeBounds : which === "stats" ? statsRangeBounds : analyticsRangeBounds;
+/** The DOM id of a view's range-slider host. Ids follow the `${which}Filter`
+ *  convention (mapFilter / statsFilter / analyticsFilter). */
+const filterHostId = (which: RangeView): string => `${which}Filter`;
+
+/** Store a new selection for a view. */
+function assignRange(which: RangeView, next: DateRange): void {
+  if (which === "map") mapRange = next;
+  else if (which === "stats") statsRange = next;
+  else analyticsRange = next;
+}
+
+/** Re-mount a view after its range changed (no re-fit during live drags). */
+function remountRange(which: RangeView, fit: boolean): void {
+  if (which === "map") mountAllRidesMap({ fit });
+  else if (which === "stats") mountStatsView({ fit });
+  else void mountAnalyticsView({ fit });
+}
 
 /** Compact local day label for a slider edge, e.g. "Jun 1, 2026". */
 function fmtDay(ms: number): string {
@@ -2223,7 +2255,7 @@ function updateRangeLabels(which: RangeView): void {
   if (from) from.textContent = fmtDay(sel.minMs);
   if (to) to.textContent = fmtDay(sel.maxMs);
   // Paint the selected span: percentages of the day axis drive the track ::after.
-  const host = document.getElementById(which === "map" ? "mapFilter" : "statsFilter");
+  const host = document.getElementById(filterHostId(which));
   const track = host?.querySelector<HTMLElement>(".rf-track");
   if (track && bounds) {
     const n = dayCount(bounds);
@@ -2241,7 +2273,7 @@ function updateRangeLabels(which: RangeView): void {
  * mid-drag — so dragging a handle just updates values + labels in place.
  */
 function syncRangeControl(which: RangeView): void {
-  const host = document.getElementById(which === "map" ? "mapFilter" : "statsFilter");
+  const host = document.getElementById(filterHostId(which));
   if (!host) return;
   const bounds = boundsOf(which);
   const sel = rangeOf(which);
@@ -2285,11 +2317,9 @@ function onRangeInput(which: RangeView, el: HTMLInputElement): void {
     minMs: addDays(bounds.minMs, loIdx),
     maxMs: addDays(bounds.minMs, hiIdx),
   };
-  if (which === "map") mapRange = next;
-  else statsRange = next;
+  assignRange(which, next);
   updateRangeLabels(which);
-  if (which === "map") mountAllRidesMap({ fit: false });
-  else mountStatsView({ fit: false });
+  remountRange(which, false);
 }
 
 /**
@@ -2327,11 +2357,9 @@ function onWindowDrag(which: RangeView, win: HTMLElement, e: PointerEvent): void
       minMs: addDays(bounds.minMs, newLo),
       maxMs: addDays(bounds.minMs, newLo + span),
     };
-    if (which === "map") mapRange = next;
-    else statsRange = next;
+    assignRange(which, next);
     updateRangeLabels(which);
-    if (which === "map") mountAllRidesMap({ fit: false });
-    else mountStatsView({ fit: false });
+    remountRange(which, false);
     ev.preventDefault();
   };
   const end = (): void => {
@@ -2350,13 +2378,8 @@ function onWindowDrag(which: RangeView, win: HTMLElement, e: PointerEvent): void
 function resetRange(which: RangeView): void {
   const bounds = boundsOf(which);
   if (!bounds) return;
-  if (which === "map") {
-    mapRange = fullRange(bounds);
-    mountAllRidesMap({ fit: true });
-  } else {
-    statsRange = fullRange(bounds);
-    mountStatsView({ fit: true });
-  }
+  assignRange(which, fullRange(bounds));
+  remountRange(which, true);
 }
 
 /**
@@ -2640,9 +2663,13 @@ function mountAllRidesMap(opts: { fit?: boolean } = {}): void {
 function applyView(): void {
   const isMap = activeView === "map";
   const isStats = activeView === "stats";
-  document.getElementById("exploreView")?.classList.toggle("hidden", isMap || isStats);
+  const isAnalytics = activeView === "analytics";
+  document
+    .getElementById("exploreView")
+    ?.classList.toggle("hidden", isMap || isStats || isAnalytics);
   document.getElementById("mapView")?.classList.toggle("hidden", !isMap);
   document.getElementById("statsView")?.classList.toggle("hidden", !isStats);
+  document.getElementById("analyticsView")?.classList.toggle("hidden", !isAnalytics);
   if (!isMap && document.body.classList.contains("map-expanded")) setMapExpanded(false);
   if (!isStats && document.body.classList.contains("heat-expanded")) setHeatExpanded(false);
   if (!isMap && mapAreaSelect.isArmed()) mapAreaSelect.setMode(false);
@@ -2953,6 +2980,296 @@ function mountStatsView(opts: { fit?: boolean } = {}): void {
   syncRangeControl("stats");
   syncHeatControl();
   mountFreqHeatmap(visible, hidden, opts.fit);
+}
+
+// --------------------------------------------------------------------------- //
+// Analytics view — wind vs speed. Each resolved ride is chopped into roughly-
+// straight, moving segments (one heading, no stops); each segment is one scatter
+// point of along-track wind (X: ← headwind / tailwind →) against average speed
+// (Y). A distance-weighted regression turns the cloud into three numbers: your
+// still-air speed (intercept), how much a km/h of tailwind buys you (slope), and
+// how much of your speed the wind explains (R²).
+//
+// Segments are memoized per ride (filter-free) so the date slider and the
+// Flat-only toggle re-filter synchronously — no IndexedDB re-reads on every drag
+// frame, which matters at a power user's thousands of rides. The cache key folds in
+// the ride's wind-resolved timestamp AND whether its full GPX is cached, so either
+// re-resolving the wind or fetching the full track transparently invalidates the
+// memoized segments.
+//
+// Speed is only trustworthy from a ride's FULL recorded GPX (real per-point
+// timestamps). Rides without it fall back to evenly-spaced synthetic times, which
+// would make per-segment speed a fiction — so the chart uses ONLY full-GPX rides and
+// tells the user how many are waiting on a download.
+// --------------------------------------------------------------------------- //
+/** A ride's memoized segments plus why it may contribute none. */
+type RideSegEntry = {
+  segs: WindSeg[];
+  /** ok = full timed GPX, segments usable; needgpx = resolved but no full timed
+   *  track (speed would be synthetic); skip = no usable wind (noData / unaligned). */
+  status: "ok" | "needgpx" | "skip";
+};
+const segCacheByUid = new Map<string, RideSegEntry>();
+let analyticsSeq = 0;
+/** |net grade| above this (percent) means a segment isn't "flat". */
+const FLAT_GRADE_PCT = 1.5;
+
+/** Memo key for a ride's segments: uid + wind version + full-GPX presence, so a
+ *  re-resolve or a full-GPX fetch busts it. */
+function segKey(r: RideView): string {
+  return `${r.key}::${controller.weatherFetchedAt(r.key)}::${r.gpx_cached ? "g" : "_"}`;
+}
+
+/** The non-deleted rides within the current analytics date selection. */
+function analyticsVisibleRides(): RideView[] {
+  const visible = analyticsRange ? ridesInRange(STATE.rides, analyticsRange) : STATE.rides;
+  return visible.filter((r) => !r.deleted);
+}
+
+/** Current max-speed cap (km/h) from the slider (20..80), defaulting to 50. Segments
+ *  whose average speed exceeds this are dropped as GPS glitches. */
+function analyticsMaxSpeed(): number {
+  const el = document.getElementById("maxSpeed") as HTMLInputElement | null;
+  const v = el ? parseInt(el.value, 10) : 50;
+  return Number.isFinite(v) ? Math.max(20, Math.min(80, v)) : 50;
+}
+
+/** Render the analytics empty/blocked state, adapting message + CTA to whether the
+ *  blocker is unresolved wind or missing full GPX. */
+function renderAnalyticsEmpty(kind: "wind" | "gpx", n: number): void {
+  const el = document.getElementById("analyticsEmpty");
+  if (!el) return;
+  if (kind === "wind") {
+    el.innerHTML =
+      "See how much the wind speeds you up or slows you down. This needs rides with " +
+      "<b>resolved wind</b> — once some are resolved, each roughly-straight stretch of a " +
+      "ride becomes a point: headwind on the left, tailwind on the right, your speed up the " +
+      'side. <button type="button" class="linkbtn" id="analyticsResolveEmpty">' +
+      "Resolve wind for these rides</button>";
+  } else {
+    el.innerHTML =
+      `Wind is resolved, but charting speed needs each ride's <b>full GPX</b> (real ` +
+      `timestamps). Without it, a segment's speed would be guessed from evenly-spaced ` +
+      `points rather than your real pace, so ${n === 1 ? "this ride is" : `these ${n} rides are`} ` +
+      `left out. <button type="button" class="linkbtn" id="analyticsFetchGpxEmpty">` +
+      `Fetch full GPX for these rides</button>`;
+  }
+}
+
+/** Show each analytics action button only when it can act on rides in range, with
+ *  the affected count in its label. Resolve wind appears only while some in-range
+ *  ride is unresolved AND resolvable (a ride with no route track can't have wind
+ *  sampled, so counting it would promise an action that does nothing). Fetch full
+ *  GPX only while some Beeline ride lacks its full track (gpx-source rides already
+ *  carry theirs, so they never count). */
+function syncAnalyticsActions(inRange: RideView[]): void {
+  const unresolved = inRange.filter((r) => !r.wind_resolved && !!r.track).length;
+  const needGpx = inRange.filter((r) => r.source !== "gpx" && !r.gpx_cached).length;
+  const resolveBtn = document.getElementById("analyticsResolve");
+  if (resolveBtn) {
+    resolveBtn.style.display = unresolved === 0 ? "none" : "";
+    resolveBtn.textContent =
+      unresolved === 1 ? "Resolve wind for 1 ride" : `Resolve wind for ${unresolved} rides`;
+  }
+  const gpxBtn = document.getElementById("analyticsFetchGpx");
+  if (gpxBtn) {
+    gpxBtn.style.display = needGpx === 0 ? "none" : "";
+    gpxBtn.textContent =
+      needGpx === 1 ? "Fetch full GPX for 1 ride" : `Fetch full GPX for ${needGpx} rides`;
+  }
+}
+
+/** Show (or clear) a calm centred message over the chart area without changing the
+ *  page layout — used while analysing and when a date range has nothing to plot, so
+ *  dragging the slider never collapses the cards/controls/slider out of view. Pass a
+ *  0..1 `progress` to add a determinate bar (for the analysing sweep). */
+function showChartMessage(text: string | null, progress?: number): void {
+  const el = document.getElementById("analyticsChartMsg");
+  if (!el) return;
+  if (text) {
+    const bar =
+      progress === undefined
+        ? ""
+        : `<div class="chart-msg-bar"><i style="width:${Math.round(Math.max(0, Math.min(1, progress)) * 100)}%"></i></div>`;
+    el.innerHTML = `<span>${text}${bar}</span>`;
+    el.style.display = "flex";
+  } else {
+    el.style.display = "none";
+    el.textContent = "";
+  }
+}
+
+/** Yield to the browser so a just-set overlay actually paints before more blocking
+ *  work. Two rAFs guarantees a committed frame across engines. */
+function nextPaint(): Promise<void> {
+  return new Promise((resolve) =>
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+  );
+}
+
+/** Blank the scatter canvas (used when a range has no points to draw). */
+function clearChart(): void {
+  const canvas = document.getElementById("windSpeedChart") as HTMLCanvasElement | null;
+  const ctx = canvas?.getContext("2d");
+  if (canvas && ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
+}
+
+async function mountAnalyticsView(_opts: { fit?: boolean } = {}): Promise<void> {
+  refreshRange("analytics");
+  const inRange = analyticsVisibleRides();
+  const resolved = inRange.filter((r) => r.wind_resolved);
+
+  const empty = document.getElementById("analyticsEmpty");
+  const body = document.getElementById("analyticsBody");
+  syncRangeControl("analytics");
+
+  // Cold first run — nothing resolved anywhere yet → the full onboarding guide. No
+  // slider interaction happens in this state, so a full swap is fine here.
+  const anyResolvedEver = STATE.rides.some((r) => !r.deleted && r.wind_resolved);
+  if (!anyResolvedEver) {
+    renderAnalyticsEmpty("wind", 0);
+    empty?.classList.remove("hidden");
+    body?.classList.add("hidden");
+    return;
+  }
+
+  // Working mode: keep the whole body (cards, controls, date slider, chart) mounted so
+  // dragging the slider never collapses the layout. Every "nothing to plot here" state
+  // is shown as a calm overlay on the chart instead of swapping the page out.
+  empty?.classList.add("hidden");
+  body?.classList.remove("hidden");
+  syncAnalyticsActions(inRange);
+
+  const opts: SegmentOpts = { stopKmh: STATE.settings.movingThresholdKmh };
+  const my = ++analyticsSeq;
+  // The per-ride cache reads can take a moment on a big library, so analyse with a
+  // live progress overlay. Only rides not already memoized cost anything, so count
+  // and report against THOSE — re-renders after the first sweep are instant.
+  const pending = resolved.filter((r) => !segCacheByUid.has(segKey(r)));
+  if (pending.length > 0) {
+    showChartMessage(`Analysing rides… 0 / ${pending.length}`, 0);
+    await nextPaint(); // let the overlay paint before we start blocking
+    if (my !== analyticsSeq) return;
+  }
+  // Compute (and memoize) segments for each pending ride. Bail if a newer mount
+  // (e.g. a date-slider drag) superseded this one while we awaited. One ride that
+  // fails to load (corrupt cache, decode error) is skipped, never fatal — otherwise
+  // a single bad ride in a large library would blank the whole chart.
+  let done = 0;
+  for (const r of pending) {
+    const key = segKey(r);
+    let entry: RideSegEntry;
+    try {
+      const s = await controller.windSamples(r.key);
+      if (my !== analyticsSeq) return;
+      if (!s) entry = { segs: [], status: "skip" };
+      else if (!s.realTimes) entry = { segs: [], status: "needgpx" };
+      else
+        entry = {
+          segs: segmentRide(s.points, s.times, s.eles, s.along, opts, r.key),
+          status: "ok",
+        };
+    } catch (err) {
+      console.error(`analytics: skipping ${r.key} —`, err);
+      entry = { segs: [], status: "skip" };
+    }
+    if (my !== analyticsSeq) return;
+    segCacheByUid.set(key, entry);
+    done++;
+    // Refresh the progress overlay periodically (every ~2%, capped to ~50 updates)
+    // and yield so it repaints without slowing the sweep to a crawl.
+    if (done === pending.length || done % Math.max(1, Math.ceil(pending.length / 50)) === 0) {
+      showChartMessage(`Analysing rides… ${done} / ${pending.length}`, done / pending.length);
+      await nextPaint();
+      if (my !== analyticsSeq) return;
+    }
+  }
+  if (my !== analyticsSeq) return;
+
+  const flatOnly =
+    (document.getElementById("flatOnly") as HTMLInputElement | null)?.checked ?? false;
+  let usableRides = 0;
+  let needGpxRides = 0;
+  let skippedRides = 0;
+  const segs: WindSeg[] = [];
+  for (const r of resolved) {
+    const entry = segCacheByUid.get(segKey(r));
+    if (!entry) continue;
+    if (entry.status === "needgpx") needGpxRides++;
+    if (entry.status === "skip") skippedRides++;
+    if (entry.status !== "ok") continue; // skip / needgpx contribute no segments
+    usableRides++;
+    for (const seg of entry.segs) {
+      if (flatOnly) {
+        if (!Number.isFinite(seg.netGradePct)) continue; // unknown grade → exclude
+        if (Math.abs(seg.netGradePct) > FLAT_GRADE_PCT) continue; // hilly → exclude
+      }
+      segs.push(seg);
+    }
+  }
+
+  // Drop physically-impossible segments: a bike can't average 100+ km/h, so anything
+  // above the Max-speed cap is a GPS glitch. Unlike trimming the fast/slow tails by
+  // speed, this leaves every believable headwind AND tailwind point in place, so the
+  // wind slope isn't flattened — only bad data is removed. Dropped points are hidden
+  // so the axes auto-scale to the real cloud.
+  const maxSpeed = analyticsMaxSpeed();
+  const out = document.getElementById("maxSpeedOut") as HTMLOutputElement | null;
+  if (out) out.value = `${maxSpeed} km/h`;
+  const keep = speedCapIndices(
+    segs.map((s) => s.avgSpeedKmh),
+    maxSpeed,
+  );
+  const shown = keep.map((i) => segs[i]);
+  const trimmed = segs.length - shown.length;
+
+  const xs = shown.map((s) => s.avgAlongKmh);
+  const ys = shown.map((s) => s.avgSpeedKmh);
+  const w = shown.map((s) => s.distanceKm);
+  const reg = linearRegression(xs, ys, w);
+
+  const cards = document.getElementById("analyticsCards");
+  if (cards) {
+    const has = shown.length > 0;
+    cards.innerHTML = [
+      statCard(has ? `${reg.intercept.toFixed(1)} km/h` : "—", "still-air speed"),
+      statCard(
+        has ? `${reg.slope >= 0 ? "+" : ""}${reg.slope.toFixed(2)}` : "—",
+        "km/h per km/h of tailwind",
+      ),
+      statCard(has ? reg.r2.toFixed(2) : "—", "R² (wind explains)"),
+      statCard(String(shown.length), shown.length === 1 ? "segment" : "segments"),
+    ].join("");
+  }
+  const note = document.getElementById("analyticsNote");
+  if (note) {
+    // Only count rides that could actually be resolved (a trackless ride has no
+    // route to sample wind along, so it's never "not yet resolved" — it's
+    // unresolvable, and listing it would contradict the hidden Resolve button).
+    const unresolved = inRange.filter((r) => !r.wind_resolved && !!r.track).length;
+    note.textContent =
+      ` ${usableRides} ride${usableRides === 1 ? "" : "s"} analysed` +
+      (needGpxRides ? ` · ${needGpxRides} need full GPX` : "") +
+      (unresolved ? ` · ${unresolved} not yet wind-resolved` : "") +
+      (skippedRides ? ` · ${skippedRides} skipped` : "") +
+      (flatOnly ? " · flat segments only" : "") +
+      (trimmed ? ` · ${trimmed} over ${maxSpeed} km/h dropped` : "");
+  }
+  const canvas = document.getElementById("windSpeedChart") as HTMLCanvasElement | null;
+  if (shown.length === 0) {
+    // Stay in the working layout; explain the gap with a calm overlay instead.
+    clearChart();
+    showChartMessage(
+      resolved.length === 0
+        ? "No wind-resolved rides in this date range."
+        : needGpxRides > 0
+          ? `${needGpxRides} ride${needGpxRides === 1 ? "" : "s"} in this range need full GPX for speed.`
+          : "No segments match the current filters.",
+    );
+  } else {
+    showChartMessage(null);
+    if (canvas) drawWindSpeedChart(canvas, shown, reg);
+  }
 }
 
 /** Push the persisted heatmap thickness into its slider/output (skip while dragging). */
@@ -3859,6 +4176,7 @@ function render(): void {
   renderJob();
   if (activeView === "map") mountAllRidesMap();
   else if (activeView === "stats") mountStatsView();
+  else if (activeView === "analytics") void mountAnalyticsView();
   else mountMaps();
   // The consolidated actions menu lives in static markup (not rebuilt here), so
   // sync its open state from the shared `openMenu` flag.
@@ -4531,6 +4849,19 @@ document.addEventListener("click", (e) => {
     return;
   }
 
+  // Analytics view: resolve historical wind for every ride in the current date
+  // range, so the wind-vs-speed scatter has points to plot.
+  if (t.id === "analyticsResolve" || t.id === "analyticsResolveEmpty") {
+    const keys = analyticsVisibleRides().map((r) => r.key);
+    return resolveWindFor(keys);
+  }
+  // Analytics view: fetch the full recorded GPX (real timestamps) for the rides in
+  // range — speed is only trustworthy from a full timed track.
+  if (t.id === "analyticsFetchGpx" || t.id === "analyticsFetchGpxEmpty") {
+    const keys = analyticsVisibleRides().map((r) => r.key);
+    return fetchFullGpx(keys);
+  }
+
   // Full-screen single-ride route map: open from a mini-map's expand button, close
   // from its bar button or by clicking the backdrop outside the canvas.
   if (t.dataset?.expand) {
@@ -4949,6 +5280,18 @@ document.getElementById("beelineForm")?.addEventListener("submit", (e) => {
 // Tap the toast to dismiss it immediately (handy for the longer-lived error toast).
 document.getElementById("toast")?.addEventListener("click", dismissToast);
 
+// Keep the wind-vs-speed canvas crisp on resize. Reuses the per-ride segment memo,
+// so a redraw is cheap (no IndexedDB reads).
+let analyticsResizeRaf = 0;
+window.addEventListener("resize", () => {
+  if (activeView !== "analytics") return;
+  if (analyticsResizeRaf) cancelAnimationFrame(analyticsResizeRaf);
+  analyticsResizeRaf = requestAnimationFrame(() => {
+    analyticsResizeRaf = 0;
+    void mountAnalyticsView({ fit: false });
+  });
+});
+
 // Styled confirm dialog: OK / Cancel, and a backdrop click counts as cancel.
 document.getElementById("confirmOk")?.addEventListener("click", () => closeConfirm(true));
 document.getElementById("confirmCancel")?.addEventListener("click", () => closeConfirm(false));
@@ -4986,13 +5329,17 @@ document.addEventListener("change", (e) => {
     importGpxFiles([...cb.files]);
     cb.value = "";
   }
+  if (cb.id === "flatOnly") {
+    void mountAnalyticsView();
+  }
 });
 
 // Drag the selected range window (between the two thumbs) to slide it as a whole.
 document.addEventListener("pointerdown", (e) => {
   const win = (e.target as HTMLElement).closest?.<HTMLElement>(".rf-window");
   const which = win?.dataset.rangewin;
-  if (win && (which === "map" || which === "stats")) onWindowDrag(which, win, e);
+  if (win && (which === "map" || which === "stats" || which === "analytics"))
+    onWindowDrag(which, win, e);
 });
 
 // Drag-and-drop GPX import: dropping .gpx files (or .zip bundles of them) anywhere
@@ -5041,7 +5388,7 @@ document.addEventListener("input", (e) => {
     applyState();
     return;
   }
-  if (el.dataset.range === "map" || el.dataset.range === "stats") {
+  if (el.dataset.range === "map" || el.dataset.range === "stats" || el.dataset.range === "analytics") {
     onRangeInput(el.dataset.range as RangeView, el);
     return;
   }
@@ -5049,6 +5396,11 @@ document.addEventListener("input", (e) => {
     const v = parseInt(el.value, 10) || 12;
     ($("#heatRadiusOut") as HTMLOutputElement).value = String(v);
     run(() => controller.setHeatRadius(v));
+    return;
+  }
+  if (el.id === "maxSpeed") {
+    ($("#maxSpeedOut") as HTMLOutputElement).value = `${parseInt(el.value, 10) || 0} km/h`;
+    void mountAnalyticsView();
     return;
   }
   if (el.id === "setMovingThresh") {

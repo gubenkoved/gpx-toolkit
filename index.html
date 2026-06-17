@@ -73,6 +73,7 @@
     <button class="vtab active" data-view="explore" role="tab">Explore</button>
     <button class="vtab" data-view="map" role="tab">Map</button>
     <button class="vtab" data-view="stats" role="tab">Stats</button>
+    <button class="vtab" data-view="analytics" role="tab">Wind</button>
   </div>
   <div id="exploreView">
   <div class="stats-panel hidden" id="statsPanel">
@@ -186,6 +187,40 @@
             <div id="statsFilter" class="range-filter basemap-filter hidden" title="Drag to limit the rides counted by date"></div>
           </div>
           <aside class="map-side heat-side" id="heatMatched"></aside>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <div id="analyticsView" class="hidden">
+    <div class="stats-empty" id="analyticsEmpty">
+      See how much the wind speeds you up or slows you down. This needs rides with
+      <b>resolved wind</b> — once some are resolved, each roughly-straight stretch of a ride
+      becomes a point: headwind on the left, tailwind on the right, your speed up the side.
+      <button type="button" class="linkbtn" id="analyticsResolveEmpty">Resolve wind for these rides</button>
+    </div>
+    <div class="stats-body hidden" id="analyticsBody">
+      <section class="stats-section">
+        <h2 class="stats-h">Wind vs speed<span class="stats-sub" id="analyticsNote"></span></h2>
+        <div class="stats-cards" id="analyticsCards"></div>
+      </section>
+      <section class="stats-section">
+        <div class="chart-controls">
+          <label class="trim" title="Drop segments that climb or descend, so hills don't muddy the wind signal">
+            <input type="checkbox" id="flatOnly" /> Flat segments only
+          </label>
+          <label class="trim" title="Drop segments whose average speed is above this — a bike can't really average that fast, so they're GPS glitches">
+            Max speed
+            <input type="range" id="maxSpeed" min="20" max="80" step="1" value="50" />
+            <output id="maxSpeedOut">50 km/h</output>
+          </label>
+          <button class="ghost small" id="analyticsResolve" style="display:none" title="Resolve historical wind for every ride in the current date range that doesn't have it yet">Resolve wind for rides in range</button>
+          <button class="ghost small" id="analyticsFetchGpx" style="display:none" title="Download the full recorded GPX (real timestamps — needed for accurate speed) for the Beeline rides in range that lack it">Fetch full GPX for rides in range</button>
+        </div>
+        <div class="chart-wrap">
+          <canvas id="windSpeedChart"></canvas>
+          <div id="analyticsChartMsg" class="chart-msg" style="display:none"></div>
+          <div id="analyticsFilter" class="range-filter basemap-filter hidden" title="Drag to limit the rides analysed by date"></div>
         </div>
       </section>
     </div>

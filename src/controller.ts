@@ -376,6 +376,62 @@ export class Controller {
     return ft;
   }
 
+  /**
+   * Per-point samples aligned for wind-vs-speed analytics, or null when the ride's
+   * wind isn't resolved (or its track and wind no longer line up). Cache-only —
+   * never networks: it reuses this session's per-point wind, recomputing it from the
+   * wind cache when needed. `along[i]` is PointWind.alongKmh (+ tailwind, − headwind,
+   * already projected onto the heading); `eles[i]` is null when the wind was computed
+   * on the rough display polyline (no elevation) rather than the full recorded track.
+   * `realTimes` is true only when the FULL recorded track (genuine per-point
+   * timestamps) backed the samples — false when times were synthesized from the
+   * ride's start + elapsed duration, which makes per-segment speed unreliable.
+   */
+  async windSamples(
+    key: string,
+  ): Promise<{
+    points: LatLon[];
+    times: number[];
+    eles: (number | null)[];
+    along: (number | null)[];
+    realTimes: boolean;
+  } | null> {
+    const uid = this.normalizeUid(key);
+    const rec = this.store.rides.get(uid);
+    if (!rec?.weather_fetched_at) return null; // never resolved
+    if (!this.rideWinds.has(uid)) await this.recomputeCachedWind(uid, rec); // cache-only
+    const winds = this.rideWinds.get(uid);
+    if (!winds || winds.length === 0) return null; // noData, or cache was flushed
+    const pt = await this.ridePointsAndTimes(uid, rec);
+    if (!pt || pt.points.length < 2) return null;
+    // The wind was computed on a specific point set; if a different track has since
+    // entered memory the indices wouldn't line up — drop the ride rather than risk
+    // pairing a point with the wrong wind.
+    if (winds.length !== pt.points.length) return null;
+    const ft = this.getFullTrack(uid) ?? (await this.loadCachedFullTrack(uid));
+    // The full recorded track backs the samples only when it lines up point-for-point
+    // with what wind was computed on; then its real timestamps + elevation are valid.
+    const usedFull = !!ft && ft.points.length === pt.points.length;
+    const eles = usedFull ? ft!.eles : pt.points.map(() => null);
+    const realTimes = usedFull && hasTimes(ft!);
+    const along = winds.map((w) => (w ? w.alongKmh : null));
+    return { points: pt.points, times: pt.times, eles, along, realTimes };
+  }
+
+  /** How many of the given rides have their wind resolved (cheap record-flag read). */
+  resolvedWindCount(keys: string[]): number {
+    let n = 0;
+    for (const k of keys) if (this.hasResolvedWind(k)) n++;
+    return n;
+  }
+
+  /** When a ride's wind was last resolved (ISO-ish local string), or "" if never.
+   *  A cheap plain-field read — useful as a cache-busting version token, since it
+   *  changes whenever the ride is re-resolved. */
+  weatherFetchedAt(key: string): string {
+    return this.store.rides.get(this.normalizeUid(key))?.weather_fetched_at ?? "";
+  }
+
   // -- historical wind ---------------------------------------------------
 
   /** The persisted wind summary for a ride (provenance + averages), or null. */

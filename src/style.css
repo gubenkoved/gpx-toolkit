@@ -2215,7 +2215,8 @@ body.ridemap-open {
 }
 #mapView.hidden,
 #exploreView.hidden,
-#statsView.hidden {
+#statsView.hidden,
+#analyticsView.hidden {
   display: none;
 }
 
@@ -2229,7 +2230,8 @@ body.ridemap-open {
    full-screen map's `position: fixed` .map-wrap and break Expand. */
 @media (min-width: 1000px) {
   #mapView:not(.hidden),
-  #statsView:not(.hidden) {
+  #statsView:not(.hidden),
+  #analyticsView:not(.hidden) {
     width: min(96vw, 1200px);
     margin-left: calc(50% - min(48vw, 600px));
   }
@@ -2389,6 +2391,91 @@ body.ridemap-open {
 #freqHeatMap.selecting .leaflet-interactive {
   cursor: crosshair;
   touch-action: none;
+}
+
+/* -- analytics view (wind-vs-speed scatter) ------------------------------- */
+.chart-controls {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin: 0 0 10px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.chart-controls .trim {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+.chart-controls .trim input[type="checkbox"] {
+  accent-color: var(--accent);
+}
+.chart-controls input[type="range"] {
+  width: 110px;
+  accent-color: var(--accent);
+}
+.chart-controls output {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text);
+  min-width: 6ch;
+  text-align: right;
+}
+/* Mirrors `.freq-main`: a flex column so the canvas fills the space and the date
+   filter sits in flow beneath it rather than overlaying it. */
+.chart-wrap {
+  position: relative;
+  height: calc(100vh - 430px);
+  min-height: 360px;
+  display: flex;
+  flex-direction: column;
+}
+#windSpeedChart {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  display: block;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--bg);
+}
+/* Calm status overlay centred over the scatter (analysing / nothing in range). It
+   never resizes the layout — pointer-events stay off so the date slider beneath it
+   keeps dragging. */
+.chart-msg {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  pointer-events: none;
+}
+.chart-msg span {
+  background: color-mix(in srgb, var(--bg) 82%, transparent);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 10px 16px;
+  color: var(--muted);
+  font-size: 13px;
+  text-align: center;
+  max-width: 80%;
+}
+.chart-msg-bar {
+  margin-top: 8px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--line);
+  overflow: hidden;
+}
+.chart-msg-bar i {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  border-radius: 2px;
+  transition: width 0.12s linear;
 }
 
 /* -- all-rides heatmap (Map view) ----------------------------------------- */
