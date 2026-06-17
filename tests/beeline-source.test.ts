@@ -571,6 +571,32 @@ describe("Controller + BeelineRideSource (no network)", () => {
     expect(after.deleted).toBe(false);
   });
 
+  it("keeps a ride's destination suffix after a GPX download (persistDetail bug)", async () => {
+    const api = new FakeBeelineApi(structuredClone(FIXTURE));
+    const c = makeController(api);
+    const files: { downloadName: string; bytes: Uint8Array; mime?: string }[] = [];
+    c.onGpx((f) => files.push(f));
+    await c.connect();
+    c.scan("all", null);
+    await vi.waitFor(() => expect(c.state().jobs.busy).toBe(false), { timeout: 5000 });
+
+    // The uploaded fixture navigated to a named place, so its title carries a
+    // reverse-geocoded destination suffix beyond the base name.
+    const key = beelineRideKey(FIXTURE[UPLOADED].start as number);
+    const before = c.store.rides.get(key)!;
+    expect(before.title).toBe(`${before.title_base}, Old Harbour Cafe`);
+    expect(before.title.length).toBeGreaterThan(before.title_base.length);
+
+    // Downloading the GPX reads each ride's detail and persists it. The detail's
+    // base title must NOT clobber the stored "base, place" title.
+    c.downloadGpx([key]);
+    await vi.waitFor(() => expect(c.state().jobs.busy).toBe(false), { timeout: 5000 });
+
+    const updated = c.store.rides.get(key)!;
+    expect(updated.title).toBe(before.title); // destination suffix preserved
+    expect(updated.title_base).toBe(before.title_base);
+  });
+
   it("renames even when cold (no prior scan this session) by refreshing first", async () => {
     const api = new FakeBeelineApi(structuredClone(FIXTURE));
     const c = makeController(api);

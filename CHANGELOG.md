@@ -17,6 +17,15 @@ humans and the assistant can read this file as a compressed history of decisions
 
 ---
 
+## Keep a ride's destination after a GPX download / upload
+- **What:** `Controller.persistDetail` now writes a freshly read ride detail's base
+  name to `title_base` instead of the display `title`.
+- **Why:** the detail's `title` is the base name only (no place suffix), but it was
+  written straight to `title`, where `Store.upsert` overwrote the stored
+  "base, place" title — silently dropping the reverse-geocoded destination suffix
+  after any download-gpx/upload, until a full re-sync rebuilt it. Writing it to
+  `title_base` leaves the richer `title` (and its derived location) intact.
+
 ## Auto-renew the Beeline session instead of failing on token expiry
 - **What:** The Beeline `idToken` (~1h TTL) is now renewed silently from the Firebase
   refresh token, which `signIn` now captures into `BeelineSession` (memory-only — never

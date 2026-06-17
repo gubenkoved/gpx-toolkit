@@ -1109,11 +1109,16 @@ export class Controller {
    * overwrites a metric when the new figure is known — so a Check fills in the
    * fuller stats without clobbering anything an earlier pass already captured.
    * `kind` is the source the detail came from, used to build the cross-source uid.
+   *
+   * The detail's `title` is the BASE name (no place suffix), so it is written to
+   * `title_base` — NOT the display `title`. Writing it to `title` would overwrite
+   * the stored "base, place" title and silently drop the ride's destination suffix
+   * until a full re-sync rebuilt it (the bug this guards against).
    */
   private persistDetail(d: RideDetail, kind: SourceKind): void {
     this.store.upsert(rideUid(kind, d.key), {
       ...this.deviceFieldsFor(kind),
-      title: d.title,
+      title_base: d.title,
       strava_status: d.stravaStatus,
       ...d.metrics,
     });
