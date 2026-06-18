@@ -17,6 +17,16 @@ humans and the assistant can read this file as a compressed history of decisions
 
 ---
 
+## Refactor: shared `.map-banner` (timeline + wind-rose)
+- **What:** `.cl-banner` (Wind-rose) was a **byte-for-byte copy** of `.tl-banner`
+  (Timeline) — the centred glass status pill at the top of each map. Merged both into
+  one `.map-banner` class; both `#tlBanner`/`#clBanner` now carry it and the duplicate
+  rule is gone.
+- **Why:** first retrofit from the wind-rose review — the feature copy-pasted the banner
+  because no shared class existed. Now there is one, so the two can never drift apart.
+
+---
+
 ## Refactor: elevation + track tokens (design-language tier 1)
 - **What:** promoted the remaining repeated literals to `:root` tokens and swapped every
   call site — a drop-shadow scale (`--shadow-thumb`/`-float`/`-bar`/`-pop`/`-menu`,

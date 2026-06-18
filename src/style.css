@@ -2598,7 +2598,9 @@ body.ridemap-open {
 /* A small top banner: the day label + scrub clock + context in day mode. Centred
    horizontally so it clears Leaflet's zoom control (top-left) and the floating
    expand/select buttons (top-right). */
-.tl-banner {
+/* Centred map-overlay status banner shared by the Timeline + Wind-rose maps:
+   an absolute glass pill at the top-centre of the map. */
+.map-banner {
   position: absolute;
   top: 10px;
   left: 50%;
@@ -2618,12 +2620,12 @@ body.ridemap-open {
   box-shadow: var(--shadow-float);
   pointer-events: none;
 }
-.tl-banner.hidden {
+.map-banner.hidden {
   display: none;
 }
 
 /* Map hover tooltips (visit stops / approximate routes in day replay). Override
-   Leaflet's stock white pill with the same dark, blurred chrome as .tl-banner so the
+   Leaflet's stock white pill with the same dark, blurred chrome as .map-banner so the
    labels read as part of the app, not the map library. A matching coloured arrow
    tip points back at the marker. */
 .leaflet-tooltip.tl-tip {
@@ -3497,30 +3499,6 @@ body.tl-expanded {
 /* Keep the crosshair over the pannable layers so "click to pick a point" reads. */
 #climateMap .leaflet-grab {
   cursor: crosshair;
-}
-
-.cl-banner {
-  position: absolute;
-  top: 10px;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 500;
-  max-width: calc(100% - 110px);
-  padding: 6px 11px;
-  background: var(--glass);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  color: var(--text);
-  font-size: 12.5px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  backdrop-filter: blur(6px);
-  box-shadow: var(--shadow-float);
-  pointer-events: none;
-}
-.cl-banner.hidden {
-  display: none;
 }
 
 /* In-flow control bar below the map: year + hour sliders, then the month chips. */
