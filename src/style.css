@@ -2432,6 +2432,7 @@ body.ridemap-open {
 #exploreView.hidden,
 #statsView.hidden,
 #analyticsView.hidden,
+#climateView.hidden,
 #timelineView.hidden {
   display: none;
 }
@@ -5064,6 +5065,19 @@ body.job-active .toast {
   body.tl-expanded .tl-wrap {
     grid-template-columns: 1fr;
     grid-template-rows: 1fr minmax(0, 40svh);
+  }
+  /* -- Wind rose: stack the analysis panel under the map, like the Map view.
+        The panel is tall (rose + 12 mini-roses + heatmap), so let it grow and the
+        page scroll, rather than cramming it into a fixed side column. */
+  .cl-wrap {
+    grid-template-columns: 1fr;
+    grid-template-rows: 52vh minmax(0, auto);
+    height: auto;
+    min-height: 0;
+  }
+  body.climate-expanded .cl-wrap {
+    grid-template-columns: 1fr;
+    grid-template-rows: 1fr minmax(0, 50svh);
   }
   /* Day-replay bar: let the scrubber keep a usable width by allowing the bar to
      wrap; the clock + tz toggle drop to a second line rather than crushing the

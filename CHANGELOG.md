@@ -17,6 +17,20 @@ humans and the assistant can read this file as a compressed history of decisions
 
 ---
 
+## Windalytics polish + a hidden-view fix
+- **What:** refined the new Wind-rose view — a dual-thumb **year-window** slider (gets
+  its own full-width row in tight layouts, sharing the app's `.rf-*` thumb/track with
+  the now-cohesive hour slider), **month selection by clicking the monthly mini-roses**
+  (click the focused one again for all months, replacing the chip row), a **hover
+  readout** on the big rose (highlights the sector + shows its speed mix), a **"locate
+  me"** button, a subtler dashed analysed-cell outline, Stats-style underline numerals,
+  and a **"steadiness"** stat (directional constancy) replacing the always-zero "calm %".
+  Fixed a bug where the Wind-rose view never hid when switching tabs — its `#climateView`
+  was missing from the `.hidden` backing rule (there's no universal `.hidden` rule), so
+  its map + panel leaked onto every other tab.
+- **Why:** the first cut shipped the data; these make it legible and consistent with the
+  app's design language, and the hidden-view bug was a real regression on every tab.
+
 ## Feature: Windalytics — point wind climatology ("Wind rose" tab)
 - **What:** new top-level view. Click a point on a dark map and it pulls a window of
   **ERA5** hourly wind for that grid cell — one archive request per calendar year,

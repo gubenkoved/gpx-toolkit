@@ -527,11 +527,17 @@ function renderPanels(): void {
 }
 
 function summaryHtml(rose: WindRose): string {
-  const calmPct = rose.n > 0 ? Math.round((rose.calm / rose.n) * 100) : 0;
   const prevail = COMPASS_16[Math.round(rose.meanVector.fromDeg / 22.5) % 16];
+  // Directional steadiness: the resultant (vector-mean) speed as a fraction of the
+  // scalar-mean speed. ~100% = wind almost always from one way; low = very variable.
+  // Far more telling than "calm" (sub-1 km/h hours are vanishingly rare).
+  const steadiness =
+    rose.meanSpeedKmh > 0
+      ? Math.round((rose.meanVector.speedKmh / rose.meanSpeedKmh) * 100)
+      : 0;
   const monthTxt = selectedMonth ? MONTH_ABBR[selectedMonth - 1] : "all months";
-  const card = (val: string, label: string): string =>
-    `<div class="cl-card"><b>${val}</b><span>${label}</span></div>`;
+  const card = (val: string, label: string, title = ""): string =>
+    `<div class="cl-card"${title ? ` title="${title}"` : ""}><b>${val}</b><span>${label}</span></div>`;
   const st = datasetStats();
   const coords = cellInfo ? `${cellInfo.lat.toFixed(2)}°, ${cellInfo.lon.toFixed(2)}°` : "";
   const span = st.hours > 0 ? `${st.minY}–${st.maxY}` : `${startYear}–${endYear}`;
@@ -542,7 +548,11 @@ function summaryHtml(rose: WindRose): string {
     `<div class="cl-cards">` +
     card(`${prevail}`, "prevailing from") +
     card(`${rose.meanSpeedKmh.toFixed(1)}`, "mean km/h") +
-    card(`${calmPct}%`, "calm") +
+    card(
+      `${steadiness}%`,
+      "steadiness",
+      "How consistently the wind comes from one direction — 100% = always the same way, low = variable.",
+    ) +
     card(`${rose.n.toLocaleString()}`, "hours (filter)") +
     `</div>` +
     `<div class="cl-prov">ERA5 25 km${coords ? ` · ${coords}` : ""} · ${span} · ` +
