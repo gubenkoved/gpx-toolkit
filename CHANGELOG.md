@@ -17,6 +17,13 @@ humans and the assistant can read this file as a compressed history of decisions
 
 ---
 
+## Drop the redundant per-tile “details” link
+- **What:** removed the blue `details`/`hide` link from each ride tile in the Explore
+  list (plus its now-dead click handler and unused `.rmeta a` CSS).
+- **Why:** clicking anywhere on the tile already toggles the expanded details, and
+  `.rrow` already shows `cursor: pointer` — the link was a second route to the same
+  action. No redundancy: say each thing once.
+
 ## Windalytics polish + a hidden-view fix
 - **What:** refined the new Wind-rose view — a dual-thumb **year-window** slider (gets
   its own full-width row in tight layouts, sharing the app's `.rf-*` thumb/track with

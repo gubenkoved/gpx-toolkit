@@ -3264,8 +3264,7 @@ function render(): void {
           <input type="checkbox" class="chk" data-key="${r.key}" ${selected.has(r.key) ? "checked" : ""}>
           <div class="rmain">
             <div class="rtitle">${rtitleHtml(r, multiSource)}</div>
-            <div class="rmeta">${r.date_key} · ${summaryDistance} · ${summaryDuration}
-              <a href="#" data-stats="${r.key}">${so ? "hide" : "details"}</a></div>
+            <div class="rmeta">${r.date_key} · ${summaryDistance} · ${summaryDuration}</div>
             ${so ? detailsBlock(r) : ""}
           </div>
           <div class="rbtns${openMenu === `ovr-r:${r.key}` ? " open" : ""}">
@@ -4518,14 +4517,6 @@ document.addEventListener("click", (e) => {
       });
       if (ok) withRideAccess(ride.source, () => run(() => controller.deleteRide(key)));
     })();
-    return;
-  }
-
-  if (t.dataset?.stats) {
-    e.preventDefault();
-    const k = t.dataset.stats;
-    openStats.has(k) ? openStats.delete(k) : openStats.add(k);
-    render();
     return;
   }
 

@@ -1537,14 +1537,6 @@ span.caret.open::before {
   margin-top: 2px;
   font-family: var(--mono);
 }
-.rmeta a {
-  color: var(--blue);
-  text-decoration: none;
-  margin-left: 6px;
-}
-.rmeta a:hover {
-  text-decoration: underline;
-}
 /* Per-ride tag pills, inline on the title row right after the name (before the
    predefined GPX/wind badges): compact, quiet, accent-tinted pills reusing the chip
    vocabulary so a ride's own tags read at a glance and stand apart from the
