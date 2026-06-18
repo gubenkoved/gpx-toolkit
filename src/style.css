@@ -5013,20 +5013,24 @@ body.job-active .toast {
   gap: 8px;
   margin-top: 12px;
 }
-.srcopt-form input {
-  flex: 1 1 180px;
-  min-width: 0;
+/* Shared text-field look (dark inset, line border, accent focus ring); callers
+   add only their own sizing/layout. */
+.field {
   background: var(--bg);
   border: 1px solid var(--line);
   border-radius: 8px;
   color: var(--text);
-  padding: 7px 10px;
   font: inherit;
   line-height: 1.4;
 }
-.srcopt-form input:focus {
+.field:focus {
   outline: none;
   border-color: var(--accent-dim);
+}
+.srcopt-form input {
+  flex: 1 1 180px;
+  min-width: 0;
+  padding: 7px 10px;
 }
 .srcopt-err {
   flex: 1 0 100%;
@@ -5115,21 +5119,11 @@ body.dragging-files::after {
 .confirm-input {
   width: 100%;
   box-sizing: border-box;
-  background: var(--bg);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  color: var(--text);
   padding: 8px 11px;
   margin: 0 0 20px;
-  font: inherit;
-  line-height: 1.4;
 }
 .confirm-input.hidden {
   display: none;
-}
-.confirm-input:focus {
-  outline: none;
-  border-color: var(--accent-dim);
 }
 /* Tag-assign modal: a row of toggleable existing-tag chips above a free-text add
    field. Chips reuse the .fchip vocabulary (muted → accent when selected). */

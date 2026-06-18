@@ -336,8 +336,8 @@
           <div class="srcopt-desc">Sign in to your <a class="srcopt-link" href="https://beeline.co/products/beeline-velo-2" target="_blank" rel="noopener noreferrer" title="Beeline Velo 2 on beeline.co (opens in a new tab)">Beeline Velo</a> account to download your whole ride history at once — routes, stats and Strava status — with fast uploads and no cable.</div>
         </div>
         <form class="srcopt-form" id="beelineForm" autocomplete="on">
-          <input type="email" id="beelineEmail" placeholder="Email" autocomplete="username" required />
-          <input type="password" id="beelinePass" placeholder="Password" autocomplete="current-password" required />
+          <input type="email" id="beelineEmail" class="field" placeholder="Email" autocomplete="username" required />
+          <input type="password" id="beelinePass" class="field" placeholder="Password" autocomplete="current-password" required />
           <button class="primary small" type="submit" id="btnBeelineSignIn">Sign in</button>
           <button class="ghost small" type="button" id="btnDemoBeeline" title="Explore the Beeline cloud experience with a simulated account">Try demo</button>
           <span class="srcopt-err" id="beelineErr"></span>
@@ -384,7 +384,7 @@
   <div class="confirm-card modal-card">
     <h2 class="confirm-title" id="confirmTitle">Confirm</h2>
     <p class="confirm-body" id="confirmBody"></p>
-    <input class="confirm-input hidden" id="confirmInput" type="text" autocomplete="off" />
+    <input class="confirm-input field hidden" id="confirmInput" type="text" autocomplete="off" />
     <label class="confirm-check hidden" id="confirmCheck">
       <input type="checkbox" id="confirmCheckBox" />
       <span id="confirmCheckLabel">Don't ask again</span>
@@ -402,7 +402,7 @@
     <p class="confirm-body" id="tagModalBody"></p>
     <div class="tagmodal-chips" id="tagModalChips"></div>
     <form class="tagmodal-add" id="tagModalAdd">
-      <input class="confirm-input" id="tagModalInput" type="text" autocomplete="off" placeholder="Add a tag…" aria-label="New tag" />
+      <input class="confirm-input field" id="tagModalInput" type="text" autocomplete="off" placeholder="Add a tag…" aria-label="New tag" />
       <button class="small" id="tagModalAddBtn" type="submit">Add</button>
     </form>
     <div class="confirm-actions">

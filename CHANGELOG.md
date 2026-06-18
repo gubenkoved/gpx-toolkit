@@ -17,6 +17,18 @@ humans and the assistant can read this file as a compressed history of decisions
 
 ---
 
+## Refactor: shared `.field` text-input look (phase 6)
+- **What:** the Beeline sign-in inputs (`.srcopt-form input`) and the confirm / tag
+  inputs (`.confirm-input`) repeated the same dark-inset look (bg, line border, 8px
+  radius, inherited font, accent focus ring). Extracted a canonical `.field` class +
+  `:focus`; each input rule now keeps only its own layout/padding, and the four input
+  elements carry `field`. Verified in-browser (computed style unchanged).
+- **Why:** one place to tune the text-field look. *Deliberately did NOT* force a
+  shared `.chip` class as the plan floated — the chips (`.fchip` r9/panel2,
+  `.cstate` r20/transparent, `.selchip` r20/accent) genuinely diverge in radius,
+  padding and fill, so a shared base would be a thin 3-declaration stub plus heavy
+  per-chip overrides: more indirection, not less. Extract only what truly repeats.
+
 ## Refactor: shared modal vocabulary `.scrim` / `.modal-card` / `.modal-x` (phase 5)
 - **What:** the source picker, confirm dialog, tag modal and settings each
   re-declared the same full-screen overlay, dark elevated card and corner close
