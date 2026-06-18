@@ -2551,6 +2551,18 @@ body.ridemap-open {
   min-width: 240px;
   gap: 9px;
 }
+/* The range row ends in a pair of controls — the "All" reset and the "Open day"
+   picker. Give All a leading icon (like Open day) so the two read as one set; both
+   collapse to equal icon squares on phones (see the ≤560px block). */
+.tl-range .rf-reset {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.tl-range .rf-reset .bi {
+  width: 14px;
+  height: 14px;
+}
 
 /* Custom day-picker calendar popover — dark, blurred chrome matching the design
    language (replaces the unstylable native date picker). Positioned via fixed coords
@@ -2566,6 +2578,23 @@ body.ridemap-open {
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.55);
   -webkit-backdrop-filter: blur(8px);
   backdrop-filter: blur(8px);
+}
+/* Phones stack the side panel below the map, so anchoring the popover to its
+   trigger floats it disconnectedly over the map. There it becomes a centered
+   modal over a backdrop instead (JS adds `.tl-cal--modal` + the backdrop). */
+.tl-cal.tl-cal--modal {
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: min(320px, calc(100vw - 32px));
+}
+.tl-cal-back {
+  position: fixed;
+  inset: 0;
+  z-index: 559;
+  background: rgba(5, 7, 10, 0.5);
+  -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
 }
 .tl-cal-head {
   display: flex;
@@ -2619,6 +2648,10 @@ body.ridemap-open {
   align-items: center;
   justify-content: center;
   height: 30px;
+  /* Day cells are <button>s, so reset the global button padding (7px 13px) —
+     left in, its 13px side-padding inflates each column's min-content and pushes
+     the 7th (Sunday) column out past the card's right edge. */
+  padding: 0;
   border: 0;
   border-radius: 7px;
   background: transparent;
@@ -2633,8 +2666,26 @@ body.ridemap-open {
   font-weight: 600;
   cursor: default;
 }
+/* Leading blank cells carry the bare `empty` class, whose global onboarding rule
+   (`.empty { padding: 56px }`) is as specific as `.tl-cal-cell` and declared later,
+   so it would re-inflate these cells; this two-class rule beats it back to 0. */
 .tl-cal-cell.empty {
   cursor: default;
+  padding: 0;
+}
+/* Weekend accent — sleek: no boxy per-cell fill, just a soft warm tint on the
+   Sat/Sun day numbers and header letters so the columns read as "weekend" quietly.
+   Both the day grid and the day-of-week header are 7-column and column-aligned (the
+   leading blank cells preserve the alignment), so nth-child reliably targets the
+   Sat (6th) / Sun (7th) columns. Declared ABOVE `.out`/hover/today/selected so an
+   out-of-range, hovered, or selected weekend day still wins its own colour. */
+.tl-cal-grid > :nth-child(7n + 6),
+.tl-cal-grid > :nth-child(7n) {
+  color: color-mix(in srgb, var(--accent) 45%, var(--text));
+}
+.tl-cal-dow > :nth-child(6),
+.tl-cal-dow > :nth-child(7) {
+  color: color-mix(in srgb, var(--accent) 55%, var(--muted));
 }
 .tl-cal-cell.out {
   color: #3a4250;
@@ -4408,10 +4459,9 @@ body.job-active .toast {
   .tl-tz {
     order: 2;
   }
-  /* Overview controls: the two heat sliders share their row with the compact
-     "Open day" button (grow to fill, but leave room for it) rather than forcing it
-     onto its own near-empty line. Each slider keeps a sensible min so it never
-     collapses to an un-grabbable sliver; they wrap inside the group before that. */
+  /* Overview controls: the two heat sliders grow to fill their row. Each slider keeps
+     a sensible min so it never collapses to an un-grabbable sliver; they wrap inside
+     the group before that. */
   .tl-tweaks {
     flex: 1 1 auto;
     min-width: 0;
@@ -4425,7 +4475,7 @@ body.job-active .toast {
     width: auto;
     min-width: 96px;
   }
-  /* "Open day" tucks at the end of the heat-sliders row at its natural width. */
+  /* "Open day" sits at its natural width at the end of the range row, beside All. */
   .tl-jump {
     flex: 0 0 auto;
   }
@@ -4585,8 +4635,21 @@ body.job-active .toast {
     flex: 1 1 auto;
     min-width: 0;
   }
+  /* All + Open day sit together at the end of the track line as equal icon squares
+     (labels drop, the leading icon carries the meaning via the title tooltip). */
   .tl-range .rf-reset {
     order: 4;
+    padding: 6px;
+  }
+  .tl-range .rf-reset span {
+    display: none;
+  }
+  .tl-range .rf-reset .bi {
+    width: 16px;
+    height: 16px;
+  }
+  .tl-range .tl-jump {
+    order: 5;
   }
 
   /* -- full-screen route bar: keep the title + Close on one tidy row -------

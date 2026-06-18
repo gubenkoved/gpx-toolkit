@@ -214,6 +214,8 @@ const ICONS = {
   chevRight: SVG('<path d="m9 18 6-6-6-6"/>'),
   /** Calendar — open a day picker. */
   calendar: SVG('<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/>'),
+  /** Double-ended horizontal arrow — reset the date range back to your whole history. */
+  allRange: SVG('<path d="M3 12h18"/><path d="m7 8-4 4 4 4"/><path d="m17 8 4 4-4 4"/>'),
   /** Phone with an up arrow — export from your phone. */
   phone: SVG('<rect x="7" y="3" width="10" height="18" rx="2"/><path d="M12 7v6M9.5 9 12 6.5 14.5 9"/>'),
 } as const;
@@ -676,7 +678,10 @@ function clearSelection(): void {
 function renderOverviewBar(): void {
   const bar = document.getElementById("tlBar");
   if (!bar) return;
-  bar.innerHTML = heatControlsHtml() + jumpDateHtml() + rangeSliderHtml();
+  const range = rangeSliderHtml();
+  // The day-picker rides inside the range row, beside "All"; with only a single day
+  // of history there's no slider, so fall back to the standalone button.
+  bar.innerHTML = heatControlsHtml() + (range || jumpDateHtml());
   wireRangeWindow();
   updateRangeUI();
 }
@@ -765,9 +770,17 @@ function openCalendar(target: "jump" | "date", anchor: HTMLElement): void {
 function closeCalendar(): void {
   calState = null;
   document.getElementById("tlCal")?.remove();
+  document.getElementById("tlCalBack")?.remove();
   if (calOutside) document.removeEventListener("pointerdown", calOutside, true);
   if (calKeydown) document.removeEventListener("keydown", calKeydown, true);
   calOutside = calKeydown = null;
+}
+
+/** Phones stack the side panel under the map, so anchoring the popover to its
+ * trigger drops it far up over the map. Below this width we render it as a
+ * centered modal with a backdrop instead. Matches the `.tl-wrap` stacking cutoff. */
+function calIsModal(): boolean {
+  return window.matchMedia("(max-width: 768px)").matches;
 }
 
 /** Build/refresh the calendar popover for the month in `calState` and position it. */
@@ -817,7 +830,24 @@ function renderCalendar(): void {
     `<div class="tl-cal-grid tl-cal-dow">${CAL_DOW.map((d) => `<span class="tl-cal-cell dow">${d}</span>`).join("")}</div>` +
     `<div class="tl-cal-grid">${cells}</div>`;
 
-  // Position above the trigger (the bar sits low); clamp within the viewport.
+  // Phones: a centered modal over a backdrop (CSS centers it); clear any inline
+  // coords left from a desktop render so they don't fight the centering rule.
+  if (calIsModal()) {
+    pop.classList.add("tl-cal--modal");
+    pop.style.left = pop.style.top = "";
+    pop.style.visibility = "visible";
+    if (!document.getElementById("tlCalBack")) {
+      const back = document.createElement("div");
+      back.id = "tlCalBack";
+      back.className = "tl-cal-back";
+      document.getElementById("timelineView")?.appendChild(back);
+    }
+    return;
+  }
+  pop.classList.remove("tl-cal--modal");
+  document.getElementById("tlCalBack")?.remove();
+
+  // Desktop: position above the trigger (the bar sits low); clamp within the viewport.
   pop.style.visibility = "hidden";
   pop.style.left = "0px";
   const a = anchor.getBoundingClientRect();
@@ -895,7 +925,8 @@ function rangeSliderHtml(): string {
     `<div class="rf-window" id="tlRangeWin" aria-hidden="true" ` +
     `title="Drag to slide this time window across your history"></div></div>` +
     `<span class="rf-edge" id="tlRangeTo"></span>` +
-    `<button class="rf-reset" data-tl="range-reset" title="Show your whole history">All</button>` +
+    `<button class="rf-reset" data-tl="range-reset" title="Show your whole history">${ICONS.allRange}<span>All</span></button>` +
+    jumpDateHtml() +
     `</div>`
   );
 }
