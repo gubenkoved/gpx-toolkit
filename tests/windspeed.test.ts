@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { type LatLon } from "../src/track";
+import type { LatLon } from "../src/track";
 import {
   linearRegression,
   segmentRide,

@@ -295,16 +295,19 @@
       <span class="ridemap-status" id="rideMapStatus" role="status" aria-live="polite"></span>
       <button class="small ghost rmb" id="btnRideMapFull" type="button" title="Download the full recorded track (real per-point timestamps + elevation) and use it for this map"><svg class="rmb-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0l-4-4m4 4l4-4M5 21h14"/></svg><span class="lbl">Fetch full track</span></button>
       <button class="small ghost rmb" id="btnRideMapWind" type="button" title="Resolve historical wind for this ride (from Open-Meteo) and colour the route by head/tailwind"><svg class="rmb-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 8h10a2.5 2.5 0 1 0-2.5-2.5M3 16h14a2.5 2.5 0 1 1-2.5 2.5M3 12h7"/></svg><span class="lbl">Resolve wind</span></button>
+      <!-- biome-ignore lint/a11y/useSemanticElements: role="group" with aria-label is correct for this labelled segmented-control toolbar; no native element fits -->
       <span class="seg ridemap-color hidden" id="rideMapColor" role="group" aria-label="Colour the route by">
         <button data-color="none" class="active rmb" type="button" title="Plain route line"><svg class="rmb-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20L20 4"/><circle cx="4" cy="20" r="1.6" fill="currentColor" stroke="none"/><circle cx="20" cy="4" r="1.6" fill="currentColor" stroke="none"/></svg><span class="lbl">Route</span></button>
         <button data-color="height" class="rmb" type="button" title="Colour the route by elevation"><svg class="rmb-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 20l6-9 4 5 2-3 6 7z"/></svg><span class="lbl">Height</span></button>
         <button data-color="speed" class="rmb" type="button" title="Colour the route by speed"><svg class="rmb-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 18a8 8 0 1 1 14 0"/><path d="M12 14l4-4"/></svg><span class="lbl">Speed</span></button>
         <button data-color="wind" class="rmb" type="button" title="Colour the route by head/tailwind (resolves historical wind from Open-Meteo)"><svg class="rmb-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 8h10a2.5 2.5 0 1 0-2.5-2.5M3 16h14a2.5 2.5 0 1 1-2.5 2.5M3 12h7"/></svg><span class="lbl">Wind</span></button>
       </span>
+      <!-- biome-ignore lint/a11y/useSemanticElements: role="group" with aria-label is correct for this labelled segmented-control toolbar; no native element fits -->
       <span class="seg ridemap-profmetric hidden" id="rideMapProfileMetric" role="group" aria-label="Profile metric">
         <button data-profile="elevation" class="active rmb" type="button" title="Graph elevation vs distance"><svg class="rmb-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 20l6-9 4 5 2-3 6 7z"/></svg><span class="lbl">Elevation</span></button>
         <button data-profile="speed" class="rmb" type="button" title="Graph speed vs distance"><svg class="rmb-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 18a8 8 0 1 1 14 0"/><path d="M12 14l4-4"/></svg><span class="lbl">Speed</span></button>
       </span>
+      <!-- biome-ignore lint/a11y/useSemanticElements: role="group" with aria-label is correct for this labelled segmented-control toolbar; no native element fits -->
       <span class="seg ridemap-profaxis hidden" id="rideMapProfileAxis" role="group" aria-label="Profile x-axis">
         <button data-axis="distance" class="active rmb" type="button" title="Plot the profile against distance along the route"><svg class="rmb-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 9h18v6H3z"/><path d="M8 9v3M13 9v3M18 9v3"/></svg><span class="lbl">Distance</span></button>
         <button data-axis="time" class="rmb" type="button" title="Plot the profile against recorded time — stops show their true duration"><svg class="rmb-ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/></svg><span class="lbl">Time</span></button>

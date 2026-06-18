@@ -270,7 +270,6 @@ export function parseOnDevice(doc: unknown, opts: ParseOptions = {}): LocImport 
         distanceM: typeof act.distanceMeters === "number" ? act.distanceMeters : undefined,
         prob: typeof cand.probability === "number" ? cand.probability : undefined,
       });
-      continue;
     }
 
     // timelineMemory and any unknown segment shape are ignored (not skipped — they

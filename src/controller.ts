@@ -1537,7 +1537,7 @@ export class Controller {
   setDestination(key: string, destination: string): void {
     const uid = this.normalizeUid(key);
     const rec = this.store.rides.get(uid);
-    if (!rec || rec.source !== "gpx") return;
+    if (rec?.source !== "gpx") return;
     const base = rec.title_base || rec.title;
     const place = destination.trim();
     this.store.upsert(uid, {

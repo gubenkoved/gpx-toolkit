@@ -207,7 +207,7 @@ export class GpxCache {
       this.index.set(rideKey, compressedBytes.length);
       await this.persistIndex();
       return true; // written/updated
-    } catch (err) {
+    } catch {
       this.onError?.("Failed to import cached GPX.");
       return false;
     }

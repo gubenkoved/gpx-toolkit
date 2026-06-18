@@ -113,7 +113,7 @@ interface HeatPrefs {
   /** Hours of dwell that map to full intensity (lower = shorter stays show up too). */
   dwellH: number;
 }
-let heatPrefs: HeatPrefs = loadHeatPrefs();
+const heatPrefs: HeatPrefs = loadHeatPrefs();
 
 function loadHeatPrefs(): HeatPrefs {
   const def: HeatPrefs = { radius: 22, dwellH: 6 };
@@ -425,7 +425,7 @@ function visitsAsTracks(): RideTrack[] {
 // --------------------------------------------------------------------------- //
 async function loadVisits(store: LocationHistoryStore): Promise<void> {
   if (visitsLoaded) return;
-  if (visitsLoading) return visitsLoading;
+  if (visitsLoading !== null) return visitsLoading;
   visitsLoading = (async () => {
     const all: LocRecord[] = [];
     for (const mk of store.months()) {
@@ -1373,7 +1373,9 @@ function highlightActiveEvent(): void {
     // The active event is the latest one that has started at or before the scrubber.
     if (Number.isFinite(t) && t <= scrubT) active = row;
   });
-  rows.forEach((row) => row.classList.toggle("now", row === active));
+  rows.forEach((row) => {
+    row.classList.toggle("now", row === active);
+  });
   if (active) (active as HTMLElement).scrollIntoView({ block: "nearest" });
 }
 

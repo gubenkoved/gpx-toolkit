@@ -230,7 +230,7 @@ export class WindCache {
       this.index.set(key, compressedBytes.length);
       await this.persistIndex();
       return true; // written/updated
-    } catch (err) {
+    } catch {
       this.onError?.("Failed to import wind cache.");
       return false;
     }

@@ -4456,7 +4456,7 @@ document.addEventListener("click", (e) => {
     openMenu = null;
     render();
     const ride = STATE.rides.find((r) => r.key === key);
-    if (!ride || ride.source !== "gpx") return;
+    if (ride?.source !== "gpx") return;
     void (async () => {
       // `location` carries the leading ", " separator; prompt with the bare place.
       const current = ride.location.replace(/^[\s,]+/, "");

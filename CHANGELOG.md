@@ -17,6 +17,17 @@ humans and the assistant can read this file as a compressed history of decisions
 
 ---
 
+## Chore: clear all biome lint findings
+- **What:** fixed every outstanding `biome lint` finding across the codebase —
+  optional-chaining (`!x || !x.y` → `!x?.y`), `import type` for type-only imports,
+  `let` → `const` for a never-reassigned binding, dropped a useless `continue` and
+  unused `catch` bindings, made an `if (promise)` an explicit `!== null` check, and
+  gave a `forEach` callback a non-returning block body. The three `role="group"`
+  segmented-control toolbars carry a documented `biome-ignore` (no native element
+  fits a labelled button group). Pure cleanup — no behaviour change; build + 390
+  tests green.
+- **Why:** a clean `biome lint` keeps the signal high so real issues stand out.
+
 ## Docs: design-language reference at the top of `style.css` (phase 7)
 - **What:** added a concise design-language header to `src/style.css` listing the
   semantic tokens and the shared component vocabulary (`button` family, `.iconbtn`,

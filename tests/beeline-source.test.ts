@@ -80,7 +80,7 @@ class FakeBeelineApi implements BeelineApi {
   async exportRideGpx(_s: BeelineSession, pushId: string): Promise<Uint8Array> {
     this.exportCalls.push(pushId);
     const raw = this.rides[pushId];
-    if (!raw || !raw.polyline) throw new Error("ride has no recorded track to export");
+    if (!raw?.polyline) throw new Error("ride has no recorded track to export");
     // A tiny full GPX with real per-point ele + time so extractFullTrack has data.
     const start = raw.start ?? 0;
     const gpx =

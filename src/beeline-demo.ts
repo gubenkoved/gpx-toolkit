@@ -324,7 +324,7 @@ class DemoBeelineApi implements BeelineApi {
   async exportRideGpx(_s: BeelineSession, pushId: string): Promise<Uint8Array> {
     await this.delay(300); // simulate the cloud render + download
     const raw = this.rides[pushId];
-    if (!raw || !raw.polyline) {
+    if (!raw?.polyline) {
       throw new Error("ride has no recorded track to export");
     }
     return new TextEncoder().encode(buildDemoFullGpx(raw));

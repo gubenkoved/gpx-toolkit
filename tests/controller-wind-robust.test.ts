@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { Controller } from "../src/controller";
-import { type BlobStore } from "../src/kv";
+import type { BlobStore } from "../src/kv";
 import { beelineRideKey, rideUid } from "../src/parsing";
 import { Store } from "../src/store";
 import { memoryBackend } from "../src/kv";
