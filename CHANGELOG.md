@@ -17,6 +17,21 @@ humans and the assistant can read this file as a compressed history of decisions
 
 ---
 
+## Refactor: elevation + track tokens (design-language tier 1)
+- **What:** promoted the remaining repeated literals to `:root` tokens and swapped every
+  call site — a drop-shadow scale (`--shadow-thumb`/`-float`/`-bar`/`-pop`/`-menu`,
+  joining the existing `--shadow-modal`), the slider/bar rail `--track` (`#2a313c` ×4),
+  `--glass-strong` (the more-opaque glass ×3), `--accent-ink` (ink on accent buttons ×3),
+  and fixed `.toast` to use `var(--panel2)` instead of re-typing `#1b1f27`. Pure
+  substitution — every token holds the exact prior value, zero visual change; build +
+  407 tests green.
+- **Why:** shadows were half-tokenised (only `--shadow-modal` existed while identical
+  recipes sat raw in `.iconbtn`, the banners, slider thumbs); the wind-rose feature then
+  added *more* raw copies. Centralising the elevation scale + the slider rail is the
+  prerequisite for the shared `.slider`/banner/panel components that follow.
+
+---
+
 ## Drop the redundant per-tile “details” link
 - **What:** removed the blue `details`/`hide` link from each ride tile in the Explore
   list (plus its now-dead click handler and unused `.rmeta a` CSS).

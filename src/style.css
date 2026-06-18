@@ -55,12 +55,21 @@
   --border-hover: #333b48; /* row/control hover border */
   --map-bg: #05070a; /* dark basemap container behind tiles */
   --glass: rgba(20, 23, 29, 0.92); /* translucent header/popover backdrop */
+  --glass-strong: rgba(20, 23, 29, 0.94); /* more opaque glass variant */
+  --track: #2a313c; /* slider / progress-bar rail fill */
   /* --- danger / accent fills --- */
   --danger-border: #5a2420;
   --accent-tint: rgba(252, 82, 0, 0.1); /* subtle accent wash */
   --accent-tint-strong: rgba(252, 82, 0, 0.12); /* stronger accent wash */
+  --accent-ink: #1a1206; /* text/ink on accent-filled controls */
   --scrim: rgba(5, 7, 10, 0.78); /* modal / overlay backdrop */
-  --shadow-modal: 0 20px 60px rgba(0, 0, 0, 0.55); /* elevated card shadow */
+  /* --- elevation (drop-shadow scale) --- */
+  --shadow-thumb: 0 1px 4px rgba(0, 0, 0, 0.5); /* slider thumbs */
+  --shadow-float: 0 2px 10px rgba(0, 0, 0, 0.35); /* floating buttons / banners */
+  --shadow-bar: 0 2px 12px rgba(0, 0, 0, 0.4); /* in-flow control bars */
+  --shadow-pop: 0 4px 16px rgba(0, 0, 0, 0.5); /* tooltips / small popovers */
+  --shadow-menu: 0 8px 24px rgba(0, 0, 0, 0.45); /* dropdown menus */
+  --shadow-modal: 0 20px 60px rgba(0, 0, 0, 0.55); /* elevated modal card */
   --radius: 12px;
   --font: "Ubuntu", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   --mono: "Ubuntu Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -549,7 +558,7 @@ button.small {
   background: var(--panel2);
   border: 1px solid var(--line);
   border-radius: 9px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  box-shadow: var(--shadow-menu);
 }
 .ftags-pop.hidden {
   display: none;
@@ -1646,7 +1655,7 @@ span.caret.open::before {
   background: var(--panel2);
   border: 1px solid var(--line);
   border-radius: 9px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  box-shadow: var(--shadow-menu);
 }
 .rbtns.open .ovr-items {
   display: flex;
@@ -1762,7 +1771,7 @@ span.caret.open::before {
   border: 1px solid var(--line);
   border-radius: 9px;
   padding: 4px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  box-shadow: var(--shadow-menu);
   white-space: nowrap;
 }
 .split.open .splitmenu {
@@ -2606,7 +2615,7 @@ body.ridemap-open {
   overflow: hidden;
   text-overflow: ellipsis;
   backdrop-filter: blur(6px);
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
+  box-shadow: var(--shadow-float);
   pointer-events: none;
 }
 .tl-banner.hidden {
@@ -2619,7 +2628,7 @@ body.ridemap-open {
    tip points back at the marker. */
 .leaflet-tooltip.tl-tip {
   padding: 5px 9px;
-  background: rgba(20, 23, 29, 0.94);
+  background: var(--glass-strong);
   border: 1px solid var(--line);
   border-radius: 8px;
   color: var(--text);
@@ -2631,8 +2640,8 @@ body.ridemap-open {
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
 }
 .leaflet-tooltip.tl-tip::before {
-  border-top-color: rgba(20, 23, 29, 0.94);
-  border-bottom-color: rgba(20, 23, 29, 0.94);
+  border-top-color: var(--glass-strong);
+  border-bottom-color: var(--glass-strong);
 }
 
 /* The in-flow control bar below the map (mode-dependent): heat legend + range in
@@ -2647,7 +2656,7 @@ body.ridemap-open {
   background: var(--glass);
   border: 1px solid var(--line);
   border-radius: 10px;
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.4);
+  box-shadow: var(--shadow-bar);
   flex-wrap: wrap;
 }
 /* Live heatmap tweak sliders (spread + dwell sensitivity). */
@@ -3144,7 +3153,7 @@ button.tl-cal-cell:hover {
   justify-content: center;
   border-radius: 50%;
   background: var(--accent);
-  color: #1a1206;
+  color: var(--accent-ink);
   font-size: 11px;
   font-weight: 700;
   margin-top: 1px;
@@ -3212,7 +3221,7 @@ button.tl-cal-cell:hover {
 .tl-hist-bar {
   flex: 1 1 auto;
   height: 8px;
-  background: #2a313c;
+  background: var(--track);
   border-radius: 4px;
   overflow: hidden;
 }
@@ -3507,7 +3516,7 @@ body.tl-expanded {
   overflow: hidden;
   text-overflow: ellipsis;
   backdrop-filter: blur(6px);
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
+  box-shadow: var(--shadow-float);
   pointer-events: none;
 }
 .cl-banner.hidden {
@@ -3525,7 +3534,7 @@ body.tl-expanded {
   background: var(--glass);
   border: 1px solid var(--line);
   border-radius: 10px;
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.4);
+  box-shadow: var(--shadow-bar);
   flex-wrap: wrap;
 }
 .cl-ctl {
@@ -3559,13 +3568,13 @@ body.tl-expanded {
   background: linear-gradient(
     to right,
     var(--accent) 0 calc(var(--cl-fill, 0) * 100%),
-    #2a313c calc(var(--cl-fill, 0) * 100%) 100%
+    var(--track) calc(var(--cl-fill, 0) * 100%) 100%
   );
 }
 .cl-ctl input[type="range"]::-moz-range-track {
   height: 4px;
   border-radius: 3px;
-  background: #2a313c;
+  background: var(--track);
 }
 .cl-ctl input[type="range"]::-moz-range-progress {
   height: 4px;
@@ -3581,7 +3590,7 @@ body.tl-expanded {
   border-radius: 50%;
   background: var(--accent);
   border: 2px solid var(--bg);
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+  box-shadow: var(--shadow-thumb);
   cursor: grab;
 }
 .cl-ctl input[type="range"]::-webkit-slider-thumb:active {
@@ -3593,7 +3602,7 @@ body.tl-expanded {
   border-radius: 50%;
   background: var(--accent);
   border: 2px solid var(--bg);
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+  box-shadow: var(--shadow-thumb);
   cursor: grab;
 }
 .cl-ctl output {
@@ -3726,7 +3735,7 @@ body.tl-expanded {
   background: var(--glass);
   border: 1px solid var(--line);
   border-radius: 9px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+  box-shadow: var(--shadow-pop);
   backdrop-filter: blur(8px);
   pointer-events: none;
   font-size: 11px;
@@ -4168,7 +4177,7 @@ body.climate-expanded .cl-ctl input[type="range"] {
   border-radius: 8px;
   cursor: pointer;
   backdrop-filter: blur(6px);
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
+  box-shadow: var(--shadow-float);
 }
 .iconbtn:hover {
   background: var(--surface-hover);
@@ -4188,7 +4197,7 @@ body.climate-expanded .cl-ctl input[type="range"] {
 .map-select.active {
   background: var(--accent);
   border-color: var(--accent);
-  color: #1a1206;
+  color: var(--accent-ink);
 }
 /* "Locate me" toggle: third floating button, stacked under Expand + Select. Shares
    the same floating-square look; lights up blue (a location/GPS hue, distinct from
@@ -4215,7 +4224,7 @@ body.climate-expanded .cl-ctl input[type="range"] {
 .map-help.active {
   background: var(--accent);
   border-color: var(--accent);
-  color: #1a1206;
+  color: var(--accent-ink);
 }
 .map-help .mi {
   width: 18px;
@@ -4273,7 +4282,7 @@ body.climate-expanded .cl-ctl input[type="range"] {
 .leaflet-container .leaflet-bar {
   border: 1px solid var(--line);
   border-radius: 8px;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
+  box-shadow: var(--shadow-float);
   background-clip: padding-box;
 }
 .leaflet-container .leaflet-bar a {
@@ -4367,7 +4376,7 @@ body.climate-expanded .cl-ctl input[type="range"] {
   height: 4px;
   transform: translateY(-50%);
   border-radius: 3px;
-  background: #2a313c;
+  background: var(--track);
 }
 /* Accent fill of the currently selected span; fractions (0–1) come from JS. */
 .rf-track::after {
@@ -4431,7 +4440,7 @@ body.climate-expanded .cl-ctl input[type="range"] {
   border-radius: 50%;
   background: var(--accent);
   border: 2px solid var(--bg);
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+  box-shadow: var(--shadow-thumb);
   cursor: grab;
   margin-top: -1px;
 }
@@ -4445,7 +4454,7 @@ body.climate-expanded .cl-ctl input[type="range"] {
   border-radius: 50%;
   background: var(--accent);
   border: 2px solid var(--bg);
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+  box-shadow: var(--shadow-thumb);
   cursor: grab;
 }
 .rf-track input[type="range"]:disabled::-webkit-slider-thumb {
@@ -4468,7 +4477,7 @@ body.climate-expanded .cl-ctl input[type="range"] {
   background: var(--glass);
   border: 1px solid var(--line);
   border-radius: 10px;
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.4);
+  box-shadow: var(--shadow-bar);
 }
 
 /* Full-screen mode: the map-wrap fills the viewport above everything else. */
@@ -4753,7 +4762,7 @@ body.heat-expanded {
   bottom: 20px;
   left: 50%;
   transform: translateX(-50%);
-  background: #1b1f27;
+  background: var(--panel2);
   border: 1px solid var(--line);
   color: var(--text);
   padding: 10px 16px;
@@ -4992,7 +5001,7 @@ body.job-active .toast {
     background: var(--panel2);
     border: 1px solid var(--line);
     border-radius: 9px;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+    box-shadow: var(--shadow-menu);
   }
   .rbtns.open .ovr-items {
     display: flex;
