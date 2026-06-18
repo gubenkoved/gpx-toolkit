@@ -17,6 +17,22 @@ humans and the assistant can read this file as a compressed history of decisions
 
 ---
 
+## Refactor: extract confirm/prompt/consent dialogs to `src/confirm.ts` (view split #1)
+- **What:** moved the styled `confirmDialog` / `promptDialog` / `consentDialog` (+ their
+  state and the OK/Cancel/backdrop/Enter listeners) out of `main.ts` into a
+  self-contained `src/confirm.ts` that wires its own DOM via `initConfirm()`. `main.ts`
+  imports the four functions; its global keydown still calls the imported `closeConfirm`
+  for Escape. `main.ts` dropped 4928 → 4819 lines. Verified in-browser (OK and Cancel
+  both close the modal); build + 423 tests + biome green.
+- **Why:** first slice of decomposing the 4.9k-line `main.ts` monolith into focused
+  modules (the agreed item 1). The dialogs are a cohesive, promise-based unit with no
+  shared-state coupling — the safest first extraction, and it establishes the pattern
+  (own state + own listeners + a small init) for the bigger view splits to follow.
+  (Signals don't fit an imperative promise-dialog, so this one stays plain — the
+  signal-driven views, e.g. Wind/Speed, come next.)
+
+---
+
 ## Feature: tiny reactive core (`src/reactive.ts`) + first adoption
 - **What:** added `src/reactive.ts` — fine-grained `signal` / `effect` / `computed` in
   ~50 dependency-free lines (reading a signal inside an effect subscribes it; the

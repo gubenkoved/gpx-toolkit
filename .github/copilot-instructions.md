@@ -285,6 +285,7 @@ none. The table is grouped by concern; keep new modules in the group they belong
 | File | Responsibility | Key symbols |
 |------|----------------|-------------|
 | [src/reactive.ts](../src/reactive.ts) | Tiny reactive core: fine-grained signals + effects (~50 lines, no deps); replaces hand-rolled `lastSig` dirty-checking | `signal()`, `effect()`, `computed()` |
+| [src/confirm.ts](../src/confirm.ts) | Self-contained styled confirm / prompt / consent dialogs (promise-based, own DOM listeners via `initConfirm`); reuses the `.scrim`/`.modal-card` vocabulary | `confirmDialog()`, `promptDialog()`, `consentDialog()`, `initConfirm()` |
 | [src/ui.ts](../src/ui.ts) | Render-layer design vocabulary: pure `(opts) => string` builders for shared components (one canonical markup + classes each); centralised HTML escaping | `escHtml()`, `statNum()` |
 | [src/zip.ts](../src/zip.ts) | Dependency-free ZIP build + read | `buildZip()`, `unzip()` |
 | [src/gzip.ts](../src/gzip.ts) | Gzip compress/decompress (CompressionStream) | `gzip()`, `gunzip()` |
