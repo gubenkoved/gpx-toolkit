@@ -3405,7 +3405,7 @@ body.tl-expanded {
   padding: 16px;
   pointer-events: none;
 }
-.chart-msg span {
+.chart-msg > span {
   background: color-mix(in srgb, var(--bg) 82%, transparent);
   border: 1px solid var(--line);
   border-radius: var(--radius);
@@ -3428,6 +3428,33 @@ body.tl-expanded {
   background: var(--accent);
   border-radius: 2px;
   transition: width 0.12s linear;
+}
+/* Determinate "analysing" card: a fixed width so the panel never jumps as the ride
+   label / count change. Header line holds the width; the detail line ellipsizes. */
+.chart-msg > span.cm-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  width: 260px;
+  max-width: 80%;
+}
+.cm-head {
+  color: var(--text);
+  font-weight: 600;
+}
+.cm-detail {
+  max-width: 100%;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cm-card .chart-msg-bar {
+  margin-top: 2px;
+  width: 100%;
+  align-self: stretch;
 }
 
 /* -- all-rides heatmap (Map view) ----------------------------------------- */

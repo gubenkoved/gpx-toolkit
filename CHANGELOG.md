@@ -17,6 +17,22 @@ humans and the assistant can read this file as a compressed history of decisions
 
 ---
 
+## Fix: analytics no longer resets mid-sweep; calmer, steadier progress
+- **What:** The wind-vs-speed analysis now runs ONE sweep at a time over the WHOLE
+  resolved library (range-independent) and never restarts it: a re-entrant call while a
+  sweep runs (date-slider drag, settings change, a background job ticking ride state)
+  coalesces into a single post-sweep refresh instead of bumping `analyticsSeq` and
+  aborting. Progress is time-throttled (~100ms) and names the ride in flight, the
+  overlay is a fixed-width card (stable header line + ellipsized detail + bar) so it
+  stops resizing, the sweep runs newest-first, and the overlay only reveals after a
+  ~200ms delay so 1-ride top-ups during a download never flash it.
+- **Why:** Background job ticks and slider drags were driving `render()` → remount →
+  `analyticsSeq++`, which aborted the in-flight sweep so the counter reset to 0 and the
+  in-range-only total dropped; the count-based throttle jumped ~40 at a time on a large
+  library; the auto-sized panel jumped with each ride label; and each downloaded ride
+  flashed an "Analysing 1 ride…" overlay. Segments are cached per ride and independent
+  of the date range, so the slider is now a pure view filter over cached results.
+
 ## Fix: caching full GPX fetched from the ride map
 - **What:** `Controller.fetchFullTrack` (the interactive path the single-ride map
   uses) now persists the downloaded GPX to the cache and upserts the ride's rough

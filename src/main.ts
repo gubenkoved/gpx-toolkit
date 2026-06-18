@@ -1971,6 +1971,12 @@ type RideSegEntry = {
 };
 const segCacheByUid = new Map<string, RideSegEntry>();
 let analyticsSeq = 0;
+/** True while an analytics sweep is in flight. Lets a passive re-render coalesce into
+ *  a single post-run rerun instead of aborting + restarting the live sweep. */
+let analyticsRunning = false;
+/** A state change asked the analytics view to refresh while a sweep was running; the
+ *  running sweep fires exactly one rerun when it finishes (if still on the tab). */
+let analyticsRerunQueued = false;
 /** |net grade| above this (percent) means a segment isn't "flat". */
 const FLAT_GRADE_PCT = 1.5;
 
@@ -2043,15 +2049,22 @@ function syncAnalyticsActions(inRange: RideView[]): void {
  *  page layout — used while analysing and when a date range has nothing to plot, so
  *  dragging the slider never collapses the cards/controls/slider out of view. Pass a
  *  0..1 `progress` to add a determinate bar (for the analysing sweep). */
-function showChartMessage(text: string | null, progress?: number): void {
+function showChartMessage(text: string | null, progress?: number, detail?: string): void {
   const el = document.getElementById("analyticsChartMsg");
   if (!el) return;
   if (text) {
-    const bar =
-      progress === undefined
-        ? ""
-        : `<div class="chart-msg-bar"><i style="width:${Math.round(Math.max(0, Math.min(1, progress)) * 100)}%"></i></div>`;
-    el.innerHTML = `<span>${text}${bar}</span>`;
+    if (progress !== undefined) {
+      // Determinate (analysing) state: a FIXED-WIDTH card so it never resizes as the
+      // ride label / count change. A stable header line holds the width; the changing
+      // ride + count sit on an ellipsized detail line beneath, then the bar.
+      const pct = Math.round(Math.max(0, Math.min(1, progress)) * 100);
+      el.innerHTML =
+        `<span class="cm-card"><b class="cm-head">${text}</b>` +
+        (detail ? `<span class="cm-detail">${detail}</span>` : "") +
+        `<div class="chart-msg-bar"><i style="width:${pct}%"></i></div></span>`;
+    } else {
+      el.innerHTML = `<span>${text}</span>`;
+    }
     el.style.display = "flex";
   } else {
     el.style.display = "none";
@@ -2074,7 +2087,33 @@ function clearChart(): void {
   if (canvas && ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
 }
 
-async function mountAnalyticsView(_opts: { fit?: boolean } = {}): Promise<void> {
+async function mountAnalyticsView(opts: { fit?: boolean } = {}): Promise<void> {
+  // The heavy work — segmenting each ride — is cached per ride and INDEPENDENT of the
+  // date range, so only one sweep ever runs and it's never restarted midway. A
+  // re-entrant call while a sweep is running (a date-slider drag, a settings change, a
+  // background job ticking ride state) just asks for ONE refresh afterwards instead of
+  // superseding the sweep — so the progress counter never resets to 0 or drops its
+  // total. Once the sweep has cached everything, later calls find nothing pending and
+  // re-aggregate instantly, so the slider updates the plot live.
+  if (analyticsRunning) {
+    analyticsRerunQueued = true;
+    return;
+  }
+  const my = ++analyticsSeq;
+  analyticsRunning = true;
+  try {
+    await runAnalyticsView(my, opts);
+  } finally {
+    analyticsRunning = false;
+    // Apply the latest range/settings once the sweep is done (only if still on tab).
+    if (analyticsRerunQueued && activeView === "analytics") {
+      analyticsRerunQueued = false;
+      void mountAnalyticsView();
+    }
+  }
+}
+
+async function runAnalyticsView(my: number, _opts: { fit?: boolean } = {}): Promise<void> {
   refreshRange("analytics");
   const inRange = analyticsVisibleRides();
   const resolved = inRange.filter((r) => r.wind_resolved);
@@ -2101,21 +2140,24 @@ async function mountAnalyticsView(_opts: { fit?: boolean } = {}): Promise<void> 
   syncAnalyticsActions(inRange);
 
   const opts: SegmentOpts = { stopKmh: STATE.settings.movingThresholdKmh };
-  const my = ++analyticsSeq;
-  // The per-ride cache reads can take a moment on a big library, so analyse with a
-  // live progress overlay. Only rides not already memoized cost anything, so count
-  // and report against THOSE — re-renders after the first sweep are instant.
-  const pending = resolved.filter((r) => !segCacheByUid.has(segKey(r)));
-  if (pending.length > 0) {
-    showChartMessage(`Analysing rides… 0 / ${pending.length}`, 0);
-    await nextPaint(); // let the overlay paint before we start blocking
-    if (my !== analyticsSeq) return;
-  }
+  // Segmenting a ride is independent of the date range, so analyse the WHOLE resolved
+  // library (not just the in-range slice) and cache it. That keeps the progress total
+  // stable while the date slider moves — the slider only re-filters which cached rides
+  // are plotted, it never restarts the sweep or drops the count. Only rides not already
+  // memoized cost anything; re-renders after the first sweep are instant.
+  const allResolved = STATE.rides.filter((r) => !r.deleted && r.wind_resolved);
+  // Sweep newest-first (the list's canonical order) so progress reads as a sensible
+  // march through time rather than the store's arbitrary order.
+  const pending = allResolved
+    .filter((r) => !segCacheByUid.has(segKey(r)))
+    .sort((a, b) => compareRideKeysDesc(a.key, b.key));
   // Compute (and memoize) segments for each pending ride. Bail if a newer mount
   // (e.g. a date-slider drag) superseded this one while we awaited. One ride that
   // fails to load (corrupt cache, decode error) is skipped, never fatal — otherwise
   // a single bad ride in a large library would blank the whole chart.
   let done = 0;
+  let lastPaint = 0;
+  const sweepStart = performance.now();
   for (const r of pending) {
     const key = segKey(r);
     let entry: RideSegEntry;
@@ -2136,10 +2178,21 @@ async function mountAnalyticsView(_opts: { fit?: boolean } = {}): Promise<void> 
     if (my !== analyticsSeq) return;
     segCacheByUid.set(key, entry);
     done++;
-    // Refresh the progress overlay periodically (every ~2%, capped to ~50 updates)
-    // and yield so it repaints without slowing the sweep to a crawl.
-    if (done === pending.length || done % Math.max(1, Math.ceil(pending.length / 50)) === 0) {
-      showChartMessage(`Analysing rides… ${done} / ${pending.length}`, done / pending.length);
+    // Reveal the progress overlay only once a sweep has clearly run past a short delay,
+    // then refresh it on a ~100ms budget so it ticks smoothly and names the ride in
+    // flight. A download resolves rides one at a time, each firing a 1-ride top-up sweep
+    // that finishes well under the delay — so it never flashes the overlay over the
+    // existing chart. Big initial / re-segmentation sweeps cross the delay and show
+    // smooth progress as before.
+    const now = performance.now();
+    if (now - sweepStart >= 200 && (now - lastPaint >= 100 || done === pending.length)) {
+      lastPaint = now;
+      const label = rideShortLabel(r.key);
+      showChartMessage(
+        "Analysing rides…",
+        done / pending.length,
+        `${label ? `${label} · ` : ""}${done} / ${pending.length}`,
+      );
       await nextPaint();
       if (my !== analyticsSeq) return;
     }
@@ -3148,6 +3201,8 @@ function render(): void {
   renderJob();
   if (activeView === "map") mountAllRidesMap();
   else if (activeView === "stats") mountStatsView();
+  // The wrapper coalesces a re-entrant call into one post-sweep refresh, so a passive
+  // re-render (a background job ticking ride state) never restarts a live sweep.
   else if (activeView === "analytics") void mountAnalyticsView();
   else if (activeView === "timeline") mountTimelineView();
   else mountMaps();
