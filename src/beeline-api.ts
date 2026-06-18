@@ -322,8 +322,7 @@ export async function refreshSession(session: BeelineSession): Promise<BeelineSe
         "X-Android-Package": ANDROID_PACKAGE,
         "X-Android-Cert": ANDROID_CERT,
       },
-      body:
-        `grant_type=refresh_token&refresh_token=${encodeURIComponent(session.refreshToken)}`,
+      body: `grant_type=refresh_token&refresh_token=${encodeURIComponent(session.refreshToken)}`,
     });
   } catch (err) {
     throw new BeelineError(

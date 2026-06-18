@@ -58,7 +58,14 @@ describe("buildDaySamples", () => {
         lon: 3.9,
         accClass: "derived",
       },
-      { kind: "path", sourceId: 2, t: T("2024-06-13T10:00:00Z"), lat: 52.2, lon: 4.2, accClass: "approx" },
+      {
+        kind: "path",
+        sourceId: 2,
+        t: T("2024-06-13T10:00:00Z"),
+        lat: 52.2,
+        lon: 4.2,
+        accClass: "approx",
+      },
     ];
     const s = buildDaySamples(recs);
     // visit → 2 samples, move → 2 samples, path → 1 = 5

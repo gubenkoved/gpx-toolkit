@@ -19,10 +19,10 @@
  */
 
 import { gunzip, gzip } from "./gzip";
-import { decodeChunk, decodeHeader, encodeChunk } from "./loc-codec";
-import type { LocKind, LocProfile, LocRecord, LocSourceDef } from "./loc-model";
 import type { BlobStore } from "./kv";
 import { memoryBlobBackend } from "./kv";
+import { decodeChunk, decodeHeader, encodeChunk } from "./loc-codec";
+import type { LocKind, LocProfile, LocRecord, LocSourceDef } from "./loc-model";
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();

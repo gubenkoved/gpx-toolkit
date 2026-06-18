@@ -3,8 +3,8 @@ import { describe, expect, it } from "vitest";
 import type { LatLon } from "../src/track";
 import {
   linearRegression,
-  segmentRide,
   type SegmentOpts,
+  segmentRide,
   speedCapIndices,
 } from "../src/windspeed";
 
@@ -109,7 +109,14 @@ describe("segmentRide", () => {
     expect(up[0].netGradePct).toBeGreaterThan(0.8);
     const flat = segmentRide(points, times, [10, 10, 10, 10, 10], along, OPTS, "u1");
     expect(flat[0].netGradePct).toBeCloseTo(0, 5);
-    const unknown = segmentRide(points, times, points.map(() => null), along, OPTS, "u1");
+    const unknown = segmentRide(
+      points,
+      times,
+      points.map(() => null),
+      along,
+      OPTS,
+      "u1",
+    );
     expect(Number.isNaN(unknown[0].netGradePct)).toBe(true);
   });
 

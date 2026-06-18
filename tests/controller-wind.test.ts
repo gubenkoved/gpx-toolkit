@@ -24,7 +24,8 @@ function fakeWeather(): { deps: WeatherDeps; calls: () => number } {
     const end = url.searchParams.get("end_date") ?? start;
     const days = dayRange(start, end);
     const time: string[] = [];
-    for (const d of days) for (let h = 0; h < 24; h++) time.push(`${d}T${String(h).padStart(2, "0")}:00`);
+    for (const d of days)
+      for (let h = 0; h < 24; h++) time.push(`${d}T${String(h).padStart(2, "0")}:00`);
     const n = time.length;
     const locations = lats.map((lat, i) => ({
       latitude: Number(lat),
@@ -41,14 +42,22 @@ function fakeWeather(): { deps: WeatherDeps; calls: () => number } {
     return Promise.resolve(new Response(body, { status: 200 }));
   };
   return {
-    deps: { fetch: fetchFn as typeof fetch, now: () => Date.now(), sleep: () => Promise.resolve() },
+    deps: {
+      fetch: fetchFn as typeof fetch,
+      now: () => Date.now(),
+      sleep: () => Promise.resolve(),
+    },
     calls: () => calls,
   };
 }
 
 function dayRange(start: string, end: string): string[] {
   const out: string[] = [];
-  for (let t = Date.parse(`${start}T00:00:00Z`); t <= Date.parse(`${end}T00:00:00Z`); t += 86_400_000) {
+  for (
+    let t = Date.parse(`${start}T00:00:00Z`);
+    t <= Date.parse(`${end}T00:00:00Z`);
+    t += 86_400_000
+  ) {
     out.push(new Date(t).toISOString().slice(0, 10));
   }
   return out;
@@ -63,7 +72,12 @@ function addRide(store: Store, lat0: number, lon0: number): string {
     [lat0 + 0.05, lon0],
     [lat0 + 0.1, lon0], // heading due north
   ];
-  store.upsert(uid, { source: "gpx", track: encodePolyline(points), distance_km: 11, elapsed_sec: 1800 });
+  store.upsert(uid, {
+    source: "gpx",
+    track: encodePolyline(points),
+    distance_km: 11,
+    elapsed_sec: 1800,
+  });
   return uid;
 }
 

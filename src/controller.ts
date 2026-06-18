@@ -48,23 +48,23 @@ import {
   hasTimes,
   type LatLon,
 } from "./track";
-import { buildZip, unzip, type ZipEntry } from "./zip";
 import {
   type CellDayWind,
   cellDayKey,
   computeRidePoints,
   type Dataset,
-  datasetById,
   type DatasetId,
+  datasetById,
   OpenMeteo,
-  pickDatasets,
   type PointWind,
+  pickDatasets,
   type RideWind,
   sampleGridCells,
   summarize,
   type WeatherDeps,
 } from "./weather";
 import { WindCache } from "./windcache";
+import { buildZip, unzip, type ZipEntry } from "./zip";
 
 /** Largest number of grid cells to probe per ride (caps request cost). */
 const MAX_WIND_CELLS = 24;
@@ -86,7 +86,8 @@ function nowIsoLocal(): string {
 /** Unique UTC calendar days ("YYYY-MM-DD") spanned by a set of epoch-ms times, sorted. */
 function uniqueUtcDays(times: number[]): string[] {
   const days = new Set<string>();
-  for (const t of times) if (Number.isFinite(t)) days.add(new Date(t).toISOString().slice(0, 10));
+  for (const t of times)
+    if (Number.isFinite(t)) days.add(new Date(t).toISOString().slice(0, 10));
   return [...days].sort();
 }
 
@@ -378,9 +379,11 @@ export class Controller {
     // fetch survives a reload exactly like the queued download path — otherwise the
     // ride keeps showing as un-cached and offers to fetch again. Best-effort cache
     // write (quota errors surface via the cache's own onError); bytes are read-only.
-    void this.blobFor(uid).put(uid, bytes).then((ok) => {
-      if (ok) this.notify();
-    });
+    void this.blobFor(uid)
+      .put(uid, bytes)
+      .then((ok) => {
+        if (ok) this.notify();
+      });
     const rough = gpxToRoughTrack(bytes, this.store.settings.trackPointsPerKm);
     if (rough.polyline) {
       this.store.upsert(uid, {
@@ -425,9 +428,7 @@ export class Controller {
    * timestamps) backed the samples — false when times were synthesized from the
    * ride's start + elapsed duration, which makes per-segment speed unreliable.
    */
-  async windSamples(
-    key: string,
-  ): Promise<{
+  async windSamples(key: string): Promise<{
     points: LatLon[];
     times: number[];
     eles: (number | null)[];
@@ -654,12 +655,16 @@ export class Controller {
 
     for (const dataset of candidates) {
       const cells = sampleGridCells(points, dataset, MAX_WIND_CELLS);
-      report(`Sampling ${cells.length} wind cell${cells.length === 1 ? "" : "s"} along the route…`);
+      report(
+        `Sampling ${cells.length} wind cell${cells.length === 1 ? "" : "s"} along the route…`,
+      );
       // A forced refresh re-fetches every cell; otherwise only the cache gaps.
       const missingCells = force
         ? cells
         : cells.filter((c) =>
-            days.some((d) => !this.windCache.has(cellDayKey(dataset.id, c.latIdx, c.lonIdx, d))),
+            days.some(
+              (d) => !this.windCache.has(cellDayKey(dataset.id, c.latIdx, c.lonIdx, d)),
+            ),
           );
       if (missingCells.length > 0) {
         report(
@@ -667,12 +672,18 @@ export class Controller {
             `${missingCells.length} of ${cells.length} cell${cells.length === 1 ? "" : "s"} ` +
             `(${days.length} day${days.length === 1 ? "" : "s"})…`,
         );
-        const entries = await this.windClient.fetchWindMulti(dataset, missingCells, days, report);
+        const entries = await this.windClient.fetchWindMulti(
+          dataset,
+          missingCells,
+          days,
+          report,
+        );
         // Compute from the data we JUST fetched (merged with any cache hits) so the
         // result NEVER depends on the cache write succeeding — caching is only an
         // optimization for next time. A failed write degrades to "re-fetch later",
         // not "no wind at all". Persisting is best-effort and fire-and-forget.
-        for (const e of entries) freshEntries.set(cellDayKey(e.dataset, e.latIdx, e.lonIdx, e.dayISO), e);
+        for (const e of entries)
+          freshEntries.set(cellDayKey(e.dataset, e.latIdx, e.lonIdx, e.dayISO), e);
         void this.windCache.putMany(entries);
       } else {
         report(`Wind already cached (${dataset.label}) — drawing…`);
@@ -699,7 +710,11 @@ export class Controller {
 
   /** Cache-only recompute (no network). Returns false when the cache lacks a needed
    *  cell-day (e.g. it was flushed), so the caller falls back to a fetch job. */
-  private async tryComputeFromCache(uid: string, rec: RideRecord, dataset: Dataset): Promise<boolean> {
+  private async tryComputeFromCache(
+    uid: string,
+    rec: RideRecord,
+    dataset: Dataset,
+  ): Promise<boolean> {
     const pt = await this.ridePointsAndTimes(uid, rec);
     if (!pt || pt.points.length < 2) {
       this.rideWinds.set(uid, []);
@@ -708,7 +723,9 @@ export class Controller {
     }
     const cells = sampleGridCells(pt.points, dataset, MAX_WIND_CELLS);
     const days = uniqueUtcDays(pt.times);
-    const needed = cells.flatMap((c) => days.map((d) => cellDayKey(dataset.id, c.latIdx, c.lonIdx, d)));
+    const needed = cells.flatMap((c) =>
+      days.map((d) => cellDayKey(dataset.id, c.latIdx, c.lonIdx, d)),
+    );
     if (this.windCache.missingKeys(needed).length > 0) return false;
     const { lookup } = await this.buildLookup(dataset, cells, days);
     this.rideWinds.set(uid, computeRidePoints(pt.points, pt.times, lookup, dataset));
@@ -724,7 +741,10 @@ export class Controller {
     cells: { latIdx: number; lonIdx: number }[],
     days: string[],
     fresh?: Map<string, CellDayWind>,
-  ): Promise<{ lookup: (latIdx: number, lonIdx: number, day: string) => CellDayWind | null; centers: { lat: number; lon: number }[] }> {
+  ): Promise<{
+    lookup: (latIdx: number, lonIdx: number, day: string) => CellDayWind | null;
+    centers: { lat: number; lon: number }[];
+  }> {
     const map = new Map<string, CellDayWind>();
     const centers: { lat: number; lon: number }[] = [];
     for (const c of cells) {
@@ -798,7 +818,9 @@ export class Controller {
     const elapsedSec =
       rec.elapsed_sec ??
       rec.moving_sec ??
-      (rec.distance_km && rec.avg_speed_kmh ? (rec.distance_km / rec.avg_speed_kmh) * 3600 : 3600);
+      (rec.distance_km && rec.avg_speed_kmh
+        ? (rec.distance_km / rec.avg_speed_kmh) * 3600
+        : 3600);
     const times = new Array<number>(points.length);
     for (let i = 0; i < points.length; i++) {
       times[i] = startMs + (elapsedSec * 1000 * i) / (points.length - 1);
@@ -1269,9 +1291,11 @@ export class Controller {
               // must never delay or fail the download itself (quota errors surface via
               // the cache's own onError). The bytes are only read, never mutated. A
               // remote download is always a re-fetchable source, so this is the cache.
-              void this.blobFor(uid).put(uid, file.bytes).then((ok) => {
-                if (ok) this.notify();
-              });
+              void this.blobFor(uid)
+                .put(uid, file.bytes)
+                .then((ok) => {
+                  if (ok) this.notify();
+                });
             }
             const rough = gpxToRoughTrack(file.bytes, this.store.settings.trackPointsPerKm);
             if (rough.polyline) {
@@ -1717,7 +1741,10 @@ export class Controller {
 
     // 6. Prepend manifest and build the ZIP.
     const manifestJson = JSON.stringify(manifest, null, 2);
-    zipEntries.unshift({ name: "manifest.json", bytes: new TextEncoder().encode(manifestJson) });
+    zipEntries.unshift({
+      name: "manifest.json",
+      bytes: new TextEncoder().encode(manifestJson),
+    });
 
     return buildZip(zipEntries);
   }
@@ -1734,9 +1761,12 @@ export class Controller {
    * logged but does not abort the import (other blobs are written). Returns
    * ridesImported (0 on schema mismatch) and counts of GPX/wind blobs restored.
    */
-  async importAllZip(
-    bytesOrBlob: Uint8Array | ArrayBuffer | Blob,
-  ): Promise<{ ridesImported: number; gpxCacheImported: number; gpxDataImported: number; windImported: number }> {
+  async importAllZip(bytesOrBlob: Uint8Array | ArrayBuffer | Blob): Promise<{
+    ridesImported: number;
+    gpxCacheImported: number;
+    gpxDataImported: number;
+    windImported: number;
+  }> {
     // Convert various input types to Uint8Array.
     let bytes: Uint8Array;
     if (bytesOrBlob instanceof Blob) {
@@ -1804,7 +1834,11 @@ export class Controller {
     }
 
     // Rebuild the cache indexes to reflect the new/imported entries.
-    await Promise.all([this.gpxCache.reload(), this.gpxData.reload(), this.windCache.reload()]);
+    await Promise.all([
+      this.gpxCache.reload(),
+      this.gpxData.reload(),
+      this.windCache.reload(),
+    ]);
 
     return { ridesImported, gpxCacheImported, gpxDataImported, windImported };
   }

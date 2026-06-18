@@ -15,8 +15,8 @@ import {
   movingAverage,
   simplify,
   smoothedSpeedsKmh,
-  stoppedRanges,
   stableStoppedRanges,
+  stoppedRanges,
   trackLengthKm,
 } from "../src/track";
 
@@ -131,7 +131,9 @@ function stationaryJitterGpx(): string {
     const lat = lat0 + (rnd() - 0.5) * 2 * jitterDeg;
     const lon = lon0 + (rnd() - 0.5) * 2 * jitterDeg * lonScale;
     const iso = new Date(i * 1000).toISOString(); // 1 Hz
-    pts.push(`<trkpt lat="${lat.toFixed(7)}" lon="${lon.toFixed(7)}"><time>${iso}</time></trkpt>`);
+    pts.push(
+      `<trkpt lat="${lat.toFixed(7)}" lon="${lon.toFixed(7)}"><time>${iso}</time></trkpt>`,
+    );
   }
   return `<gpx version="1.1"><trk><trkseg>${pts.join("")}</trkseg></trk></gpx>`;
 }
@@ -162,7 +164,9 @@ describe("smoothedSpeedsKmh", () => {
       const iso = new Date(i * 10_000).toISOString();
       pts.push(`<trkpt lat="${lat}" lon="5.000000"><time>${iso}</time></trkpt>`);
     }
-    const ft = extractFullTrack(`<gpx version="1.1"><trk><trkseg>${pts.join("")}</trkseg></trk></gpx>`);
+    const ft = extractFullTrack(
+      `<gpx version="1.1"><trk><trkseg>${pts.join("")}</trkseg></trk></gpx>`,
+    );
     const smoothed = smoothedSpeedsKmh(ft).filter((v): v is number => v != null);
     expect(smoothed.length).toBe(12);
     for (const s of smoothed) {
@@ -181,7 +185,6 @@ describe("smoothedSpeedsKmh", () => {
     expect(smoothedSpeedsKmh(ft)).toEqual([null, null]);
   });
 });
-
 
 describe("fullTrackSummary", () => {
   it("derives the full-track-only headline stats", () => {
@@ -287,7 +290,9 @@ describe("fullTrackSummary jitter robustness", () => {
     for (let i = 0; i < 20; i++) {
       push(baseLat + (rnd() - 0.5) * 1.1e-4, 5 + (rnd() - 0.5) * 1.8e-4);
     }
-    const ft = extractFullTrack(`<gpx version="1.1"><trk><trkseg>${pts.join("")}</trkseg></trk></gpx>`);
+    const ft = extractFullTrack(
+      `<gpx version="1.1"><trk><trkseg>${pts.join("")}</trkseg></trk></gpx>`,
+    );
     const s = fullTrackSummary(ft);
 
     // Peak reflects the ~40 km/h riding, not a wild jitter spike.

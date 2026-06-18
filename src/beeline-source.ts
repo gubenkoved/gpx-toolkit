@@ -319,9 +319,7 @@ export class BeelineRideSource implements RideSource {
     await this.withFreshSession((s) => this.api.uploadRideToStrava(s, pushId));
     let current = raw;
     for (let i = 0; i < UPLOAD_POLL_ATTEMPTS; i++) {
-      const act = await this.withFreshSession((s) =>
-        this.api.fetchStravaActivity(s, pushId),
-      );
+      const act = await this.withFreshSession((s) => this.api.fetchStravaActivity(s, pushId));
       current = { ...current, strava_activity: act };
       if (isTerminalStatus(stravaStatusOf(current))) break;
       if (await progress(`waiting for Strava: ${name}…`)) break;

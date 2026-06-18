@@ -83,7 +83,7 @@ describe("buildZip", () => {
     const entries = [
       { name: "a.gpx", bytes: enc("<gpx>".repeat(50)) }, // compressible → deflate
       { name: "b.gpx", bytes: enc("xyz") }, // tiny → stored
-      { name: "c.gpx", bytes: enc("<trkpt lat=\"1\" lon=\"2\"/>".repeat(40)) },
+      { name: "c.gpx", bytes: enc('<trkpt lat="1" lon="2"/>'.repeat(40)) },
     ];
     const zip = await buildZip(entries);
     const parsed = await readZip(zip);

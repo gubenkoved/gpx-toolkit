@@ -26,7 +26,9 @@ const OPTS = { importedAt: 1_700_000_000_000, importId: "test-import" } as const
 
 describe("parseLatLng", () => {
   it("parses the on-device \u201clat\u00b0, lon\u00b0\u201d form", () => {
-    expect(parseLatLng("51.5403834\u00b0, 46.0242612\u00b0")).toEqual([51.5403834, 46.0242612]);
+    expect(parseLatLng("51.5403834\u00b0, 46.0242612\u00b0")).toEqual([
+      51.5403834, 46.0242612,
+    ]);
   });
 
   it("parses a plain comma-separated pair without degree marks", () => {
@@ -78,7 +80,12 @@ describe("parseOnDevice", () => {
 
   it("ignores timelineMemory, activityRecord and wifiScan (privacy)", () => {
     // No record should carry a Wi-Fi MAC or come from a memory/activityRecord shape.
-    expect(imp.records.every((r) => r.kind === "path" || r.kind === "visit" || r.kind === "move" || r.kind === "fix")).toBe(true);
+    expect(
+      imp.records.every(
+        (r) =>
+          r.kind === "path" || r.kind === "visit" || r.kind === "move" || r.kind === "fix",
+      ),
+    ).toBe(true);
     // 2 path + 2 visit + 3 move + 2 fix = 9 total; nothing leaked from wifiScan.
     expect(imp.records.length).toBe(9);
   });
@@ -95,7 +102,9 @@ describe("parseOnDevice", () => {
   });
 
   it("parses an activity with start/end, distance and mode", () => {
-    const move = imp.records.find((r) => r.kind === "move" && r.actType === "IN_PASSENGER_VEHICLE");
+    const move = imp.records.find(
+      (r) => r.kind === "move" && r.actType === "IN_PASSENGER_VEHICLE",
+    );
     expect(move).toBeDefined();
     expect(move!.distanceM).toBeCloseTo(35309.296875, 3);
     expect(move!.lat2).toBeDefined();

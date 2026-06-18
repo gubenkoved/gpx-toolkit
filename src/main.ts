@@ -22,7 +22,8 @@ import {
   type TriState,
   visibleRides,
 } from "./filter";
-import { BASE_SPACING_M, buildHeatPoints, type HeatBounds, spacingForZoom } from "./heatmap";import {
+import { BASE_SPACING_M, buildHeatPoints, type HeatBounds, spacingForZoom } from "./heatmap";
+import {
   type DateRange,
   dateRange,
   filterRidesByRange,
@@ -39,16 +40,8 @@ import {
 } from "./parsing";
 import { computeStats, type PeriodRecord } from "./stats";
 import "leaflet.heat";
-import { drawWindSpeedChart } from "./windchart";
-import {
-  linearRegression,
-  segmentRide,
-  type SegmentOpts,
-  speedCapIndices,
-  type WindSeg,
-} from "./windspeed";
-import { DEMO_BEELINE_EMAIL, demoBeelineDeps } from "./beeline-demo";
 import { BeelineError } from "./beeline-api";
+import { DEMO_BEELINE_EMAIL, demoBeelineDeps } from "./beeline-demo";
 import { BeelineRideSource, type BeelineSourceDeps } from "./beeline-source";
 import { GpxRideSource } from "./gpx-source";
 import { GpxCache } from "./gpxcache";
@@ -61,22 +54,7 @@ import {
 } from "./kv";
 import { parseLocationHistory } from "./loc-parse";
 import { LocationHistoryStore } from "./loc-store";
-import {
-  closeTimelineHelp,
-  collapseTimeline,
-  initTimelineView,
-  isTimelineExpanded,
-  isTimelineHelpOpen,
-  leaveTimelineView,
-  mountTimelineView,
-  resetTimelineData,
-} from "./timeline-view";
 import { createLocate, type Locate } from "./locate";
-import type { SourceFactory } from "./source";
-import { addTag, collectTags, hasTag, normalizeTag, removeTag, tagKey } from "./tags";
-import { type RideSource, STORAGE_KEY, Store } from "./store";
-import { decodePolyline } from "./track";
-import { WindCache } from "./windcache";
 import {
   closeRideMap,
   enableRideMapWind,
@@ -90,6 +68,29 @@ import {
   toggleRideMapProfile,
   toggleRideMapWind,
 } from "./ridemap";
+import type { SourceFactory } from "./source";
+import { type RideSource, STORAGE_KEY, Store } from "./store";
+import { addTag, collectTags, hasTag, normalizeTag, removeTag, tagKey } from "./tags";
+import {
+  closeTimelineHelp,
+  collapseTimeline,
+  initTimelineView,
+  isTimelineExpanded,
+  isTimelineHelpOpen,
+  leaveTimelineView,
+  mountTimelineView,
+  resetTimelineData,
+} from "./timeline-view";
+import { decodePolyline } from "./track";
+import { WindCache } from "./windcache";
+import { drawWindSpeedChart } from "./windchart";
+import {
+  linearRegression,
+  type SegmentOpts,
+  segmentRide,
+  speedCapIndices,
+  type WindSeg,
+} from "./windspeed";
 
 const $ = <T extends HTMLElement = HTMLElement>(sel: string): T =>
   document.querySelector(sel) as T;
@@ -418,9 +419,7 @@ function resolveWindFor(keys: string[], force = false): void {
     );
     return;
   }
-  toast(
-    n === 1 ? "Resolving wind for 1 ride…" : `Resolving wind for ${n} rides…`,
-  );
+  toast(n === 1 ? "Resolving wind for 1 ride…" : `Resolving wind for ${n} rides…`);
 }
 
 /** Build a ride source from a device getter (closure captures serial, etc.). */
@@ -1177,7 +1176,11 @@ function refreshRange(which: RangeView): void {
 const rangeOf = (which: RangeView): DateRange | null =>
   which === "map" ? mapRange : which === "stats" ? statsRange : analyticsRange;
 const boundsOf = (which: RangeView): DateRange | null =>
-  which === "map" ? mapRangeBounds : which === "stats" ? statsRangeBounds : analyticsRangeBounds;
+  which === "map"
+    ? mapRangeBounds
+    : which === "stats"
+      ? statsRangeBounds
+      : analyticsRangeBounds;
 /** The DOM id of a view's range-slider host. Ids follow the `${which}Filter`
  *  convention (mapFilter / statsFilter / analyticsFilter). */
 const filterHostId = (which: RangeView): string => `${which}Filter`;
@@ -3154,7 +3157,8 @@ function render(): void {
       rows.push(sub("Caches"));
       if (cacheCount)
         rows.push(row("Beeline tracks", fmtBytes(controller.gpxCacheBytes()), "gpx"));
-      if (windCount) rows.push(row("Wind cache", fmtBytes(controller.windCacheBytes()), "wind"));
+      if (windCount)
+        rows.push(row("Wind cache", fmtBytes(controller.windCacheBytes()), "wind"));
     }
     storageInfo.innerHTML = rows.join("");
     storageInfo.classList.toggle("hidden", rows.length === 0);
@@ -3772,7 +3776,7 @@ function stateSig(): string {
   const jobsSig =
     [...(jobs.active_keys ?? [])].sort().join(",") +
     ";" +
-    [...(jobs.current ? jobs.current_keys ?? [] : [])].sort().join(",");
+    [...(jobs.current ? (jobs.current_keys ?? []) : [])].sort().join(",");
   // Strip the per-ride WEATHER fields too — during a bulk wind resolve they update
   // one ride at a time, and including them would rebuild the whole list (remounting
   // maps) on every resolved ride. Weather changes are applied in place by
@@ -3952,7 +3956,8 @@ function importRides(file: File): void {
         const arrayBuf = reader.result as ArrayBuffer;
         toast("Importing full backup…");
         const result = await controller.importAllZip(arrayBuf);
-        const msg = `Imported — ${result.ridesImported} ride${result.ridesImported === 1 ? "" : "s"}, ` +
+        const msg =
+          `Imported — ${result.ridesImported} ride${result.ridesImported === 1 ? "" : "s"}, ` +
           `${result.gpxCacheImported} cached GPX${result.gpxCacheImported === 1 ? "" : "s"}, ` +
           `${result.gpxDataImported} imported GPX${result.gpxDataImported === 1 ? "" : "s"}, ` +
           `${result.windImported} wind cache entries.`;
@@ -3972,7 +3977,12 @@ function importRides(file: File): void {
         controllerReady: controller != null,
         isDemo,
         file: { name: file.name, size: file.size, type: file.type },
-        resultLength: typeof reader.result === "string" ? reader.result.length : (reader.result instanceof ArrayBuffer ? reader.result.byteLength : null),
+        resultLength:
+          typeof reader.result === "string"
+            ? reader.result.length
+            : reader.result instanceof ArrayBuffer
+              ? reader.result.byteLength
+              : null,
       });
       const label = e?.name ? `${e.name} — ${e.message}` : e?.message;
       pushError("Import failed", e?.stack || label || "unknown import error");
@@ -4719,7 +4729,11 @@ document.addEventListener("input", (e) => {
     applyState();
     return;
   }
-  if (el.dataset.range === "map" || el.dataset.range === "stats" || el.dataset.range === "analytics") {
+  if (
+    el.dataset.range === "map" ||
+    el.dataset.range === "stats" ||
+    el.dataset.range === "analytics"
+  ) {
     onRangeInput(el.dataset.range as RangeView, el);
     return;
   }

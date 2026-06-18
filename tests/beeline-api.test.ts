@@ -363,7 +363,10 @@ describe("exportRideGpx (full cloud track)", () => {
       async () =>
         new Response(
           JSON.stringify({
-            error: { status: "NOT_FOUND", message: "Unable to export ride due lack of ride points" },
+            error: {
+              status: "NOT_FOUND",
+              message: "Unable to export ride due lack of ride points",
+            },
           }),
           { status: 404 },
         ),

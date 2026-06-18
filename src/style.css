@@ -1895,7 +1895,10 @@ span.caret.open::before {
   font-size: 11px;
   line-height: 1.5;
   cursor: pointer;
-  transition: color 0.15s ease, border-color 0.15s ease, background-color 0.15s ease;
+  transition:
+    color 0.15s ease,
+    border-color 0.15s ease,
+    background-color 0.15s ease;
 }
 .menu-storage .ms-clear:hover:not(:disabled) {
   color: var(--accent);
@@ -2096,7 +2099,9 @@ body.ridemap-open {
   background: color-mix(in srgb, var(--wind) 12%, transparent);
   cursor: help;
   vertical-align: baseline;
-  transition: border-color 0.18s ease, background-color 0.18s ease;
+  transition:
+    border-color 0.18s ease,
+    background-color 0.18s ease;
 }
 .ridemap-hover .rmh-dial.hidden {
   display: none;

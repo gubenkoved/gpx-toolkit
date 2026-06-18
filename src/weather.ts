@@ -113,7 +113,12 @@ export function datasetById(id: DatasetId): Dataset {
  * cells against the first candidate that actually returns wind and falls back down
  * the list otherwise (e.g. a CERRA gap → IFS → ERA5).
  */
-export function pickDatasets(lat: number, lon: number, dateMs: number, nowMs: number): Dataset[] {
+export function pickDatasets(
+  lat: number,
+  lon: number,
+  dateMs: number,
+  nowMs: number,
+): Dataset[] {
   const ageDays = (nowMs - dateMs) / 86_400_000;
   // Too recent for the reanalysis archive — only the live forecast has it.
   if (ageDays < ARCHIVE_LAG_DAYS) return [DATASETS.forecast];
@@ -230,7 +235,11 @@ export function cellDayKey(
  * `[[south, west], [north, east]]`. Longitude degrees are widened by 1/cos(lat) so
  * the footprint is the right ground size at any latitude.
  */
-export function cellBounds(cellLat: number, cellLon: number, gridKm: number): [LatLon, LatLon] {
+export function cellBounds(
+  cellLat: number,
+  cellLon: number,
+  gridKm: number,
+): [LatLon, LatLon] {
   const halfLat = gridKm / 2 / 111.32;
   const halfLon = halfLat / Math.max(0.01, Math.cos((cellLat * Math.PI) / 180));
   return [
@@ -286,7 +295,11 @@ export function bearingDeg(a: LatLon, b: LatLon): number {
  * Derivation: a wind from due south (180°) while riding due north (0°) is a pure
  * tailwind → `-speed·cos(180−0) = -speed·(−1) = +speed`.
  */
-export function alongTrackComponentKmh(fromDeg: number, speed: number, bearing: number): number {
+export function alongTrackComponentKmh(
+  fromDeg: number,
+  speed: number,
+  bearing: number,
+): number {
   return -speed * Math.cos((fromDeg - bearing) * D2R);
 }
 
@@ -366,7 +379,11 @@ function lerpNullable(a: number | null, b: number | null, frac: number): number 
 }
 
 /** A decoded-cell lookup: returns the cached wind for a cell on a UTC day, or null. */
-export type CellLookup = (latIdx: number, lonIdx: number, dayISO: string) => CellDayWind | null;
+export type CellLookup = (
+  latIdx: number,
+  lonIdx: number,
+  dayISO: string,
+) => CellDayWind | null;
 
 /**
  * Compute per-point wind along a track (render-time only — never persisted). For
@@ -385,8 +402,13 @@ export function computeRidePoints(
   // The wind SAMPLE (direction/speed/gust) at each point, before projecting onto the
   // local heading. Kept separately so we can fill gaps (points whose own cell had no
   // data — e.g. the track crosses water) from the nearest resolved sample.
-  const sample: ({ fromDeg: number; speedKmh: number; gustKmh: number; cellLat: number; cellLon: number } | null)[] =
-    new Array(n).fill(null);
+  const sample: ({
+    fromDeg: number;
+    speedKmh: number;
+    gustKmh: number;
+    cellLat: number;
+    cellLon: number;
+  } | null)[] = new Array(n).fill(null);
   for (let i = 0; i < n; i++) {
     const tMs = pointTimesMs[i];
     if (!Number.isFinite(tMs)) continue;
@@ -605,7 +627,12 @@ export class OpenMeteo {
   }
 
   /** Normalize the response (single object or array) and split into cell-days. */
-  private parse(dataset: Dataset, cells: Cell[], days: string[], json: unknown): CellDayWind[] {
+  private parse(
+    dataset: Dataset,
+    cells: Cell[],
+    days: string[],
+    json: unknown,
+  ): CellDayWind[] {
     if (json && typeof json === "object" && (json as { error?: unknown }).error) {
       const reason = String((json as { reason?: unknown }).reason ?? "unknown error");
       throw new WeatherError(`Open-Meteo error: ${reason}`, 400);
@@ -667,7 +694,8 @@ export class OpenMeteo {
       const now = this.deps.now();
       this.recent = this.recent.filter((t) => now - t < 60_000);
       let wait = 0;
-      if (this.lastStartMs != null) wait = Math.max(wait, this.minSpacingMs - (now - this.lastStartMs));
+      if (this.lastStartMs != null)
+        wait = Math.max(wait, this.minSpacingMs - (now - this.lastStartMs));
       if (this.recent.length >= this.maxPerMin) {
         wait = Math.max(wait, 60_000 - (now - this.recent[0]));
       }

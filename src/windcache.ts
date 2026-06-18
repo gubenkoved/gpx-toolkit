@@ -223,7 +223,11 @@ export class WindCache {
     try {
       const stored = await this.blob.get(key);
       // Only write if missing or bytes differ (idempotent import)
-      if (stored && stored.length === compressedBytes.length && bytesEqual(stored, compressedBytes)) {
+      if (
+        stored &&
+        stored.length === compressedBytes.length &&
+        bytesEqual(stored, compressedBytes)
+      ) {
         return false; // no change
       }
       await this.blob.set(key, compressedBytes);

@@ -16,14 +16,7 @@
  * integers, which is well below any meaningful display precision.
  */
 
-import type {
-  AccClass,
-  ActType,
-  FixSource,
-  LocKind,
-  LocRecord,
-  VisitType,
-} from "./loc-model";
+import type { AccClass, ActType, FixSource, LocKind, LocRecord, VisitType } from "./loc-model";
 import { ByteReader, ByteWriter } from "./varint";
 
 /** Coordinate precision: E7 integers (7 decimals) — lossless vs Google's own coords. */
@@ -113,7 +106,11 @@ function writeSparse(
 }
 
 /** Read a sparse numeric column written by `writeSparse` into `out[index] = value`. */
-function readSparse(r: ByteReader, signed: boolean, apply: (i: number, v: number) => void): void {
+function readSparse(
+  r: ByteReader,
+  signed: boolean,
+  apply: (i: number, v: number) => void,
+): void {
   const m = r.uvarint();
   let idxCur = 0;
   for (let k = 0; k < m; k++) {
@@ -198,13 +195,19 @@ export function encodeChunk(month: string, recordsIn: LocRecord[]): Uint8Array {
   }
 
   // Sparse optional columns (order must match decode).
-  writeSparse(w, n, (i) => (records[i].endT !== undefined ? records[i].endT! - records[i].t : undefined), true);
+  writeSparse(
+    w,
+    n,
+    (i) => (records[i].endT !== undefined ? records[i].endT! - records[i].t : undefined),
+    true,
+  );
   writeSparse(
     w,
     n,
     (i) =>
       records[i].lat2 !== undefined
-        ? Math.round(records[i].lat2! * COORD_FACTOR) - Math.round(records[i].lat * COORD_FACTOR)
+        ? Math.round(records[i].lat2! * COORD_FACTOR) -
+          Math.round(records[i].lat * COORD_FACTOR)
         : undefined,
     true,
   );
@@ -213,19 +216,76 @@ export function encodeChunk(month: string, recordsIn: LocRecord[]): Uint8Array {
     n,
     (i) =>
       records[i].lon2 !== undefined
-        ? Math.round(records[i].lon2! * COORD_FACTOR) - Math.round(records[i].lon * COORD_FACTOR)
+        ? Math.round(records[i].lon2! * COORD_FACTOR) -
+          Math.round(records[i].lon * COORD_FACTOR)
         : undefined,
     true,
   );
-  writeSparse(w, n, (i) => (records[i].distanceM !== undefined ? Math.round(records[i].distanceM!) : undefined), false);
-  writeSparse(w, n, (i) => (records[i].accM !== undefined ? Math.round(records[i].accM!) : undefined), false);
-  writeSparse(w, n, (i) => (records[i].altM !== undefined ? Math.round(records[i].altM!) : undefined), true);
-  writeSparse(w, n, (i) => (records[i].speed !== undefined ? Math.round(records[i].speed! * 100) : undefined), false);
-  writeSparse(w, n, (i) => (records[i].prob !== undefined ? Math.round(records[i].prob! * 255) : undefined), false);
-  writeSparse(w, n, (i) => (records[i].actType !== undefined ? idx(ACT_TYPES, records[i].actType, ACT_TYPES.length - 1) : undefined), false);
-  writeSparse(w, n, (i) => (records[i].semanticType !== undefined ? idx(VISIT_TYPES, records[i].semanticType, VISIT_TYPES.length - 1) : undefined), false);
-  writeSparse(w, n, (i) => (records[i].fixSource !== undefined ? idx(FIX_SOURCES, records[i].fixSource, FIX_SOURCES.length - 1) : undefined), false);
-  writeSparse(w, n, (i) => (records[i].placeId !== undefined ? placeIndex.get(records[i].placeId!)! : undefined), false);
+  writeSparse(
+    w,
+    n,
+    (i) =>
+      records[i].distanceM !== undefined ? Math.round(records[i].distanceM!) : undefined,
+    false,
+  );
+  writeSparse(
+    w,
+    n,
+    (i) => (records[i].accM !== undefined ? Math.round(records[i].accM!) : undefined),
+    false,
+  );
+  writeSparse(
+    w,
+    n,
+    (i) => (records[i].altM !== undefined ? Math.round(records[i].altM!) : undefined),
+    true,
+  );
+  writeSparse(
+    w,
+    n,
+    (i) => (records[i].speed !== undefined ? Math.round(records[i].speed! * 100) : undefined),
+    false,
+  );
+  writeSparse(
+    w,
+    n,
+    (i) => (records[i].prob !== undefined ? Math.round(records[i].prob! * 255) : undefined),
+    false,
+  );
+  writeSparse(
+    w,
+    n,
+    (i) =>
+      records[i].actType !== undefined
+        ? idx(ACT_TYPES, records[i].actType, ACT_TYPES.length - 1)
+        : undefined,
+    false,
+  );
+  writeSparse(
+    w,
+    n,
+    (i) =>
+      records[i].semanticType !== undefined
+        ? idx(VISIT_TYPES, records[i].semanticType, VISIT_TYPES.length - 1)
+        : undefined,
+    false,
+  );
+  writeSparse(
+    w,
+    n,
+    (i) =>
+      records[i].fixSource !== undefined
+        ? idx(FIX_SOURCES, records[i].fixSource, FIX_SOURCES.length - 1)
+        : undefined,
+    false,
+  );
+  writeSparse(
+    w,
+    n,
+    (i) =>
+      records[i].placeId !== undefined ? placeIndex.get(records[i].placeId!)! : undefined,
+    false,
+  );
 
   const body = w.bytes();
   const headerBytes = new TextEncoder().encode(JSON.stringify(header));
@@ -249,7 +309,9 @@ export function decodeHeader(buf: Uint8Array): ChunkHeader {
 export function decodeChunk(buf: Uint8Array): { header: ChunkHeader; records: LocRecord[] } {
   const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
   const headerLen = dv.getUint32(0, true);
-  const header = JSON.parse(new TextDecoder().decode(buf.subarray(4, 4 + headerLen))) as ChunkHeader;
+  const header = JSON.parse(
+    new TextDecoder().decode(buf.subarray(4, 4 + headerLen)),
+  ) as ChunkHeader;
   const n = header.n;
   const r = new ByteReader(buf.subarray(4 + headerLen));
 

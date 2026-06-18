@@ -6,10 +6,47 @@ import { LocationHistoryStore, monthKey } from "../src/loc-store";
 
 function recordsAcrossMonths(): LocRecord[] {
   return [
-    { kind: "path", sourceId: 0, t: Date.parse("2020-09-15T12:00:00Z"), lat: 51.5, lon: 46.0, accClass: "approx" },
-    { kind: "visit", sourceId: 1, t: Date.parse("2020-09-15T13:00:00Z"), endT: Date.parse("2020-09-15T18:00:00Z"), lat: 51.54, lon: 46.02, accClass: "derived", semanticType: "HOME" },
-    { kind: "move", sourceId: 2, t: Date.parse("2020-10-02T08:00:00Z"), endT: Date.parse("2020-10-02T08:30:00Z"), lat: 52.0, lon: 4.8, lat2: 52.1, lon2: 4.9, accClass: "derived", actType: "CYCLING", distanceM: 5000 },
-    { kind: "fix", sourceId: 3, t: Date.parse("2021-01-20T09:00:00Z"), lat: 52.28, lon: 4.83, accClass: "fine", accM: 12, fixSource: "GPS" },
+    {
+      kind: "path",
+      sourceId: 0,
+      t: Date.parse("2020-09-15T12:00:00Z"),
+      lat: 51.5,
+      lon: 46.0,
+      accClass: "approx",
+    },
+    {
+      kind: "visit",
+      sourceId: 1,
+      t: Date.parse("2020-09-15T13:00:00Z"),
+      endT: Date.parse("2020-09-15T18:00:00Z"),
+      lat: 51.54,
+      lon: 46.02,
+      accClass: "derived",
+      semanticType: "HOME",
+    },
+    {
+      kind: "move",
+      sourceId: 2,
+      t: Date.parse("2020-10-02T08:00:00Z"),
+      endT: Date.parse("2020-10-02T08:30:00Z"),
+      lat: 52.0,
+      lon: 4.8,
+      lat2: 52.1,
+      lon2: 4.9,
+      accClass: "derived",
+      actType: "CYCLING",
+      distanceM: 5000,
+    },
+    {
+      kind: "fix",
+      sourceId: 3,
+      t: Date.parse("2021-01-20T09:00:00Z"),
+      lat: 52.28,
+      lon: 4.83,
+      accClass: "fine",
+      accM: 12,
+      fixSource: "GPS",
+    },
   ];
 }
 
@@ -66,7 +103,10 @@ describe("LocationHistoryStore", () => {
     const store = LocationHistoryStore.memory();
     await store.addImport(recordsAcrossMonths(), sources());
     expect(
-      store.monthsInRange(Date.parse("2020-10-01T00:00:00Z"), Date.parse("2021-12-31T00:00:00Z")),
+      store.monthsInRange(
+        Date.parse("2020-10-01T00:00:00Z"),
+        Date.parse("2021-12-31T00:00:00Z"),
+      ),
     ).toEqual(["2020-10", "2021-01"]);
   });
 
@@ -88,7 +128,16 @@ describe("LocationHistoryStore", () => {
     await store.addImport(recordsAcrossMonths(), sources());
     // Re-import the same provenance defs — must NOT grow the source table.
     await store.addImport(
-      [{ kind: "path", sourceId: 0, t: Date.parse("2020-09-16T12:00:00Z"), lat: 51.6, lon: 46.1, accClass: "approx" }],
+      [
+        {
+          kind: "path",
+          sourceId: 0,
+          t: Date.parse("2020-09-16T12:00:00Z"),
+          lat: 51.6,
+          lon: 46.1,
+          accClass: "approx",
+        },
+      ],
       [{ id: 0, format: "on-device", origin: "seg.path", importId: "imp1" }],
     );
     expect(store.sources().length).toBe(4);

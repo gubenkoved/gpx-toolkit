@@ -22,8 +22,8 @@ import { rideDatetime, rideShortLabel } from "./parsing";
 import {
   cumulativeKm,
   decodePolyline,
-  filledTimes,
   type FullTrack,
+  filledTimes,
   fullTrackSummary,
   hasElevation,
   hasTimes,
@@ -83,7 +83,7 @@ const withGpxRelayConsent = (action: () => void): void => deps.withGpxRelayConse
 /** 8-point compass label for a FROM-direction (degrees). */
 function compass8(deg: number): string {
   const dirs = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
-  return dirs[Math.round(((deg % 360) + 360) % 360 / 45) % 8];
+  return dirs[Math.round((((deg % 360) + 360) % 360) / 45) % 8];
 }
 
 /** Colour each track segment by its along-track wind: green tailwind → red headwind. */
@@ -137,7 +137,12 @@ function windArrowIcon(bearingDeg: number): L.DivIcon {
     `<g class="wa-casing" fill="none" stroke-linecap="round" stroke-linejoin="round">${chevrons}</g>` +
     `<g class="wa-stroke" fill="none" stroke-linecap="round" stroke-linejoin="round">${chevrons}</g>` +
     `</svg></span>`;
-  return L.divIcon({ html, className: "wind-arrow-icon", iconSize: [38, 38], iconAnchor: [19, 19] });
+  return L.divIcon({
+    html,
+    className: "wind-arrow-icon",
+    iconSize: [38, 38],
+    iconAnchor: [19, 19],
+  });
 }
 
 /** Diverging colour for an along-track component: +tailwind green, −headwind red. */
@@ -461,7 +466,11 @@ function renderRideProfile(): void {
   let stops = "";
   const speeds = rideHover!.speeds;
   if (speeds && full) {
-    for (const [s, e] of stableStoppedRanges(full, getState().settings.movingThresholdKmh, speeds)) {
+    for (const [s, e] of stableStoppedRanges(
+      full,
+      getState().settings.movingThresholdKmh,
+      speeds,
+    )) {
       let x1 = axisX[s];
       let x2 = axisX[Math.min(e + 1, axisX.length - 1)];
       if (x2 - x1 < minBandW) {
@@ -1097,14 +1106,16 @@ export function openRideMap(key: string): void {
   // full track" for data we already hold. Async: the initial build above already drew
   // the route, this just upgrades it in place once the cache read resolves.
   if (ride?.gpx_cached && !getController().getFullTrack(key)) {
-    void getController().loadCachedFullTrack(key).then((ft) => {
-      if (ft && rideMapKey === key && rideMapBig) {
-        buildRideMapState();
-        if (rideHover) {
-          rideMapBig.fitBounds(L.latLngBounds(rideHover.pts), { padding: [24, 24] });
+    void getController()
+      .loadCachedFullTrack(key)
+      .then((ft) => {
+        if (ft && rideMapKey === key && rideMapBig) {
+          buildRideMapState();
+          if (rideHover) {
+            rideMapBig.fitBounds(L.latLngBounds(rideHover.pts), { padding: [24, 24] });
+          }
         }
-      }
-    });
+      });
   }
 
   map.on("move zoom resize zoomend moveend", reprojectRideHover);

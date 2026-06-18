@@ -244,8 +244,7 @@ function idbBlobBackendFor(storeName: string): BlobStore {
   };
   return {
     get: (k) => runOn<unknown>(storeName, "readonly", (s) => s.get(k)).then(toBytes),
-    set: (k, v) =>
-      runOn(storeName, "readwrite", (s) => s.put(v, k)).then(() => undefined),
+    set: (k, v) => runOn(storeName, "readwrite", (s) => s.put(v, k)).then(() => undefined),
     del: (k) => runOn(storeName, "readwrite", (s) => s.delete(k)).then(() => undefined),
     keys: () =>
       runOn<IDBValidKey[]>(storeName, "readonly", (s) => s.getAllKeys()).then((ks) =>

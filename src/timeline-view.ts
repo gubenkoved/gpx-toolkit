@@ -22,14 +22,14 @@ import L from "leaflet";
 import "leaflet.heat";
 
 import { type AreaSelect, createAreaSelect } from "./areaselect";
-import type { RideTrack } from "./mapview";
 import type { LocRecord, VisitType } from "./loc-model";
 import { type LocationHistoryStore, monthKey } from "./loc-store";
+import type { RideTrack } from "./mapview";
 import {
   buildDaySamples,
+  type DayPeriod,
   type DaySample,
   dayKeyOf,
-  type DayPeriod,
   groupConsecutiveDays,
   groupVisitsByDay,
   type LatLonBox,
@@ -185,12 +185,14 @@ function saveTzArea(): void {
 
 /** Whole-hour offset (in minutes) for a day's area, from its median longitude. */
 function areaOffsetMin(recs: LocRecord[]): number {
-  const lons = recs.map((r) => r.lon).filter((n) => Number.isFinite(n)).sort((a, b) => a - b);
+  const lons = recs
+    .map((r) => r.lon)
+    .filter((n) => Number.isFinite(n))
+    .sort((a, b) => a - b);
   if (!lons.length) return 0;
   const med = lons[Math.floor(lons.length / 2)];
   return Math.round(med / 15) * 60;
 }
-
 
 // --------------------------------------------------------------------------- //
 // Inline SVG icons — 16px, stroke: currentColor, so they inherit the button's text
@@ -201,11 +203,15 @@ const SVG = (body: string): string =>
   `stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${body}</svg>`;
 const ICONS = {
   /** Upload tray with an up arrow — import a file. */
-  import: SVG('<path d="M12 15V3"/><path d="m8 7 4-4 4 4"/><path d="M4 14v5a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-5"/>'),
+  import: SVG(
+    '<path d="M12 15V3"/><path d="m8 7 4-4 4 4"/><path d="M4 14v5a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-5"/>',
+  ),
   /** Plus in a circle — add more. */
   add: SVG('<circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/>'),
   /** Trash can — drop/delete. */
-  trash: SVG('<path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m2 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M10 11v6M14 11v6"/>'),
+  trash: SVG(
+    '<path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m2 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M10 11v6M14 11v6"/>',
+  ),
   /** Back arrow — return to the overview/heatmap. */
   back: SVG('<path d="M19 12H5M12 19l-7-7 7-7"/>'),
   /** Chevron left — previous day. */
@@ -213,11 +219,15 @@ const ICONS = {
   /** Chevron right — next day. */
   chevRight: SVG('<path d="m9 18 6-6-6-6"/>'),
   /** Calendar — open a day picker. */
-  calendar: SVG('<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/>'),
+  calendar: SVG(
+    '<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/>',
+  ),
   /** Double-ended horizontal arrow — reset the date range back to your whole history. */
   allRange: SVG('<path d="M3 12h18"/><path d="m7 8-4 4 4 4"/><path d="m17 8 4 4-4 4"/>'),
   /** Phone with an up arrow — export from your phone. */
-  phone: SVG('<rect x="7" y="3" width="10" height="18" rx="2"/><path d="M12 7v6M9.5 9 12 6.5 14.5 9"/>'),
+  phone: SVG(
+    '<rect x="7" y="3" width="10" height="18" rx="2"/><path d="M12 7v6M9.5 9 12 6.5 14.5 9"/>',
+  ),
 } as const;
 
 // --------------------------------------------------------------------------- //
@@ -238,7 +248,9 @@ export function initTimelineView(d: TimelineDeps): void {
     root.addEventListener("pointerover", onHover);
     document
       .getElementById("btnTlExpand")
-      ?.addEventListener("click", () => setExpanded(!document.body.classList.contains("tl-expanded")));
+      ?.addEventListener("click", () =>
+        setExpanded(!document.body.classList.contains("tl-expanded")),
+      );
     // Arm/disarm the rubber-band area-select. The gesture itself is owned by
     // `areaSelect` (created lazily in ensureMap); this just toggles it, mirroring
     // how the Map/Stats views wire btnMapSelect/btnHeatSelect in main.ts.
@@ -526,7 +538,9 @@ function fitToVisits(): void {
   const src = visitsInRange();
   if (!map || !src.length) return;
   const bounds =
-    src.length >= 25 ? trimmedBounds(src, 0.04) : src.map((v) => [v.lat, v.lon] as L.LatLngExpression);
+    src.length >= 25
+      ? trimmedBounds(src, 0.04)
+      : src.map((v) => [v.lat, v.lon] as L.LatLngExpression);
   map.fitBounds(L.latLngBounds(bounds), { padding: [28, 28] });
 }
 
@@ -534,7 +548,8 @@ function fitToVisits(): void {
 function trimmedBounds(src: LocRecord[], q: number): L.LatLngExpression[] {
   const lats = src.map((v) => v.lat).sort((a, b) => a - b);
   const lons = src.map((v) => v.lon).sort((a, b) => a - b);
-  const at = (arr: number[], f: number): number => arr[Math.min(arr.length - 1, Math.max(0, Math.floor(f * arr.length)))];
+  const at = (arr: number[], f: number): number =>
+    arr[Math.min(arr.length - 1, Math.max(0, Math.floor(f * arr.length)))];
   return [
     [at(lats, q), at(lons, q)],
     [at(lats, 1 - q), at(lons, 1 - q)],
@@ -585,7 +600,14 @@ function drawSelectionRect(): void {
       [selectedBox.minLat, selectedBox.minLon],
       [selectedBox.maxLat, selectedBox.maxLon],
     ],
-    { color: "#f97316", weight: 1.5, dashArray: "5 4", fill: true, fillOpacity: 0.06, interactive: false },
+    {
+      color: "#f97316",
+      weight: 1.5,
+      dashArray: "5 4",
+      fill: true,
+      fillOpacity: 0.06,
+      interactive: false,
+    },
   ).addTo(selLayer);
 }
 
@@ -636,8 +658,15 @@ function drawDayPreview(recs: LocRecord[]): void {
       : ([[r.lat, r.lon]] as [number, number][]),
   );
   if (pts.length >= 2) {
-    L.polyline(pts, { color: "#fff", weight: 4.5, opacity: 0.5, interactive: false }).addTo(hoverLayer);
-    L.polyline(pts, { color: "#f97316", weight: 2.5, opacity: 0.95, interactive: false }).addTo(hoverLayer);
+    L.polyline(pts, { color: "#fff", weight: 4.5, opacity: 0.5, interactive: false }).addTo(
+      hoverLayer,
+    );
+    L.polyline(pts, {
+      color: "#f97316",
+      weight: 2.5,
+      opacity: 0.95,
+      interactive: false,
+    }).addTo(hoverLayer);
   }
   // Visit stops as cased dots, coloured for home/work like the day-replay markers.
   for (const v of recs.filter((r) => r.kind === "visit")) {
@@ -728,7 +757,12 @@ function jumpDateHtml(): string {
 // --------------------------------------------------------------------------- //
 const CAL_DOW = ["M", "T", "W", "T", "F", "S", "S"];
 /** Open calendar state: which trigger, the month on view, and the anchor element. */
-let calState: { target: "jump" | "date"; year: number; month: number; anchor: HTMLElement } | null = null;
+let calState: {
+  target: "jump" | "date";
+  year: number;
+  month: number;
+  anchor: HTMLElement;
+} | null = null;
 let calOutside: ((e: PointerEvent) => void) | null = null;
 let calKeydown: ((e: KeyboardEvent) => void) | null = null;
 
@@ -1063,8 +1097,12 @@ function renderOverviewSide(): void {
     `<b>when you were there</b> \u2014 then open any day to replay it on the map.</div>` +
     `<div class="tl-facts">` +
     `<div class="tl-fact"><b>${n.toLocaleString()}</b><span>records</span></div>` +
-    (v !== null ? `<div class="tl-fact"><b>${v.toLocaleString()}</b><span>visits</span></div>` : "") +
-    (store ? `<div class="tl-fact"><b>${deps.fmtBytes(store.totalBytes())}</b><span>on disk</span></div>` : "") +
+    (v !== null
+      ? `<div class="tl-fact"><b>${v.toLocaleString()}</b><span>visits</span></div>`
+      : "") +
+    (store
+      ? `<div class="tl-fact"><b>${deps.fmtBytes(store.totalBytes())}</b><span>on disk</span></div>`
+      : "") +
     `</div>` +
     `<div class="tl-side-actions">` +
     `<button type="button" class="ghost small tl-btn" data-tl="import">${ICONS.add}Add more history</button>` +
@@ -1129,7 +1167,9 @@ function renderSelectionSide(side: HTMLElement): void {
     `${totalVisits.toLocaleString()} visit${totalVisits === 1 ? "" : "s"}` +
     (totalDwellSec ? ` \u00b7 ${fmtDur(totalDwellSec)} here` : "") +
     `</div>` +
-    (years.length > 1 ? `<div class="tl-hist" role="group" aria-label="Visits by year">${histRows}</div>` : "") +
+    (years.length > 1
+      ? `<div class="tl-hist" role="group" aria-label="Visits by year">${histRows}</div>`
+      : "") +
     drillNote +
     periodsNote +
     `<div class="tl-period-list">${periodsHtml}</div>`;
@@ -1272,11 +1312,14 @@ function renderDay(opts: { fit?: boolean } = {}): void {
 
   // The day's path as a single orange line (the recorded breadcrumb trail).
   if (path.length >= 2) {
-    L.polyline(path.map((p) => [p.lat, p.lon] as L.LatLngExpression), {
-      color: "#f97316",
-      weight: 3,
-      opacity: 0.85,
-    }).addTo(dayLayer!);
+    L.polyline(
+      path.map((p) => [p.lat, p.lon] as L.LatLngExpression),
+      {
+        color: "#f97316",
+        weight: 3,
+        opacity: 0.85,
+      },
+    ).addTo(dayLayer!);
   }
   // Activity connectors. Google gives an activity as only a start+end point (no
   // route), so a straight A→B line implies a path we don't actually have. Where the
@@ -1356,7 +1399,8 @@ function drawScrub(): void {
     fillOpacity: 1,
   }).addTo(map);
   const banner = document.getElementById("tlBanner");
-  if (banner) banner.innerHTML = `<b>${deps.esc(scrubDayLabel())}</b> \u00b7 ${timeLabel(scrubT)} \u00b7 ${deps.esc(contextAt(scrubT))}`;
+  if (banner)
+    banner.innerHTML = `<b>${deps.esc(scrubDayLabel())}</b> \u00b7 ${timeLabel(scrubT)} \u00b7 ${deps.esc(contextAt(scrubT))}`;
   highlightActiveEvent();
 }
 
@@ -1429,9 +1473,7 @@ function renderDaySide(): void {
   const side = document.getElementById("tlSide");
   if (!side) return;
   if (!dayRecords.length) {
-    side.innerHTML =
-      dayHeadHtml() +
-      `<div class="tl-side-sub">No location data recorded on this day.</div>`;
+    side.innerHTML = `${dayHeadHtml()}<div class="tl-side-sub">No location data recorded on this day.</div>`;
     return;
   }
   // Chronological timeline: visits and activities on one color-coded rail. Each event
@@ -1710,7 +1752,10 @@ function helpHtml(): string {
     step(2, `Tap your <b>profile picture</b> (top-right) \u2192 <b>Your Timeline</b>.`) +
     step(3, `Open the <b>\u22ee</b> menu \u2192 <b>Location &amp; privacy settings</b>.`) +
     step(4, `Find <b>Export Timeline data</b> and save the <code>.json</code> file.`) +
-    step(5, `Send it to this device (Drive, email, cable\u2026), then <b>import</b> it below.`) +
+    step(
+      5,
+      `Send it to this device (Drive, email, cable\u2026), then <b>import</b> it below.`,
+    ) +
     `</ol>` +
     `<p class="tl-help-note">Menu labels differ a little by app version \u2014 look for ` +
     `\u201c<b>Export Timeline</b>\u201d. On iPhone the path is the same in the Maps app.</p>` +

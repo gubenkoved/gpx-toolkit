@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
-
+import type { LatLon } from "../src/track";
 import {
   alongTrackComponentKmh,
   bearingDeg,
-  cellBounds,
   type CellDayWind,
+  cellBounds,
   cellDayKey,
   computeRidePoints,
   type Dataset,
@@ -16,7 +16,6 @@ import {
   summarize,
   windAtMs,
 } from "../src/weather";
-import type { LatLon } from "../src/track";
 
 // A tiny controllable clock: sleep() advances time synchronously so rate-limiter
 // spacing is deterministic without real timers.
@@ -130,7 +129,10 @@ describe("grid sampling", () => {
 });
 
 describe("windAtMs interpolation", () => {
-  const entry = (speed: number | (number | null)[], dir: number | (number | null)[]): CellDayWind => {
+  const entry = (
+    speed: number | (number | null)[],
+    dir: number | (number | null)[],
+  ): CellDayWind => {
     const loc = makeLoc(52, 13, "2026-06-13", speed, dir, 0);
     return {
       dataset: "era5",
@@ -197,7 +199,11 @@ describe("computeRidePoints + summarize", () => {
     const times = [t0, t0 + 60_000, t0 + 120_000];
     const pw = computeRidePoints(pts, times, lookup, ERA5);
     expect(pw[0]?.alongKmh).toBeCloseTo(10, 1);
-    const s = summarize(pw, { dataset: ERA5, cells: [{ lat: 52, lon: 13 }], fetchedAt: "now" });
+    const s = summarize(pw, {
+      dataset: ERA5,
+      cells: [{ lat: 52, lon: 13 }],
+      fetchedAt: "now",
+    });
     expect(s.avgAlongKmh).toBeGreaterThan(8);
     expect(s.pctTailwind).toBe(1);
     expect(s.prevailingFromDeg).toBeCloseTo(180, 0);
@@ -303,11 +309,17 @@ describe("OpenMeteo client", () => {
   it("emits a negative-cache entry for a cell with no wind", async () => {
     const clock = fakeClock();
     const fetchFn = () =>
-      Promise.resolve(okResponse([makeLoc(52, 13, "2026-06-13", new Array(24).fill(null), new Array(24).fill(null))]));
+      Promise.resolve(
+        okResponse([
+          makeLoc(52, 13, "2026-06-13", new Array(24).fill(null), new Array(24).fill(null)),
+        ]),
+      );
     const om = new OpenMeteo({ fetch: fetchFn as typeof fetch, ...clock });
-    const entries = await om.fetchWindMulti(ERA5, [{ latIdx: 208, lonIdx: 52, lat: 52, lon: 13 }], [
-      "2026-06-13",
-    ]);
+    const entries = await om.fetchWindMulti(
+      ERA5,
+      [{ latIdx: 208, lonIdx: 52, lat: 52, lon: 13 }],
+      ["2026-06-13"],
+    );
     expect(entries[0].noData).toBe(true);
   });
 
@@ -318,10 +330,14 @@ describe("OpenMeteo client", () => {
       times.push(clock.now());
       return Promise.resolve(okResponse([makeLoc(52, 13, "2026-06-13", 10, 180)]));
     };
-    const om = new OpenMeteo({ fetch: fetchFn as typeof fetch, ...clock }, { minSpacingMs: 200 });
+    const om = new OpenMeteo(
+      { fetch: fetchFn as typeof fetch, ...clock },
+      { minSpacingMs: 200 },
+    );
     const cells = [{ latIdx: 208, lonIdx: 52, lat: 52, lon: 13 }];
     for (let i = 0; i < 4; i++) await om.fetchWindMulti(ERA5, cells, ["2026-06-13"]);
-    for (let i = 1; i < times.length; i++) expect(times[i] - times[i - 1]).toBeGreaterThanOrEqual(200);
+    for (let i = 1; i < times.length; i++)
+      expect(times[i] - times[i - 1]).toBeGreaterThanOrEqual(200);
   });
 
   it("retries on 429, honoring Retry-After, then succeeds", async () => {
@@ -336,14 +352,18 @@ describe("OpenMeteo client", () => {
     const fetchFn = () => {
       calls++;
       if (calls === 1) {
-        return Promise.resolve(new Response("", { status: 429, headers: { "retry-after": "2" } }));
+        return Promise.resolve(
+          new Response("", { status: 429, headers: { "retry-after": "2" } }),
+        );
       }
       return Promise.resolve(okResponse([makeLoc(52, 13, "2026-06-13", 10, 180)]));
     };
     const om = new OpenMeteo({ fetch: fetchFn as typeof fetch, now: clock.now, sleep });
-    const entries = await om.fetchWindMulti(ERA5, [{ latIdx: 208, lonIdx: 52, lat: 52, lon: 13 }], [
-      "2026-06-13",
-    ]);
+    const entries = await om.fetchWindMulti(
+      ERA5,
+      [{ latIdx: 208, lonIdx: 52, lat: 52, lon: 13 }],
+      ["2026-06-13"],
+    );
     expect(calls).toBe(2);
     expect(slept).toContain(2000); // waited out the Retry-After
     expect(entries[0].hourly.wind_speed_10m?.[0]).toBe(10);

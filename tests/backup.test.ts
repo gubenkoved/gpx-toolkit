@@ -6,12 +6,12 @@
  * and verifying the state is completely restored.
  */
 
-import { describe, it, expect, beforeEach } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import { Controller } from "../src/controller";
 import { GpxCache } from "../src/gpxcache";
-import { WindCache } from "../src/windcache";
 import { memoryBackend } from "../src/kv";
 import { Store } from "../src/store";
+import { WindCache } from "../src/windcache";
 import { unzip } from "../src/zip";
 
 describe("Controller backup/restore (ZIP)", () => {
@@ -21,7 +21,9 @@ describe("Controller backup/restore (ZIP)", () => {
   beforeEach(async () => {
     store = await Store.load(memoryBackend());
     // Dummy factory for tests (backup doesn't require sources)
-    const factory = async () => { throw new Error("factory not used in backup tests"); };
+    const factory = async () => {
+      throw new Error("factory not used in backup tests");
+    };
     controller = new Controller(
       factory,
       store,
@@ -102,7 +104,9 @@ describe("Controller backup/restore (ZIP)", () => {
 
     // Create a fresh controller + store and import.
     const freshStore = await Store.load(memoryBackend());
-    const factory = async () => { throw new Error("factory not used in backup tests"); };
+    const factory = async () => {
+      throw new Error("factory not used in backup tests");
+    };
     const freshController = new Controller(
       factory,
       freshStore,
@@ -128,14 +132,15 @@ describe("Controller backup/restore (ZIP)", () => {
     }
   });
 
-
   it("imports GPX cache blobs and rebuilds index", async () => {
     // Export a ZIP first
     const zipBytes = await controller.exportAllZip();
 
     // Verify it can be imported and caches are rebuilt
     const freshStore = await Store.load(memoryBackend());
-    const factory = async () => { throw new Error("factory not used in backup tests"); };
+    const factory = async () => {
+      throw new Error("factory not used in backup tests");
+    };
     const freshController = new Controller(
       factory,
       freshStore,
@@ -157,11 +162,16 @@ describe("Controller backup/restore (ZIP)", () => {
     // Build a ZIP without state.json
     const { buildZip } = await import("../src/zip");
     const zipBytes = await buildZip([
-      { name: "manifest.json", bytes: new TextEncoder().encode(JSON.stringify({ schema: 1 })) },
+      {
+        name: "manifest.json",
+        bytes: new TextEncoder().encode(JSON.stringify({ schema: 1 })),
+      },
     ]);
 
     const freshStore = await Store.load(memoryBackend());
-    const factory = async () => { throw new Error("factory not used in backup tests"); };
+    const factory = async () => {
+      throw new Error("factory not used in backup tests");
+    };
     const freshController = new Controller(
       factory,
       freshStore,
@@ -194,7 +204,9 @@ describe("Controller backup/restore (ZIP)", () => {
     });
     await otherStore.flush();
 
-    const factory = async () => { throw new Error("factory not used in backup tests"); };
+    const factory = async () => {
+      throw new Error("factory not used in backup tests");
+    };
     const otherController = new Controller(
       factory,
       otherStore,

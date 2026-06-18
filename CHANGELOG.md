@@ -17,6 +17,14 @@ humans and the assistant can read this file as a compressed history of decisions
 
 ---
 
+## Chore: apply biome formatting + organize imports repo-wide
+- **What:** ran `biome format` and import-organization across the codebase so
+  `biome check` (and therefore `npm run verify`) is fully green. Pure mechanical
+  whitespace/line-wrapping + import ordering + one string-concat → template literal;
+  no logic touched. Build + 390 tests still green.
+- **Why:** the repo had drifted out of formatter conformance; a clean `biome check`
+  means future diffs are formatting-noise-free and the verify gate actually passes.
+
 ## Chore: clear all biome lint findings
 - **What:** fixed every outstanding `biome lint` finding across the codebase —
   optional-chaining (`!x || !x.y` → `!x?.y`), `import type` for type-only imports,

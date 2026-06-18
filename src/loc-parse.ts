@@ -214,7 +214,14 @@ export function parseOnDevice(doc: unknown, opts: ParseOptions = {}): LocImport 
           skipped++;
           continue;
         }
-        push({ kind: "path", sourceId: pathSrc, t, lat: ll[0], lon: ll[1], accClass: "approx" });
+        push({
+          kind: "path",
+          sourceId: pathSrc,
+          t,
+          lat: ll[0],
+          lon: ll[1],
+          accClass: "approx",
+        });
       }
       continue;
     }
@@ -301,7 +308,8 @@ export function parseOnDevice(doc: unknown, opts: ParseOptions = {}): LocImport 
       accClass: accM !== undefined ? accClassForMeters(accM) : "approx",
       accM,
       altM: typeof pos.altitudeMeters === "number" ? pos.altitudeMeters : undefined,
-      speed: typeof pos.speedMetersPerSecond === "number" ? pos.speedMetersPerSecond : undefined,
+      speed:
+        typeof pos.speedMetersPerSecond === "number" ? pos.speedMetersPerSecond : undefined,
       fixSource: asFixSource(pos.source),
     });
   }
@@ -336,8 +344,8 @@ function parseProfile(raw: unknown): LocProfile | null {
     })
     .filter((x): x is NonNullable<typeof x> => x !== null);
 
-  const frequentTrips = (Array.isArray(p.frequentTrips) ? p.frequentTrips : [])
-    .map((ftRaw) => {
+  const frequentTrips = (Array.isArray(p.frequentTrips) ? p.frequentTrips : []).map(
+    (ftRaw) => {
       const ft = (ftRaw ?? {}) as Record<string, unknown>;
       const modes = (Array.isArray(ft.modeDistribution) ? ft.modeDistribution : [])
         .map((mRaw) => {
@@ -358,7 +366,8 @@ function parseProfile(raw: unknown): LocProfile | null {
         commuteDirection:
           typeof ft.commuteDirection === "string" ? ft.commuteDirection : undefined,
       };
-    });
+    },
+  );
 
   const persona = (p.persona ?? {}) as Record<string, unknown>;
   const travelModeAffinities = (

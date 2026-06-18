@@ -5,8 +5,22 @@ import type { LocRecord } from "../src/loc-model";
 
 function sample(): LocRecord[] {
   return [
-    { kind: "path", sourceId: 0, t: 1_600_000_000_000, lat: 51.5403834, lon: 46.0242612, accClass: "approx" },
-    { kind: "path", sourceId: 0, t: 1_600_000_180_000, lat: 51.5420614, lon: 46.019781, accClass: "approx" },
+    {
+      kind: "path",
+      sourceId: 0,
+      t: 1_600_000_000_000,
+      lat: 51.5403834,
+      lon: 46.0242612,
+      accClass: "approx",
+    },
+    {
+      kind: "path",
+      sourceId: 0,
+      t: 1_600_000_180_000,
+      lat: 51.5420614,
+      lon: 46.019781,
+      accClass: "approx",
+    },
     {
       kind: "visit",
       sourceId: 1,
@@ -116,7 +130,18 @@ describe("loc-codec round-trip", () => {
 
   it("handles negative coordinates and large flight distances", () => {
     const recs: LocRecord[] = [
-      { kind: "move", sourceId: 0, t: 1, lat: -27.8, lon: -74.1, lat2: 67.6, lon2: 99.2, accClass: "derived", actType: "FLYING", distanceM: 8_243_326 },
+      {
+        kind: "move",
+        sourceId: 0,
+        t: 1,
+        lat: -27.8,
+        lon: -74.1,
+        lat2: 67.6,
+        lon2: 99.2,
+        accClass: "derived",
+        actType: "FLYING",
+        distanceM: 8_243_326,
+      },
     ];
     const { records } = decodeChunk(encodeChunk("2020-09", recs));
     expect(records[0].lat).toBeCloseTo(-27.8, 7);
