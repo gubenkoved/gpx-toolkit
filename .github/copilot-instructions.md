@@ -196,6 +196,11 @@ the same change, so the build hash shown in the UI tracks a real version.
   (e.g. `compact state & selection actions into menus`, `more resilient error handling`).
 - **One commit per logical change.** Stage the related files and commit; don't bundle
   unrelated work.
+- **Lower-case commit messages.** Write the commit subject in all lower case (e.g.
+  `unify single-thumb sliders onto one styled .uslider component`), not Sentence/Title case.
+  Only deviate for things that are inherently cased — proper nouns, acronyms, identifiers,
+  filenames or code (`Strava`, `GPX`, `IndexedDB`, `RideSource`, `.uslider`). When the agent
+  makes a commit, match this style.
 - **Commit, don't push.** Pushing is a shared/irreversible action — leave `git push` to the
   user unless they explicitly ask.
 
