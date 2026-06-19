@@ -17,7 +17,21 @@ humans and the assistant can read this file as a compressed history of decisions
 
 ---
 
-## Refactor: extract the Wind/Speed view into `src/windspeed-view.ts`
+## Refactor: shared map core `src/map-core.ts`
+- **What:** lifted the connective tissue the big interactive maps share out of
+  `main.ts` into `src/map-core.ts`: the canonical `OSM_ATTRIBUTION` credit, a
+  `createInteractiveMap()` factory (the dark-OSM basemap + compact credit + world
+  default, defined once) and a `makeExpandToggle()` builder for the pseudo-fullscreen
+  pattern. The Map view (`allRidesMap`) and the Stats heatmap (`freqHeatMap`) now build
+  their maps and their expand toggles through it — two ~20-line near-identical creation
+  blocks and two near-identical `setMapExpanded`/`setHeatExpanded` functions collapsed
+  to one definition each. Build + 423 tests green; bundle marginally smaller.
+- **Why:** groundwork for pulling the Map and Stats views into their own modules — they
+  share one Leaflet/area-select/expand subsystem, so the common basemap machinery has to
+  become an importable module first (one canonical implementation, per *Reuse before you
+  write*), rather than each future view module re-deriving the same tile setup.
+
+
 - **What:** lifted the whole wind-vs-speed scatter (~340 lines: the per-ride segment
   sweep + cache, the distance-weighted regression, KPI cards, empty/blocked states and
   the analysing-progress overlay) out of `main.ts` into a self-contained module behind a

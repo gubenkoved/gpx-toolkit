@@ -33,6 +33,7 @@ import {
   fmtSpeed,
 } from "./format";
 import { BASE_SPACING_M, buildHeatPoints, type HeatBounds, spacingForZoom } from "./heatmap";
+import { createInteractiveMap, makeExpandToggle, OSM_ATTRIBUTION } from "./map-core";
 import {
   type DateRange,
   dateRange,
@@ -917,15 +918,9 @@ function esc(s: string): string {
 // polyline — an APPROXIMATION of the route, never the full GPX.
 // --------------------------------------------------------------------------- //
 
-// OSM's tile usage policy requires a visible "© OpenStreetMap contributors"
-// credit wherever the tiles are shown. One canonical string, reused by every
-// tile layer. The big interactive maps render it as a compact Leaflet control
-// (with setPrefix(false) to drop the "Leaflet" flag); the per-ride mini-maps
-// omit the control entirely and rely on the page-level header credit instead, so
-// the badge doesn't repeat on every little card.
-const OSM_ATTRIBUTION =
-  '© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> contributors';
-
+// OSM tile-usage credit + the shared interactive-basemap factory live in ./map-core,
+// reused by the Map view, the Stats heatmap and (via injected deps) the Timeline and
+// Wind-rose maps so every big map shares one look.
 const mapRegistry = new Map<string, L.Map>();
 
 /** Markup for a ride's mini-map + its caption. */
@@ -1601,24 +1596,12 @@ function mountAllRidesMap(opts: { fit?: boolean } = {}): void {
   currentMissing = missing;
 
   if (!allRidesMap) {
-    allRidesMap = L.map(host, {
-      attributionControl: true,
-      zoomControl: true,
-      fadeAnimation: false,
-      // Render every track onto one <canvas> instead of one SVG <path> per ride:
-      // at thousands of overlapping tracks the SVG DOM is the bottleneck. The
-      // translucent strokes still blend on canvas, so the "ridden more = brighter"
-      // heatmap look is preserved, and pan/zoom stays smooth at scale.
-      preferCanvas: true,
-    });
-    allRidesMap.attributionControl.setPrefix(false); // compact credit, no "Leaflet" flag
-    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      maxZoom: 19,
-      attribution: OSM_ATTRIBUTION,
-      className: "map-tiles",
-    }).addTo(allRidesMap);
+    // preferCanvas: render every track onto one <canvas> instead of one SVG <path>
+    // per ride — at thousands of overlapping tracks the SVG DOM is the bottleneck.
+    // The translucent strokes still blend on canvas, so the "ridden more = brighter"
+    // look is preserved and pan/zoom stays smooth at scale.
+    allRidesMap = createInteractiveMap(host, { preferCanvas: true });
     allRidesLayer = L.layerGroup().addTo(allRidesMap);
-    allRidesMap.setView([20, 0], 2); // sane default until the first track is drawn
     mapAreaSelect.attach();
   }
 
@@ -1694,26 +1677,10 @@ function setView(v: ViewName): void {
 }
 
 /** Toggle the Map view between inline and full-screen; resize Leaflet to match. */
-function setMapExpanded(on: boolean): void {
-  document.body.classList.toggle("map-expanded", on);
-  // The button is icon-only (maximize ↔ minimize swaps via CSS on aria-pressed).
-  document.getElementById("btnMapExpand")?.setAttribute("aria-pressed", on ? "true" : "false");
-  // The container changed size; let Leaflet re-measure to match.
-  requestAnimationFrame(() => {
-    allRidesMap?.invalidateSize();
-  });
-}
+const setMapExpanded = makeExpandToggle("map-expanded", "btnMapExpand", () => allRidesMap);
 
 /** Toggle the Stats heatmap between inline and full-screen; resize Leaflet to match. */
-function setHeatExpanded(on: boolean): void {
-  document.body.classList.toggle("heat-expanded", on);
-  document
-    .getElementById("btnHeatExpand")
-    ?.setAttribute("aria-pressed", on ? "true" : "false");
-  requestAnimationFrame(() => {
-    freqHeatMap?.invalidateSize();
-  });
-}
+const setHeatExpanded = makeExpandToggle("heat-expanded", "btnHeatExpand", () => freqHeatMap);
 
 // --------------------------------------------------------------------------- //
 // Stats view — lifetime totals, distance records and a route-frequency heatmap.
@@ -1973,18 +1940,7 @@ function mountFreqHeatmap(rides: RideView[], hidden: number, fit?: boolean): voi
   }
 
   if (!freqHeatMap) {
-    freqHeatMap = L.map(host, {
-      attributionControl: true,
-      zoomControl: true,
-      fadeAnimation: false,
-    });
-    freqHeatMap.attributionControl.setPrefix(false); // compact credit, no "Leaflet" flag
-    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      maxZoom: 19,
-      attribution: OSM_ATTRIBUTION,
-      className: "map-tiles",
-    }).addTo(freqHeatMap);
-    freqHeatMap.setView([20, 0], 2); // sane default until the first track is drawn
+    freqHeatMap = createInteractiveMap(host);
     // Heat-point spacing is geographic but the glow radius is in pixels, so zooming
     // in spreads the points until they bead. Rebuild after each pan/zoom so spacing
     // re-adapts and only the visible slice is densified (moveend covers both).
