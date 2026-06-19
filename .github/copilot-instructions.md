@@ -259,6 +259,7 @@ none. The table is grouped by concern; keep new modules in the group they belong
 | [src/areaselect.ts](../src/areaselect.ts) | Rubber-band area-select gesture controller (shared by Map + heatmap) | `createAreaSelect()`, `AreaSelect`, `AreaSelectOptions` |
 | [src/map-core.ts](../src/map-core.ts) | Shared interactive-basemap core: the canonical OSM credit, the dark-OSM big-map factory, the pseudo-fullscreen expand-toggle builder, and the shared track-hit/highlight constants (Map view + Stats heatmap) | `OSM_ATTRIBUTION`, `createInteractiveMap()`, `makeExpandToggle()`, `CLICK_PX`, `HOT_TRACK` |
 | [src/map-view.ts](../src/map-view.ts) | Map view (`#mapView`): the all-rides translucent-track basemap, side panel, click/area selection + hover emphasis, locate, expand. Behind a `MapViewDeps` seam | `initMapView()`, `mountMapView()`, `setHot()`, `setSelected()`, `setMapExpanded`, `mapAreaSelect`, `mapLocate` |
+| [src/stats-view.ts](../src/stats-view.ts) | Stats view (`#statsView`): lifetime totals + records (`computeStats`) and the route-frequency heatmap (viewport-densified, pan/zoom-cached `leaflet.heat` layer) + its area-select/locate/expand and "Selected" list. Behind a `StatsViewDeps` seam | `initStatsView()`, `mountStatsView()`, `setHeatExpanded`, `heatAreaSelect`, `heatLocate`, `showHeatHover()`, `renderHeatMatched()`, `clearHeatSelection()` |
 
 *Wind / weather*
 

@@ -17,7 +17,23 @@ humans and the assistant can read this file as a compressed history of decisions
 
 ---
 
-## Refactor: extract the Map view into `src/map-view.ts`
+## Refactor: extract the Stats view into `src/stats-view.ts`
+- **What:** lifted the Stats view (`#statsView`) out of `main.ts` into its own module behind
+  a `StatsViewDeps` seam (~290 lines): lifetime totals + records (`computeStats`, `statCard`,
+  `periodCard`) and the whole route-frequency heatmap subsystem — the viewport-densified,
+  pan/zoom-cached `leaflet.heat` layer, its area-select + locate + full-screen toggle, the
+  hover overlay and the "Selected" list. The shared date-range control, ride list, the
+  filtered-window flag (`statsFilteredFlag`, range-system coupled, stays in main) and the
+  canonical `renderMatchedCards` (shared with the Map view) are injected as lazy closures; the
+  heatmap basemap + expand come from `./map-core`. `statCard`/`periodCard`/`computeStats` were
+  Stats-only so they moved in wholesale; six now-orphaned imports were dropped from `main.ts`.
+  Build + 423 tests green; browser-verified (totals/records/heatmap render, expand + area-select
+  toggles work). `main.ts` 4203 → ~3920.
+- **Why:** the last big map-coupled view out of the monolith, completing the Map+Stats pair that
+  share the `map-core` Leaflet/area-select/expand subsystem. Leaves `main.ts` owning Explore, the
+  shared range control, the dialogs and bootstrap — a much smaller surface to finish carving.
+
+
 - **What:** lifted the all-rides Map view (`#mapView`) out of `main.ts` into its own
   module behind a `MapViewDeps` seam: the translucent-track basemap + lazy creation, the
   side panel, click/area selection + hover emphasis, the locate marker and the expand
