@@ -17,6 +17,22 @@ humans and the assistant can read this file as a compressed history of decisions
 
 ---
 
+## Refactor: shared state module `src/app-state.ts` (the seam for splitting main)
+- **What:** created `src/app-state.ts` — the home for state that several views share,
+  built on the reactive core. First state moved in: the active top-level view
+  (`activeView` signal + `setActiveView` persistence + the `ViewName` type), out of
+  `main.ts`'s closures. `main.ts` now imports them; its ~18 `activeView` value-reads
+  became `activeView()` (tsc-verified — a missed read is a type error). View switching
+  + localStorage persistence verified in-browser (Map/Timeline/Explore switch, active
+  tab follows, the view restores on reload). `main.ts` 4819 → 4798.
+- **Why:** the monolith's views are all woven into shared module-level `let`s + one
+  global render — the glue that blocks decomposition. A shared signal module is the
+  seam: a future per-view module imports the shared state it needs (e.g. `activeView`
+  to know if it's on screen) instead of reaching into `main.ts`. Deliberately started
+  with one bounded, genuinely-shared slice; more state migrates here as views split.
+
+---
+
 ## Refactor: extract confirm/prompt/consent dialogs to `src/confirm.ts` (view split #1)
 - **What:** moved the styled `confirmDialog` / `promptDialog` / `consentDialog` (+ their
   state and the OK/Cancel/backdrop/Enter listeners) out of `main.ts` into a

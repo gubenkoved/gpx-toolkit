@@ -12,6 +12,7 @@ import "./style.css";
 
 import L from "leaflet";
 
+import { activeView, setActiveView, type ViewName } from "./app-state";
 import { type AreaSelect, createAreaSelect } from "./areaselect";
 import { type AppState, Controller, type RideView } from "./controller";
 import {
@@ -563,7 +564,7 @@ async function openApp(): Promise<void> {
   // Load the location-history catalog in the background; refresh once ready so the
   // Timeline tab and the Data-menu storage breakdown reflect any imported data.
   void ensureLocStore().then(() => {
-    if (activeView === "timeline") mountTimelineView();
+    if (activeView() === "timeline") mountTimelineView();
     render();
   });
 }
@@ -692,7 +693,7 @@ async function importLocationHistory(file: File): Promise<void> {
     const skipped = imp.skipped ? ` (${imp.skipped} unreadable points skipped)` : "";
     toast(`Imported ${imp.records.length.toLocaleString()} location records${skipped}.`);
     resetTimelineData();
-    if (activeView === "timeline") mountTimelineView();
+    if (activeView() === "timeline") mountTimelineView();
     render(); // refresh storage breakdown in the Data menu
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Could not read that file.";
@@ -725,7 +726,7 @@ async function dropLocationHistory(): Promise<void> {
   await store.clear();
   toast("Location history cleared.");
   resetTimelineData();
-  if (activeView === "timeline") mountTimelineView();
+  if (activeView() === "timeline") mountTimelineView();
   render();
 }
 
@@ -903,23 +904,7 @@ function esc(s: string): string {
 // Top-level view ("Explore" = the rides list/stats; "Map" = all-rides heatmap).
 // Remembered across reloads; defaults to Explore on first run.
 // --------------------------------------------------------------------------- //
-type ViewName = "explore" | "map" | "stats" | "analytics" | "climate" | "timeline";
-const VIEW_KEY = "beeline_uploader.view";
-const readView = (): ViewName => {
-  try {
-    const v = localStorage.getItem(VIEW_KEY);
-    return v === "map" ||
-      v === "stats" ||
-      v === "analytics" ||
-      v === "climate" ||
-      v === "timeline"
-      ? v
-      : "explore";
-  } catch {
-    return "explore";
-  }
-};
-let activeView: ViewName = readView();
+// View routing (the active-view signal + its persistence) now lives in ./app-state.
 
 // --------------------------------------------------------------------------- //
 // Rough-track mini-map (Leaflet). The stored track is a heavily simplified
@@ -1668,11 +1653,11 @@ function mountAllRidesMap(opts: { fit?: boolean } = {}): void {
 
 /** Reflect the active view in the DOM (visibility, tab state, scan bar). */
 function applyView(): void {
-  const isMap = activeView === "map";
-  const isStats = activeView === "stats";
-  const isAnalytics = activeView === "analytics";
-  const isClimate = activeView === "climate";
-  const isTimeline = activeView === "timeline";
+  const isMap = activeView() === "map";
+  const isStats = activeView() === "stats";
+  const isAnalytics = activeView() === "analytics";
+  const isClimate = activeView() === "climate";
+  const isTimeline = activeView() === "timeline";
   document
     .getElementById("exploreView")
     ?.classList.toggle("hidden", isMap || isStats || isAnalytics || isClimate || isTimeline);
@@ -1691,19 +1676,13 @@ function applyView(): void {
   if (!isClimate) leaveClimateView();
   if (!isTimeline) leaveTimelineView();
   document.querySelectorAll<HTMLButtonElement>("#viewTabs .vtab").forEach((b) => {
-    b.classList.toggle("active", b.dataset.view === activeView);
+    b.classList.toggle("active", b.dataset.view === activeView());
   });
 }
 
 /** Switch the active view, persist the choice, and re-render. */
 function setView(v: ViewName): void {
-  if (v === activeView) return;
-  activeView = v;
-  try {
-    localStorage.setItem(VIEW_KEY, v);
-  } catch {
-    /* private mode / storage disabled — non-fatal */
-  }
+  if (!setActiveView(v)) return;
   applyView();
   render();
 }
@@ -2155,7 +2134,7 @@ async function mountAnalyticsView(opts: { fit?: boolean } = {}): Promise<void> {
   } finally {
     analyticsRunning = false;
     // Apply the latest range/settings once the sweep is done (only if still on tab).
-    if (analyticsRerunQueued && activeView === "analytics") {
+    if (analyticsRerunQueued && activeView() === "analytics") {
       analyticsRerunQueued = false;
       void mountAnalyticsView();
     }
@@ -3293,13 +3272,13 @@ function render(): void {
     }
   }
   renderJob();
-  if (activeView === "map") mountAllRidesMap();
-  else if (activeView === "stats") mountStatsView();
+  if (activeView() === "map") mountAllRidesMap();
+  else if (activeView() === "stats") mountStatsView();
   // The wrapper coalesces a re-entrant call into one post-sweep refresh, so a passive
   // re-render (a background job ticking ride state) never restarts a live sweep.
-  else if (activeView === "analytics") void mountAnalyticsView();
-  else if (activeView === "climate") mountClimateView();
-  else if (activeView === "timeline") mountTimelineView();
+  else if (activeView() === "analytics") void mountAnalyticsView();
+  else if (activeView() === "climate") mountClimateView();
+  else if (activeView() === "timeline") mountTimelineView();
   else mountMaps();
   // The consolidated actions menu lives in static markup (not rebuilt here), so
   // sync its open state from the shared `openMenu` flag.
@@ -4499,7 +4478,7 @@ document.getElementById("toast")?.addEventListener("click", dismissToast);
 // so a redraw is cheap (no IndexedDB reads).
 let analyticsResizeRaf = 0;
 window.addEventListener("resize", () => {
-  if (activeView !== "analytics") return;
+  if (activeView() !== "analytics") return;
   if (analyticsResizeRaf) cancelAnimationFrame(analyticsResizeRaf);
   analyticsResizeRaf = requestAnimationFrame(() => {
     analyticsResizeRaf = 0;
