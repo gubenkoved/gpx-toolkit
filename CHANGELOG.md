@@ -17,6 +17,18 @@ humans and the assistant can read this file as a compressed history of decisions
 
 ---
 
+## Render Wind rose and Timeline in the wide layout
+- **What:** Wind rose and Timeline now break out of main's 940px column to the same
+  ~1200px width as Map, Stats and Wind/Speed at viewports ≥1000px. The breakout is
+  now driven by a single `.view-wide` marker class on the opted-in view sections
+  instead of an enumerated list of view ids, and the redundant `body.map-expanded`
+  width-reset was dropped (Stats already proves a fixed fullscreen overlay needs no
+  per-view exception, since plain width/margin don't form a containing block).
+- **Why:** Both are full-bleed map experiences that were cramped in the narrow column.
+  Generalising the rule to a class (every view is simply narrow-by-default or `.view-wide`)
+  unifies the narrow/wide split and makes adding or removing a wide view a one-class
+  change rather than an edge-case tweak to a hard-coded id list.
+
 ## Gate the Wind/Speed sweep behind a confirm + remember its filters
 - **What:** The Wind/Speed tab no longer auto-analyses on open. It shows a centred
   card stating how many rides the selected date window will analyse (live-updating as
