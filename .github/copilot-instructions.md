@@ -257,7 +257,8 @@ none. The table is grouped by concern; keep new modules in the group they belong
 | [src/mapview.ts](../src/mapview.ts) | Map-view geometry: pick drawable tracks + hover/overlap hit-testing | `ridesWithTracks()`, `nearestRides()`, `RideTrack`, `ProjectedTrack` |
 | [src/heatmap.ts](../src/heatmap.ts) | Route-frequency heatmap geometry: viewport densify + heat points | `buildHeatPoints()`, `densifyTrack()`, `spacingForZoom()`, `HeatPoint` |
 | [src/areaselect.ts](../src/areaselect.ts) | Rubber-band area-select gesture controller (shared by Map + heatmap) | `createAreaSelect()`, `AreaSelect`, `AreaSelectOptions` |
-| [src/map-core.ts](../src/map-core.ts) | Shared interactive-basemap core: the canonical OSM credit, the dark-OSM big-map factory, and the pseudo-fullscreen expand-toggle builder (Map view + Stats heatmap) | `OSM_ATTRIBUTION`, `createInteractiveMap()`, `makeExpandToggle()` |
+| [src/map-core.ts](../src/map-core.ts) | Shared interactive-basemap core: the canonical OSM credit, the dark-OSM big-map factory, the pseudo-fullscreen expand-toggle builder, and the shared track-hit/highlight constants (Map view + Stats heatmap) | `OSM_ATTRIBUTION`, `createInteractiveMap()`, `makeExpandToggle()`, `CLICK_PX`, `HOT_TRACK` |
+| [src/map-view.ts](../src/map-view.ts) | Map view (`#mapView`): the all-rides translucent-track basemap, side panel, click/area selection + hover emphasis, locate, expand. Behind a `MapViewDeps` seam | `initMapView()`, `mountMapView()`, `setHot()`, `setSelected()`, `setMapExpanded`, `mapAreaSelect`, `mapLocate` |
 
 *Wind / weather*
 

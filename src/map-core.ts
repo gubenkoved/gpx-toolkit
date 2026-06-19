@@ -27,6 +27,18 @@ import L from "leaflet";
 export const OSM_ATTRIBUTION =
   '© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> contributors';
 
+/**
+ * How close (in screen px) a click must land to "hit" a track. A fingertip is far
+ * less precise than a mouse, so coarse (touch) pointers get a much larger radius.
+ * Shared by the Map view's and the Stats heatmap's area-select gestures.
+ */
+export const CLICK_PX =
+  typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches ? 22 : 8;
+
+/** Highlight style for an emphasized track — the Map view's selection/hover and the
+ *  Stats heatmap's hover overlay both use it so a lit-up route looks the same. */
+export const HOT_TRACK = { color: "#ffe066", weight: 6, opacity: 1 } as const;
+
 export interface InteractiveMapOpts {
   /**
    * Render features onto a single `<canvas>` instead of one SVG `<path>` each. At

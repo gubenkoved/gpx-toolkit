@@ -17,7 +17,23 @@ humans and the assistant can read this file as a compressed history of decisions
 
 ---
 
-## Refactor: shared map core `src/map-core.ts`
+## Refactor: extract the Map view into `src/map-view.ts`
+- **What:** lifted the all-rides Map view (`#mapView`) out of `main.ts` into its own
+  module behind a `MapViewDeps` seam: the translucent-track basemap + lazy creation, the
+  side panel, click/area selection + hover emphasis, the locate marker and the expand
+  toggle (~210 lines). The shared date-range control, the live ride list and the canonical
+  "Selected" card renderer (`renderMatchedCards`, still shared with the Stats heatmap) are
+  injected as lazy closures; the cross-view hop (open a ride in Explore) stays in `main.ts`.
+  The two genuinely-shared map constants — `CLICK_PX` (click-hit radius) and `HOT_TRACK`
+  (highlight style), used by both the Map area-select and the heatmap hover — moved into
+  `map-core` rather than being duplicated. `mountAllRidesMap` → `mountMapView`. Build +
+  423 tests green.
+- **Why:** the next per-view module out of the monolith, now unblocked by the `map-core`
+  groundwork. The Map view is the most direct consumer of `createInteractiveMap`, so it
+  proves the shared core carries a real interactive view (selection, area-drag, locate,
+  expand) and not just chrome.
+
+
 - **What:** lifted the connective tissue the big interactive maps share out of
   `main.ts` into `src/map-core.ts`: the canonical `OSM_ATTRIBUTION` credit, a
   `createInteractiveMap()` factory (the dark-OSM basemap + compact credit + world
