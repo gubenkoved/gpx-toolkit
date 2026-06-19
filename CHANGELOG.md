@@ -17,6 +17,19 @@ humans and the assistant can read this file as a compressed history of decisions
 
 ---
 
+## Gate the Wind/Speed sweep behind a confirm + remember its filters
+- **What:** The Wind/Speed tab no longer auto-analyses on open. It shows a centred
+  card stating how many rides the selected date window will analyse (live-updating as
+  the slider moves) with an "Analyse N rides" button; the heavy per-ride segment sweep
+  is now scoped to the in-window rides and only starts once the user presses Analyse
+  (once per session — reload re-shows the gate, then it runs live). The date window
+  plus Flat-only / Max-speed are persisted to localStorage and restored on reload.
+- **Why:** Opening the tab used to silently sweep the *entire* wind-resolved history,
+  doing a lot of work the user may not want or only need for a subset. Making the user
+  confirm — and clearly showing the ride count for the chosen window — puts them in
+  control and keeps a narrow window cheap; remembering the selection avoids re-picking
+  it every reload.
+
 ## Unify every single-thumb slider onto one styled component
 - **What:** introduced a canonical `.uslider` class (style.css) + a shared `setSliderFill()`
   helper (new `src/slider.ts`) and routed every single-thumb `<input type="range">` through

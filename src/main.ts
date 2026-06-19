@@ -151,6 +151,10 @@ let unsubscribe: (() => void) | null = null;
 let unsubscribeGpx: (() => void) | null = null;
 
 const FILTERS_KEY = "beeline_uploader.filters";
+// Wind/Speed tab preferences persist across reloads (unlike the Map/Stats date
+// ranges, which are session-only): the chosen date window + the two chart filters
+// (flat-only, max-speed), so a user's analysis scope survives a refresh.
+const ANALYTICS_PREFS_KEY = "beeline_uploader.analytics";
 
 // Which data source the user last chose. Demo/offline aren't persisted. Beeline
 // can't auto-sign-in (we never store the password), so a remembered Beeline
@@ -1082,6 +1086,74 @@ let statsRangeBounds: DateRange | null = null;
 let analyticsRange: DateRange | null = null;
 let analyticsRangeBounds: DateRange | null = null;
 
+// Persisted Wind/Speed preferences (see ANALYTICS_PREFS_KEY). The date window is
+// stored as raw edge timestamps and re-applied (clamped to the live bounds) on the
+// first range computation after load; the two chart filters are mirrored straight
+// into their DOM controls at boot.
+type AnalyticsPrefs = {
+  rangeMin: number | null;
+  rangeMax: number | null;
+  flatOnly: boolean;
+  maxSpeed: number;
+};
+function loadAnalyticsPrefs(): AnalyticsPrefs {
+  const def: AnalyticsPrefs = { rangeMin: null, rangeMax: null, flatOnly: false, maxSpeed: 50 };
+  try {
+    const raw = localStorage.getItem(ANALYTICS_PREFS_KEY);
+    if (!raw) return def;
+    const o = JSON.parse(raw) as Partial<AnalyticsPrefs>;
+    const num = (v: unknown): number | null =>
+      typeof v === "number" && Number.isFinite(v) ? v : null;
+    return {
+      rangeMin: num(o.rangeMin),
+      rangeMax: num(o.rangeMax),
+      flatOnly: o.flatOnly === true,
+      maxSpeed: Math.max(20, Math.min(80, num(o.maxSpeed) ?? 50)),
+    };
+  } catch {
+    return def; // malformed JSON / storage disabled — fall back to neutral
+  }
+}
+/** Persist the current Wind/Speed window + chart filters (non-fatal if unavailable). */
+function saveAnalyticsPrefs(): void {
+  try {
+    const flatOnly =
+      (document.getElementById("flatOnly") as HTMLInputElement | null)?.checked ?? false;
+    const maxEl = document.getElementById("maxSpeed") as HTMLInputElement | null;
+    const maxSpeed = maxEl ? parseInt(maxEl.value, 10) || 50 : 50;
+    const prefs: AnalyticsPrefs = {
+      rangeMin: analyticsRange?.minMs ?? null,
+      rangeMax: analyticsRange?.maxMs ?? null,
+      flatOnly,
+      maxSpeed,
+    };
+    localStorage.setItem(ANALYTICS_PREFS_KEY, JSON.stringify(prefs));
+  } catch {
+    /* private mode / storage disabled — non-fatal */
+  }
+}
+/** Mirror the saved chart filters into their DOM controls (called once at boot). */
+function applyAnalyticsPrefsToDom(): void {
+  const p = loadAnalyticsPrefs();
+  const flat = document.getElementById("flatOnly") as HTMLInputElement | null;
+  if (flat) flat.checked = p.flatOnly;
+  const max = document.getElementById("maxSpeed") as HTMLInputElement | null;
+  if (max) {
+    max.value = String(p.maxSpeed);
+    setSliderFill(max); // keep the `.uslider` accent fill in sync with the restored value
+  }
+  const maxOut = document.getElementById("maxSpeedOut") as HTMLOutputElement | null;
+  if (maxOut) maxOut.value = `${p.maxSpeed} km/h`;
+}
+// The remembered date window, adopted on the first range computation after load
+// (then cleared so later refreshes reconcile normally).
+let savedAnalyticsRange: DateRange | null = (() => {
+  const p = loadAnalyticsPrefs();
+  return p.rangeMin !== null && p.rangeMax !== null
+    ? { minMs: p.rangeMin, maxMs: p.rangeMax }
+    : null;
+})();
+
 const startOfDayMs = (ms: number): number => {
   const d = new Date(ms);
   d.setHours(0, 0, 0, 0);
@@ -1149,12 +1221,32 @@ function refreshRange(which: RangeView): void {
   } else if (which === "stats") {
     statsRange = bounds ? reconcileRange(statsRange, statsRangeBounds, bounds) : null;
     statsRangeBounds = bounds;
+  } else if (analyticsRange === null && savedAnalyticsRange && bounds) {
+    // First computation after load: adopt the remembered window, clamped into the
+    // live bounds (not via reconcileRange, which would discard a selection when there
+    // were no prior bounds). One-shot — clear it so later refreshes reconcile.
+    analyticsRange = clampRangeToBounds(savedAnalyticsRange, bounds);
+    analyticsRangeBounds = bounds;
+    savedAnalyticsRange = null;
   } else {
     analyticsRange = bounds
       ? reconcileRange(analyticsRange, analyticsRangeBounds, bounds)
       : null;
     analyticsRangeBounds = bounds;
   }
+}
+
+/** Clamp a remembered selection to day-start boundaries within the live bounds. */
+function clampRangeToBounds(sel: DateRange, bounds: DateRange): DateRange {
+  const lo = startOfDayMs(bounds.minMs);
+  const hi = startOfDayMs(bounds.maxMs);
+  let from = Math.min(Math.max(startOfDayMs(sel.minMs), lo), hi);
+  let to = Math.min(Math.max(startOfDayMs(sel.maxMs), lo), hi);
+  if (from > to) {
+    from = lo;
+    to = hi;
+  }
+  return { minMs: from, maxMs: to };
 }
 
 const rangeOf = (which: RangeView): DateRange | null =>
@@ -1173,7 +1265,10 @@ const filterHostId = (which: RangeView): string => `${which}Filter`;
 function assignRange(which: RangeView, next: DateRange): void {
   if (which === "map") mapRange = next;
   else if (which === "stats") statsRange = next;
-  else analyticsRange = next;
+  else {
+    analyticsRange = next;
+    saveAnalyticsPrefs(); // Wind/Speed window is remembered across reloads.
+  }
 }
 
 /** Re-mount a view after its range changed (no re-fit during live drags). */
@@ -3631,6 +3726,7 @@ document.addEventListener("change", (e) => {
     cb.value = "";
   }
   if (cb.id === "flatOnly") {
+    saveAnalyticsPrefs();
     void mountWindSpeedView();
   }
 });
@@ -3711,6 +3807,7 @@ document.addEventListener("input", (e) => {
   }
   if (el.id === "maxSpeed") {
     ($("#maxSpeedOut") as HTMLOutputElement).value = `${parseInt(el.value, 10) || 0} km/h`;
+    saveAnalyticsPrefs();
     void mountWindSpeedView();
     return;
   }
@@ -3785,6 +3882,9 @@ initWindSpeedView({
   refreshRange: () => refreshRange("analytics"),
   syncRangeControl: () => syncRangeControl("analytics"),
 });
+// Restore the remembered Wind/Speed chart filters into their controls (the date
+// window is re-applied lazily once the rides' bounds are known, in refreshRange).
+applyAnalyticsPrefsToDom();
 
 initMapView({
   getRides: () => STATE.rides,

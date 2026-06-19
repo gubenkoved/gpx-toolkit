@@ -3995,6 +3995,15 @@ body.climate-expanded .cl-ctl input[type="range"] {
   width: 100%;
   align-self: stretch;
 }
+/* Confirm-to-run gate card: unlike the passive overlay messages it's interactive,
+   so re-enable pointer events (the parent .chart-msg is pointer-events:none). */
+.chart-msg > span.cm-gate {
+  pointer-events: auto;
+  gap: 8px;
+}
+.cm-gate .cm-go {
+  margin-top: 4px;
+}
 
 /* -- all-rides heatmap (Map view) ----------------------------------------- */
 .map-wrap {

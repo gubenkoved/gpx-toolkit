@@ -5,9 +5,11 @@
  * ride it plots a point — headwind→left, tailwind→right, speed up the side — and
  * fits a line: the intercept is your still-air speed, the slope how much a km/h of
  * tailwind helps. Speed is only trustworthy from a ride's FULL recorded GPX (real
- * per-point timestamps), so rides without it are counted but left out, and the
- * heavy per-ride segmentation is cached (independent of the date range) so dragging
- * the date slider re-filters instantly instead of re-sweeping.
+ * per-point timestamps), so rides without it are counted but left out. The heavy
+ * per-ride segmentation only runs for the rides inside the selected date window —
+ * and only after the user presses "Analyse" (a once-per-session confirm gate, so we
+ * never auto-sweep a big history on entering the tab) — then it's cached so
+ * re-filtering (slider / flat-only / max-speed) stays instant.
  *
  * Self-contained behind a `WindSpeedDeps` seam (the controller, live ride list and
  * the shared date-range control are injected as lazy closures); it imports the pure
@@ -74,6 +76,10 @@ let analyticsRunning = false;
 /** A state change asked the view to refresh while a sweep was running; the running
  *  sweep fires exactly one rerun when it finishes (if still on the tab). */
 let analyticsRerunQueued = false;
+/** Confirm-to-run gate: the user must press "Analyse" once per session to start the
+ *  (possibly heavy) sweep — we never auto-analyse on entering the tab. Resets on
+ *  reload; once armed the view runs live (slider / filter changes re-sweep). */
+let analyticsArmed = false;
 /** |net grade| above this (percent) means a segment isn't "flat". */
 const FLAT_GRADE_PCT = 1.5;
 
@@ -124,6 +130,45 @@ function renderAnalyticsEmpty(kind: "wind" | "gpx", n: number): void {
       `left out. <button type="button" class="linkbtn" id="analyticsFetchGpxEmpty">` +
       `Fetch full GPX for these rides</button>`;
   }
+}
+
+/** Blank the KPI cards to placeholders (used while the confirm gate is shown — no
+ *  analysis has run yet, so there are no numbers to report). */
+function setAnalyticsCardsPlaceholder(): void {
+  const cards = document.getElementById("analyticsCards");
+  if (!cards) return;
+  cards.innerHTML = [
+    statNum({ value: "—", label: "still-air speed" }),
+    statNum({ value: "—", label: "km/h per km/h of tailwind" }),
+    statNum({ value: "—", label: "R² (wind explains)" }),
+    statNum({ value: "—", label: "segments" }),
+  ].join("");
+}
+
+/** The confirm-to-run gate: a centred card stating exactly how many rides the current
+ *  window will analyse (it live-updates as the slider moves) plus an "Analyse" button
+ *  that arms the sweep. Shown until the user opts in (once per session). */
+function renderAnalyticsGate(rideCount: number, unresolved: number, needGpx: number): void {
+  const el = document.getElementById("analyticsChartMsg");
+  if (!el) return;
+  const ridesWord = rideCount === 1 ? "ride" : "rides";
+  const hints: string[] = [];
+  if (needGpx) hints.push(`${needGpx} need full GPX for speed`);
+  if (unresolved) hints.push(`${unresolved} not yet wind-resolved`);
+  el.innerHTML =
+    `<span class="cm-card cm-gate">` +
+    `<b class="cm-head">Analyse wind vs speed</b>` +
+    `<span class="cm-detail"><b>${rideCount}</b> ${ridesWord} in the selected date window</span>` +
+    (hints.length ? `<span class="cm-detail">${hints.join(" · ")}</span>` : "") +
+    `<button type="button" class="primary small cm-go" id="analyticsRun"${
+      rideCount === 0 ? " disabled" : ""
+    }>Analyse ${rideCount} ${ridesWord}</button>` +
+    `</span>`;
+  el.style.display = "flex";
+  document.getElementById("analyticsRun")?.addEventListener("click", () => {
+    analyticsArmed = true;
+    void mountWindSpeedView();
+  });
 }
 
 /** Show each action button only when it can act on rides in range, with the affected
@@ -223,9 +268,24 @@ async function runAnalyticsView(my: number, _opts: { fit?: boolean } = {}): Prom
   body?.classList.remove("hidden");
   syncAnalyticsActions(inRange);
 
+  // Confirm-to-run gate: never auto-sweep. Until the user presses "Analyse" once this
+  // session, show a card naming exactly how many rides the current window will
+  // analyse — it live-updates as the date slider moves, and nothing computes yet.
+  if (!analyticsArmed) {
+    const unresolved = inRange.filter((r) => !r.wind_resolved && !!r.track).length;
+    const needGpx = inRange.filter((r) => r.source !== "gpx" && !r.gpx_cached).length;
+    renderAnalyticsGate(resolved.length, unresolved, needGpx);
+    clearChart();
+    setAnalyticsCardsPlaceholder();
+    const noteEl = document.getElementById("analyticsNote");
+    if (noteEl) noteEl.textContent = "";
+    return;
+  }
+
   const opts: SegmentOpts = { stopKmh: deps.movingThresholdKmh() };
-  const allResolved = deps.getRides().filter((r) => !r.deleted && r.wind_resolved);
-  const pending = allResolved
+  // Sweep only the wind-resolved rides inside the selected window (not the whole
+  // dataset) — the date slicer scopes the work, so a narrow window stays cheap.
+  const pending = resolved
     .filter((r) => !segCacheByUid.has(segKey(r)))
     .sort((a, b) => compareRideKeysDesc(a.key, b.key));
   let done = 0;
