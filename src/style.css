@@ -4154,6 +4154,52 @@ body.climate-expanded .cl-ctl input[type="range"] {
   border-radius: var(--radius);
   background: var(--bg);
 }
+/* Highlight overlay: rings for the hovered/selected dot + its ride's siblings, drawn
+   on its own canvas so the base scatter is never redrawn for hover. Sits over the
+   scatter, below the status overlay; never eats pointer events (the canvas beneath
+   does the hit-testing). */
+#windSpeedHover {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  pointer-events: none;
+}
+/* Hover readout: which segment (and ride) the cursor is over. Follows the pointer,
+   clamped inside the chart; desktop-only (touch uses the tap-selected card). */
+.chart-tip {
+  position: absolute;
+  z-index: 2;
+  max-width: 240px;
+  padding: 6px 9px;
+  background: color-mix(in srgb, var(--bg) 92%, transparent);
+  border: 1px solid var(--accent-dim);
+  border-radius: 8px;
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+}
+.chart-tip .tip-when {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--accent);
+}
+.chart-tip .tip-name {
+  font-size: 12.5px;
+  color: var(--text);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chart-tip .tip-seg {
+  font-size: 11.5px;
+  color: var(--text);
+  line-height: 1.35;
+}
 /* Calm status overlay centred over the scatter (analysing / nothing in range). It
    never resizes the layout — pointer-events stay off so the date slider beneath it
    keeps dragging. */
@@ -4839,6 +4885,23 @@ body.heat-expanded {
   font-size: 11px;
   margin: 2px 0 8px;
   line-height: 1.4;
+}
+/* Selected-segment stats line (Wind/Speed chart): the wind/speed/length/grade the
+   tapped dot represents, above the ride it came from. */
+.ms-seg {
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.45;
+  margin: 4px 0 2px;
+}
+/* The selected-segment card sits below the chart in flow, so give it a little air. */
+#analyticsSelected {
+  margin-top: 12px;
+}
+/* No global `.hidden` rule exists (each component scopes its own), so hide the empty
+   card explicitly \u2014 otherwise its bordered `.ms-matched` box shows with nothing in it. */
+#analyticsSelected.hidden {
+  display: none;
 }
 .ms-clear {
   background: transparent;

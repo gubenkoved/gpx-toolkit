@@ -18,12 +18,18 @@
 
 import { activeView } from "./app-state";
 import type { RideView } from "./controller";
+import { fmtKm, fmtKmDetail, fmtSpeed } from "./format";
 import type { DateRange } from "./mapview";
 import { compareRidesByDateDesc, rideShortLabel } from "./parsing";
 import { setSliderFill } from "./slider";
 import type { LatLon } from "./track";
-import { statNum } from "./ui";
-import { drawWindSpeedChart } from "./windchart";
+import { escHtml, statNum } from "./ui";
+import {
+  type ChartLayout,
+  drawDotHighlights,
+  drawWindSpeedChart,
+  nearestDot,
+} from "./windchart";
 import {
   crossColor,
   linearRegression,
@@ -60,6 +66,8 @@ export interface WindSpeedDeps {
   refreshRange(): void;
   /** (Re)mount the shared date-range slider for this view. */
   syncRangeControl(): void;
+  /** Open a ride (by its key) in the Explore view — the target of a selected dot. */
+  openRide(key: string): void;
 }
 
 /** A ride's memoized segments plus why it may contribute none. */
@@ -87,9 +95,31 @@ let analyticsArmed = false;
 /** |net grade| above this (percent) means a segment isn't "flat". */
 const FLAT_GRADE_PCT = 1.5;
 
+// -- Dot ↔ ride discovery -------------------------------------------------- //
+// The last drawn scatter's hit-test geometry, plus which segment the user has
+// selected (pinned, by tap/click) and which one they're hovering (desktop only). A
+// dot already knows its ride (`WindSeg.uid` is the ride key), so selecting one lets us
+// name the ride, ring all its sibling segments, and jump to it. Highlights paint on a
+// cheap overlay canvas so the base scatter is never redrawn for hover.
+let chartLayout: ChartLayout = { dots: [] };
+let selectedSeg: WindSeg | null = null;
+let hoverSeg: WindSeg | null = null;
+let interactionWired = false;
+/** px slack added to a dot's radius when hit-testing: tight for a mouse, generous for
+ *  a finger. */
+const HOVER_SLACK = 10;
+const TAP_SLACK = 16;
+
+/** True on devices with a precise hover-capable pointer (mouse/trackpad). Touch gets
+ *  tap-to-select only — no hover ring/tooltip that a finger can't drive. */
+function canHover(): boolean {
+  return window.matchMedia?.("(hover: hover) and (pointer: fine)").matches ?? false;
+}
+
 /** Wire the view's dependencies. Call once at startup. */
 export function initWindSpeedView(d: WindSpeedDeps): void {
   deps = d;
+  wireChartInteraction();
 }
 
 /** Memo key for a ride's segments: uid + wind version + full-GPX presence, so a
@@ -305,11 +335,14 @@ function nextPaint(): Promise<void> {
   );
 }
 
-/** Blank the scatter canvas (used when a range has no points to draw). */
+/** Blank the scatter canvas (used when a range has no points to draw). Also drops any
+ *  dot selection + its highlight/card, since there are no dots to point at. */
 function clearChart(): void {
   const canvas = document.getElementById("windSpeedChart") as HTMLCanvasElement | null;
   const ctx = canvas?.getContext("2d");
   if (canvas && ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
+  chartLayout = { dots: [] };
+  clearSegSelection();
 }
 
 /** Entry point: (re)render the Wind/Speed view, coalescing reruns during a sweep. */
@@ -518,11 +551,176 @@ async function runAnalyticsView(my: number, _opts: { fit?: boolean } = {}): Prom
     );
   } else {
     showChartMessage(null);
-    if (canvas)
-      drawWindSpeedChart(canvas, shown, reg, {
+    if (canvas) {
+      chartLayout = drawWindSpeedChart(canvas, shown, reg, {
         dotColor: colorByCross
           ? (s) => crossColor(Math.abs(s.avgCrossKmh), crossMax)
           : undefined,
       });
+      reconcileSegSelection(shown);
+      applyDotHighlights();
+    }
   }
+}
+
+// -- Dot interaction: hover readout + tap-to-select \u2192 ride ------------------ //
+
+/** Find the ride a segment belongs to (its uid IS the ride key). */
+function rideForSeg(seg: WindSeg): RideView | null {
+  return deps.getRides().find((r) => r.key === seg.uid) ?? null;
+}
+
+/** Compact one-line stats for a segment: wind it met, its crosswind, speed, length and
+ *  grade. Shared by the hover tooltip and the selected card so they read identically. */
+function segStatsText(seg: WindSeg): string {
+  const along = seg.avgAlongKmh;
+  const wind =
+    along >= 0
+      ? `tailwind ${along.toFixed(1)} km/h`
+      : `headwind ${(-along).toFixed(1)} km/h`;
+  const cross = `cross ${Math.abs(seg.avgCrossKmh).toFixed(1)}`;
+  const speed = `${fmtSpeed(seg.avgSpeedKmh)} avg`;
+  const dist = fmtKmDetail(seg.distanceKm);
+  const parts = [wind, cross, speed, dist];
+  if (Number.isFinite(seg.netGradePct)) {
+    parts.push(`${seg.netGradePct >= 0 ? "+" : ""}${seg.netGradePct.toFixed(1)}% grade`);
+  }
+  return parts.join(" · ");
+}
+
+/** Clear any pinned dot selection and hide its card. Highlights are re-applied by the
+ *  caller (or fall away on the next redraw). */
+function clearSegSelection(): void {
+  selectedSeg = null;
+  const card = document.getElementById("analyticsSelected");
+  if (card) {
+    card.classList.add("hidden");
+    card.innerHTML = "";
+  }
+}
+
+/** Drop the selection if its segment is no longer among the drawn dots (filtered out,
+ *  or the cache was rebuilt). Segment objects are reused across cheap re-filters, so a
+ *  reference check is enough. */
+function reconcileSegSelection(shown: WindSeg[]): void {
+  if (selectedSeg && !shown.includes(selectedSeg)) clearSegSelection();
+}
+
+/** Paint the highlight overlay for the current hover/selection. The hovered dot (if
+ *  any) takes the bright focus ring; otherwise the pinned one does, and either way all
+ *  of that ride's sibling dots get a soft ring. */
+function applyDotHighlights(): void {
+  const overlay = document.getElementById("windSpeedHover") as HTMLCanvasElement | null;
+  if (!overlay) return;
+  const focusSeg = hoverSeg ?? selectedSeg;
+  drawDotHighlights(overlay, chartLayout.dots, focusSeg?.uid ?? null, focusSeg);
+}
+
+/** Render (and reveal) the selected-segment card below the chart: the segment's stats
+ *  plus the ride it belongs to as a clickable `.ms-item` that opens it in Explore. */
+function renderSelectedCard(seg: WindSeg): void {
+  const card = document.getElementById("analyticsSelected");
+  if (!card) return;
+  const ride = rideForSeg(seg);
+  if (!ride) {
+    clearSegSelection();
+    return;
+  }
+  const when = escHtml(rideShortLabel(ride.date_key));
+  const name = escHtml((ride.title || "Ride") + (ride.location || ""));
+  const km = escHtml(ride.track_km > 0 ? fmtKm(ride.track_km) : "—");
+  const spd = escHtml(ride.avg_speed_kmh && ride.avg_speed_kmh > 0 ? fmtSpeed(ride.avg_speed_kmh) : "—");
+  card.innerHTML =
+    `<div class="ms-mhead"><h3>Selected segment</h3>` +
+    `<button class="ms-clear" title="Clear the selection">Clear</button></div>` +
+    `<div class="ms-seg">${escHtml(segStatsText(seg))}</div>` +
+    `<div class="ms-mhint">Open the ride this segment came from:</div>` +
+    `<div class="ms-list"><div class="ms-item matched" data-key="${escHtml(ride.key)}" title="${name}">` +
+    `<div class="ms-name">${name}</div>` +
+    `<div class="ms-meta"><span class="ms-when">${when}</span>` +
+    `<span class="ms-figs"><span class="ms-km">${km}</span><span class="ms-spd">${spd}</span></span></div>` +
+    `</div></div>`;
+  card.classList.remove("hidden");
+}
+
+/** Place + fill the hover tooltip near the pointer, clamped inside the chart box. */
+function showTip(seg: WindSeg, px: number, py: number, boxW: number, boxH: number): void {
+  const tip = document.getElementById("windSpeedTip");
+  if (!tip) return;
+  const ride = rideForSeg(seg);
+  const name = ride ? (ride.title || "Ride") + (ride.location || "") : "Ride";
+  const label = ride ? rideShortLabel(ride.date_key) : "ride";
+  tip.innerHTML =
+    `<b class="tip-name">${escHtml(name)}</b>` +
+    `<span class="tip-when">${escHtml(label)}</span>` +
+    `<span class="tip-seg">${escHtml(segStatsText(seg))}</span>`;
+  tip.classList.remove("hidden");
+  // Measure after content is set so the clamp uses the real size.
+  const w = tip.offsetWidth;
+  const h = tip.offsetHeight;
+  let left = px + 14;
+  let top = py + 14;
+  if (left + w > boxW) left = px - w - 14;
+  if (top + h > boxH) top = py - h - 14;
+  tip.style.left = `${Math.max(0, left)}px`;
+  tip.style.top = `${Math.max(0, top)}px`;
+}
+
+/** Hide the hover tooltip. */
+function hideTip(): void {
+  document.getElementById("windSpeedTip")?.classList.add("hidden");
+}
+
+/** Wire pointer interaction on the scatter canvas, once. Hover (precise pointers only)
+ *  rings + describes the dot under the cursor; a click/tap pins the nearest dot \u2014
+ *  showing its card and ringing all of that ride's segments \u2014 and clicking the card's
+ *  ride opens it in Explore. */
+function wireChartInteraction(): void {
+  if (interactionWired) return;
+  const canvas = document.getElementById("windSpeedChart") as HTMLCanvasElement | null;
+  const card = document.getElementById("analyticsSelected");
+  if (!canvas || !card) return;
+  interactionWired = true;
+
+  const at = (e: PointerEvent | MouseEvent): { x: number; y: number; w: number; h: number } => {
+    const rect = canvas.getBoundingClientRect();
+    return { x: e.clientX - rect.left, y: e.clientY - rect.top, w: rect.width, h: rect.height };
+  };
+
+  canvas.addEventListener("pointermove", (e) => {
+    if (!canHover()) return; // touch: tap-to-select only
+    const p = at(e);
+    const hit = nearestDot(chartLayout.dots, p.x, p.y, HOVER_SLACK);
+    hoverSeg = hit?.seg ?? null;
+    applyDotHighlights();
+    if (hit) showTip(hit.seg, p.x, p.y, p.w, p.h);
+    else hideTip();
+  });
+  canvas.addEventListener("pointerleave", () => {
+    hoverSeg = null;
+    hideTip();
+    applyDotHighlights();
+  });
+  canvas.addEventListener("click", (e) => {
+    const p = at(e);
+    const hit = nearestDot(chartLayout.dots, p.x, p.y, TAP_SLACK);
+    if (hit) {
+      selectedSeg = hit.seg;
+      renderSelectedCard(hit.seg);
+    } else {
+      clearSegSelection();
+    }
+    applyDotHighlights();
+  });
+
+  card.addEventListener("click", (e) => {
+    const target = e.target as HTMLElement;
+    if (target.closest(".ms-clear")) {
+      clearSegSelection();
+      applyDotHighlights();
+      return;
+    }
+    const item = target.closest(".ms-item") as HTMLElement | null;
+    if (item?.dataset.key) deps.openRide(item.dataset.key);
+  });
 }

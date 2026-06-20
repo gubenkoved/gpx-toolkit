@@ -4210,6 +4210,7 @@ initWindSpeedView({
   windSamples: (key) => controller.windSamples(key),
   refreshRange: () => refreshRange("analytics"),
   syncRangeControl: () => syncRangeControl("analytics"),
+  openRide: (key) => openRideInExplore(key),
 });
 // Restore the remembered Wind/Speed chart filters into their controls (the date
 // window is re-applied lazily once the rides' bounds are known, in refreshRange).

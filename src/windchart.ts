@@ -49,6 +49,97 @@ export interface ChartOpts {
   dotColor?: (seg: WindSeg) => string;
 }
 
+/** One plotted dot's screen geometry, in CSS pixels — the seam that lets the view
+ *  map a pointer back to the segment it's over (and draw a highlight ring at the same
+ *  spot on an overlay). */
+export interface ChartDot {
+  seg: WindSeg;
+  x: number;
+  y: number;
+  r: number;
+}
+
+/** What `drawWindSpeedChart` returns so callers can hit-test + highlight without
+ *  re-deriving the scales. */
+export interface ChartLayout {
+  dots: ChartDot[];
+}
+
+/**
+ * The dot nearest to (px, py) whose centre is within `slack` px of it, or null. Ties
+ * resolve to the smaller dot (the more specific target). Pure + DOM-free so it's
+ * testable; the view feeds it the layout from `drawWindSpeedChart`.
+ */
+export function nearestDot(
+  dots: ChartDot[],
+  px: number,
+  py: number,
+  slack: number,
+): ChartDot | null {
+  let best: ChartDot | null = null;
+  let bestD = Number.POSITIVE_INFINITY;
+  for (const d of dots) {
+    const reach = d.r + slack;
+    const dist = Math.hypot(d.x - px, d.y - py);
+    if (dist > reach) continue;
+    if (dist < bestD || (dist === bestD && best && d.r < best.r)) {
+      best = d;
+      bestD = dist;
+    }
+  }
+  return best;
+}
+
+/**
+ * Paint highlight rings on a transparent overlay canvas stacked over the scatter:
+ * every dot sharing `focusUid` (the selected/hovered ride) gets a soft ring, and the
+ * one `focusSeg` (the exact dot under the pointer) a brighter accent ring with a dark
+ * casing so it reads over any crosswind tint. Clearing + a handful of rings per frame
+ * keeps hover/selection cheap even with tens of thousands of dots (the base scatter is
+ * never redrawn). Sizes itself DPR-aware to the overlay's CSS box.
+ */
+export function drawDotHighlights(
+  overlay: HTMLCanvasElement,
+  dots: ChartDot[],
+  focusUid: string | null,
+  focusSeg?: WindSeg | null,
+): void {
+  const cssW = overlay.clientWidth || 600;
+  const cssH = overlay.clientHeight || 360;
+  const dpr = window.devicePixelRatio || 1;
+  overlay.width = Math.round(cssW * dpr);
+  overlay.height = Math.round(cssH * dpr);
+  const ctx = overlay.getContext("2d");
+  if (!ctx) return;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, cssW, cssH);
+  if (!focusUid) return;
+  const colAccent = cssVar("--accent", "#f97316");
+  // Soft rings on every sibling segment of the focused ride.
+  ctx.lineWidth = 1.5;
+  ctx.strokeStyle = "rgba(255,255,255,0.85)";
+  for (const d of dots) {
+    if (d.seg.uid !== focusUid || d.seg === focusSeg) continue;
+    ctx.beginPath();
+    ctx.arc(d.x, d.y, d.r + 3, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  // The exact dot under the pointer: a dark casing + bright accent ring.
+  const f = focusSeg ? dots.find((d) => d.seg === focusSeg) : null;
+  if (f) {
+    ctx.beginPath();
+    ctx.arc(f.x, f.y, f.r + 4, 0, Math.PI * 2);
+    ctx.lineWidth = 4;
+    ctx.strokeStyle = "rgba(0,0,0,0.55)";
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(f.x, f.y, f.r + 4, 0, Math.PI * 2);
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = colAccent;
+    ctx.stroke();
+  }
+}
+
 /**
  * Draw the wind-vs-speed scatter + regression on a canvas. X = along-track (true)
  * wind, 0-centred so the two halves read as mirror images (← headwind / tailwind →);
@@ -62,14 +153,14 @@ export function drawWindSpeedChart(
   segs: WindSeg[],
   reg: ChartReg,
   opts: ChartOpts = {},
-): void {
+): ChartLayout {
   const cssW = canvas.clientWidth || 600;
   const cssH = canvas.clientHeight || 360;
   const dpr = window.devicePixelRatio || 1;
   canvas.width = Math.round(cssW * dpr);
   canvas.height = Math.round(cssH * dpr);
   const ctx = canvas.getContext("2d");
-  if (!ctx) return;
+  if (!ctx) return { dots: [] };
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, cssW, cssH);
 
@@ -152,6 +243,7 @@ export function drawWindSpeedChart(
   // a per-dot colour is given (crosswind tint) each dot is filled individually at a
   // slightly higher alpha so the hue reads.
   const { dotColor } = opts;
+  const dots: ChartDot[] = [];
   ctx.save();
   ctx.beginPath();
   ctx.rect(x0, y1, x1 - x0, y0 - y1);
@@ -160,9 +252,12 @@ export function drawWindSpeedChart(
   if (!dotColor) ctx.fillStyle = colAccent;
   for (const s of segs) {
     const r = Math.max(2, Math.min(7, Math.sqrt(s.distanceKm) * 1.6));
+    const cx = sx(s.avgAlongKmh);
+    const cy = sy(s.avgSpeedKmh);
+    dots.push({ seg: s, x: cx, y: cy, r });
     if (dotColor) ctx.fillStyle = dotColor(s);
     ctx.beginPath();
-    ctx.arc(sx(s.avgAlongKmh), sy(s.avgSpeedKmh), r, 0, Math.PI * 2);
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
     ctx.fill();
   }
   ctx.globalAlpha = 1;
@@ -209,4 +304,6 @@ export function drawWindSpeedChart(
   ctx.fillStyle = colText;
   ctx.fillText("avg moving speed (km/h)", 0, 0);
   ctx.restore();
+
+  return { dots };
 }

@@ -17,6 +17,23 @@ humans and the assistant can read this file as a compressed history of decisions
 
 ---
 
+## feat: tap a Wind/Speed dot to find + open its ride
+- **What:** Made the wind-vs-speed scatter interactive. `drawWindSpeedChart` now returns
+  a hit-test layout (`ChartLayout`/`ChartDot`, CSS-px dot geometry); new pure
+  `nearestDot()` maps a pointer to the closest dot and `drawDotHighlights()` rings it +
+  all its ride's sibling dots on a dedicated overlay canvas. In the view: hovering a dot
+  (precise pointers only) shows a tooltip with that segment's wind/speed/length/grade and
+  rings it; tapping/clicking pins it, ringing every segment of that ride and revealing a
+  card below the chart (reusing the `.ms-matched`/`.ms-item` vocabulary) that names the
+  ride and opens it in Explore on click. New `WindSpeedDeps.openRide` wires that to the
+  existing `openRideInExplore`.
+- **Why:** A dot is a roughly-straight stretch of some ride, but until now there was no
+  way to tell *which* ride a point came from or get to it — the chart was read-only. This
+  closes that observability gap. Tap-to-select + an in-flow card (not a hover-only
+  tooltip) keeps it usable on touch, matching the Map/Stats "select → card → open"
+  pattern; the highlight rides on a cheap overlay so the base scatter is never redrawn for
+  hover, staying responsive at the thousands-of-rides scale.
+
 ## feat: replace selection "Drop deleted" with "Delete selected"
 - **What:** dropped the selection-driven "Drop deleted" bulk button and added a "Delete selected"
   selection action that tombstone-deletes the live rides in the selection (source-aware confirm:

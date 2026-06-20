@@ -267,9 +267,12 @@
         <div class="wind-legend hidden" id="crosswindLegend"></div>
         <div class="chart-wrap">
           <canvas id="windSpeedChart"></canvas>
+          <canvas id="windSpeedHover" aria-hidden="true"></canvas>
+          <div id="windSpeedTip" class="chart-tip hidden" aria-hidden="true"></div>
           <div id="analyticsChartMsg" class="chart-msg" style="display:none"></div>
           <div id="analyticsFilter" class="range-filter basemap-filter hidden" title="Drag to limit the rides analysed by date"></div>
         </div>
+        <div id="analyticsSelected" class="ms-matched hidden"></div>
       </section>
     </div>
   </div>
