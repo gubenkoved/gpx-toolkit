@@ -17,6 +17,18 @@ humans and the assistant can read this file as a compressed history of decisions
 
 ---
 
+## privacy-friendly usage analytics (GoatCounter)
+- **What:** Embedded the cookieless GoatCounter counter (`index.html`) plus a tiny
+  fail-soft seam ([src/analytics.ts](src/analytics.ts)) with two primitives:
+  `trackView(view)` for per-view usage (fired from `setView`) and `trackEvent(name)`
+  for a handful of key actions — `demo`, `beeline-connect`, `beeline-pull`,
+  `gpx-import`, `location-import`, `strava-upload`. No personal data, GPS, emails or
+  tokens are ever sent — only a synthetic path/event name; the script auto-skips
+  localhost and both helpers no-op until it loads.
+- **Why:** Wanted a lightweight signal of whether the app is actually used (and which
+  features), without any user tracking. Kept the instrumentation to one canonical
+  helper and the existing action funnels so it stays unobtrusive.
+
 ## gpx-relay: optional free durable persistence (DynamoDB) for stats + rate limits
 - **What:** The relay can now persist its rate-limit counters, the global monthly cap and
   the lifetime download stats in a shared **DynamoDB** table (new `DDB_TABLE` env var;

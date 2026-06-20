@@ -87,6 +87,7 @@ import {
   idbWindBlobBackend,
   memoryBackend,
 } from "./kv";
+import { trackEvent, trackView } from "./analytics";
 import { parseLocationHistory } from "./loc-parse";
 import { LocationHistoryStore } from "./loc-store";
 import { effect, signal } from "./reactive";
@@ -519,6 +520,7 @@ async function goDemoBeeline(): Promise<void> {
   const c = new Controller(factory, store, gpxCache, gpxData);
   c.registerSource(new GpxRideSource(gpxData, () => store.settings.trackPointsPerKm));
   activate(c, true);
+  trackEvent("demo");
   try {
     await c.connect();
     toast("Demo (Beeline) — a simulated cloud account. Open Sources to leave.");
@@ -565,6 +567,7 @@ async function goBeeline(email: string, password: string): Promise<boolean> {
   // Capture any action that was waiting on sign-in BEFORE hideSources() clears it.
   const pending = afterBeelineSignIn;
   hideSources();
+  trackEvent("beeline-connect");
   toast(`Signed in: ${controller.state().device}`);
   if (pending) {
     // The user triggered sign-in by doing something (Re-sync, upload) — run it now
@@ -599,6 +602,7 @@ async function openApp(): Promise<void> {
 /** Pull the whole ride history from the connected Beeline account (the one
  *  Beeline-specific data action). Prompts for sign-in first when signed out. */
 function pullFromBeeline(): void {
+  trackEvent("beeline-pull");
   withBeelineAccess(() => run(() => controller.scan("all", null)));
 }
 
@@ -652,6 +656,7 @@ async function getRealController(): Promise<Controller> {
  */
 function importGpxFiles(files: File[]): void {
   if (!files.length) return;
+  trackEvent("gpx-import");
   void getRealController().then((c) => {
     if (controller !== c) activate(c, false);
     hideSources();
@@ -744,6 +749,7 @@ async function importLocationHistory(file: File): Promise<void> {
     if (imp.profile) await store.setProfile(imp.profile);
     const skipped = imp.skipped ? ` (${imp.skipped} unreadable points skipped)` : "";
     toast(`Imported ${imp.records.length.toLocaleString()} location records${skipped}.`);
+    trackEvent("location-import");
     resetTimelineData();
     if (activeView() === "timeline") mountTimelineView();
     render(); // refresh storage breakdown in the Data menu
@@ -1684,6 +1690,7 @@ function setView(v: ViewName): void {
   if (!setActiveView(v)) return;
   applyView();
   render();
+  trackView(v); // privacy-friendly per-view usage signal (GoatCounter)
 }
 
 /**
@@ -3723,6 +3730,7 @@ document.addEventListener("click", (e) => {
       (k) => STATE.rides.find((r) => r.key === k)?.status !== "uploaded",
     );
     if (!keys.length) return toast("All selected rides are already uploaded to Strava.");
+    trackEvent("strava-upload");
     return withBeelineAccess(() => run(() => controller.upload(keys)));
   }
   if (t.id === "btnUploadPending") {
@@ -3738,7 +3746,10 @@ document.addEventListener("click", (e) => {
         } to Strava. Already-uploaded rides are skipped.`,
         confirmLabel: "Push all",
       });
-      if (ok) withBeelineAccess(() => run(() => controller.upload(keys)));
+      if (ok) {
+        trackEvent("strava-upload");
+        withBeelineAccess(() => run(() => controller.upload(keys)));
+      }
     })();
     return;
   }
@@ -3807,6 +3818,7 @@ document.addEventListener("click", (e) => {
   if (act === "upload-one") {
     const ride = STATE.rides.find((r) => r.key === t.dataset.key);
     if (ride && ride.status === "uploaded") return toast("Already uploaded to Strava.");
+    trackEvent("strava-upload");
     return withBeelineAccess(() => run(() => controller.upload([t.dataset.key!])));
   }
   if (act === "rename-one") {
