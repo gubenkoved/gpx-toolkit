@@ -17,6 +17,16 @@ humans and the assistant can read this file as a compressed history of decisions
 
 ---
 
+## feat: replace selection "Drop deleted" with "Delete selected"
+- **What:** dropped the selection-driven "Drop deleted" bulk button and added a "Delete selected"
+  selection action that tombstone-deletes the live rides in the selection (source-aware confirm:
+  Beeline rides leave the account, imported rides lose their stored GPX). Runs as ONE queued
+  `delete` sweep via a new `Controller.deleteRides`; `doDelete` now loops over the task's keys.
+  Drop is still reachable per-ride ("Drop from library") and globally ("Drop N deleted").
+- **Why:** the selection "Drop deleted" was a confusing near-no-op — it only acted when the
+  selection happened to contain already-deleted tombstones. Bulk *delete* is the action users
+  actually want on a selection of live rides; purging tombstones stays per-ride + global.
+
 ## fix: order/bucket/label by reference date, never the content-addressed uid
 - **What:** established a hard invariant — a ride's uid/key is **identity only**; everything date-related
   (sort, month/period bucketing, range-filtering, granularity, date labels) reads the ride's **reference

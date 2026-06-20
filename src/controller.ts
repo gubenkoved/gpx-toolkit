@@ -1581,20 +1581,28 @@ export class Controller {
   }
 
   /**
-   * Delete a ride on the backend, then keep it locally as a tombstone (the existing
-   * `deleted`/`deleted_at` state) rather than dropping it — so the row stays visible
-   * as “deleted” and a later complete scan won't resurrect it (it's gone upstream).
+   * Delete one or more rides on their backend, then keep each locally as a tombstone
+   * (the existing `deleted`/`deleted_at` state) rather than dropping it — so the row
+   * stays visible as “deleted” and a later complete scan won't resurrect it (it's gone
+   * upstream). Iterates every uid in the task (a single per-ride delete is just a
+   * one-key task), dispatching each to its own source, then saves + notifies once.
    */
   private async doDelete(task: Task, report: Report): Promise<void> {
-    const uid = task.keys[0];
-    if (!uid) return;
-    const { source: kind, dateKey } = splitUid(uid);
-    const source = this.requireSource(kind as SourceKind);
-    await source.deleteRide(dateKey, (msg) => report(msg));
-    this.store.markDeleted(uid);
-    this.store.save();
-    this.notify();
-    report(`deleted ${rideShortLabel(dateKey) || dateKey}`);
+    let done = 0;
+    for (const uid of task.keys) {
+      if (!uid) continue;
+      const { source: kind, dateKey } = splitUid(uid);
+      const source = this.requireSource(kind as SourceKind);
+      report(`deleting ${rideShortLabel(dateKey) || dateKey}…`);
+      await source.deleteRide(dateKey, (msg) => report(msg));
+      this.store.markDeleted(uid);
+      done++;
+    }
+    if (done) {
+      this.store.save();
+      this.notify();
+    }
+    report(`deleted ${done} ride${done === 1 ? "" : "s"}`);
   }
 
   // -- enqueue helpers / API surface ------------------------------------
@@ -1673,6 +1681,19 @@ export class Controller {
       label: this.uidLabel(uid),
       keys: [uid],
     });
+  }
+
+  /**
+   * Delete several rides in one queued sweep (the bulk sibling of `deleteRide`, used by
+   * the "Delete selected" selection action). Each ride is dispatched to its own source
+   * and tombstoned locally; mixed-source selections are fine. One task, so the queue
+   * shows a single labelled pass rather than N entries.
+   */
+  deleteRides(keys: string[]): TaskSnapshotResult {
+    const uids = keys.map((k) => this.normalizeUid(k));
+    const first = uids.length ? this.uidLabel(uids[0]) : "ride";
+    const label = uids.length > 1 ? `${first} (+${uids.length - 1} more)` : first;
+    return this.jobs.submit("delete", { label, keys: uids });
   }
 
   /**

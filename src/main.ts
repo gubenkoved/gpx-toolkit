@@ -2489,12 +2489,16 @@ function render(): void {
     );
     selUploadBtn.style.display = selHasUploadable ? "" : "none";
   }
-  // "Drop deleted" (selection) permanently purges already-deleted rides — show it only
-  // when the selection actually contains a deleted ride, so it never offers a no-op.
-  const dropSelBtn = document.getElementById("btnDropDeletedSel") as HTMLButtonElement | null;
-  if (dropSelBtn) {
-    const selHasDeleted = [...selected].some((k) => allRides.find((r) => r.key === k)?.deleted);
-    dropSelBtn.style.display = selHasDeleted ? "" : "none";
+  // "Delete selected" deletes the live (non-deleted) rides in the selection — show it
+  // only when the selection actually contains a deletable ride (already-deleted rides
+  // are handled by the per-ride "Drop from library" and the global "Drop deleted").
+  const delSelBtn = document.getElementById("btnDeleteSel") as HTMLButtonElement | null;
+  if (delSelBtn) {
+    const selHasLive = [...selected].some((k) => {
+      const r = allRides.find((x) => x.key === k);
+      return r && !r.deleted;
+    });
+    delSelBtn.style.display = selHasLive ? "" : "none";
   }
   // The global "Drop deleted" purges every tombstone — show it only when at least one
   // deleted ride exists anywhere, and stamp the count into its label.
@@ -3738,11 +3742,36 @@ document.addEventListener("click", (e) => {
     })();
     return;
   }
-  if (t.id === "btnDropDeletedSel") {
+  if (t.id === "btnDeleteSel") {
     openMenu = null;
-    void dropDeletedKeys(
-      [...selected].filter((k) => STATE.rides.find((r) => r.key === k)?.deleted),
+    if (!selected.size) return toast("Select some rides first.");
+    const keys = [...selected].filter(
+      (k) => !STATE.rides.find((r) => r.key === k)?.deleted,
     );
+    if (!keys.length) return toast("No live rides selected to delete.");
+    const rides = keys.map((k) => STATE.rides.find((r) => r.key === k)).filter(Boolean) as RideView[];
+    const b = rides.filter((r) => r.source === "beeline").length;
+    const g = rides.filter((r) => r.source === "gpx").length;
+    const n = keys.length;
+    const tail = `This can't be undone. They stay listed here, marked as deleted.`;
+    const body =
+      g === 0
+        ? `Permanently delete ${n} ride${n === 1 ? "" : "s"} from your Beeline account? ${tail}`
+        : b === 0
+          ? `Delete ${n} imported ride${n === 1 ? "" : "s"}? This removes their GPX from this ` +
+            `browser and can't be undone. They stay listed here, marked as deleted.`
+          : `Delete ${n} rides? ${b} from your Beeline account and ${g} imported (their GPX ` +
+            `removed from this browser). ${tail}`;
+    void (async () => {
+      const ok = await confirmDialog({
+        title: "Delete selected?",
+        body,
+        confirmLabel: "Delete",
+      });
+      if (!ok) return;
+      const gate = b > 0 ? withBeelineAccess : (fn: () => void) => fn();
+      gate(() => run(() => controller.deleteRides(keys)));
+    })();
     return;
   }
   if (t.id === "btnDropDeleted") {
