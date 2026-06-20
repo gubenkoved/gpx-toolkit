@@ -339,7 +339,7 @@ export class Controller {
     return {
       key: uid,
       filename: gpxFilename(uid),
-      downloadName: gpxDownloadName(uid, title),
+      downloadName: gpxDownloadName(uid, title, rec.key),
       bytes: new TextEncoder().encode(xml),
     };
   }
@@ -365,7 +365,7 @@ export class Controller {
     return {
       key: uid,
       filename: gpxFilename(uid),
-      downloadName: gpxDownloadName(uid, title),
+      downloadName: gpxDownloadName(uid, title, rec?.key),
       bytes,
     };
   }
@@ -1022,11 +1022,14 @@ export class Controller {
   // -- state for the UI --------------------------------------------------
 
   state(): AppState {
-    const records = [...this.store.rides.values()].sort((a, b) => a.key.localeCompare(b.key));
-    const rides: RideView[] = records.map((r) => {
-      // The cross-source identity is the (source, datetime) uid; `r.key` is the bare
-      // datetime kept for date/month bucketing.
-      const uid = rideUid(r.source, r.key);
+    const records = [...this.store.rides.entries()].sort(([, a], [, b]) =>
+      a.key.localeCompare(b.key),
+    );
+    const rides: RideView[] = records.map(([uid, r]) => {
+      // The Store keys every record by its cross-source uid; `r.key` is the bare
+      // datetime kept for date/month bucketing. For Beeline the uid suffix IS the
+      // datetime, but a GPX ride's uid is content-addressed (`gpx::sha256:…`), so
+      // the uid must come from the Map key — never reconstructed from the datetime.
       // Split the fuller checked title into the scan name + colored location suffix.
       const base = r.title_base;
       const full = r.title;
@@ -1179,9 +1182,10 @@ export class Controller {
     const result = await source.importFiles(
       files,
       (card) => {
-        const uid = rideUid(kind, card.key);
+        const uid = rideUid(kind, card.identity ?? card.key);
         this.store.upsert(uid, {
           ...this.deviceFieldsFor(kind),
+          key: card.key,
           title_base: card.title,
           distance_km: card.distance_km,
           elapsed_sec: card.elapsed_sec,

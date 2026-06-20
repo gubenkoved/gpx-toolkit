@@ -21,6 +21,7 @@ import type { KeyValueStore } from "./kv";
 import {
   looksLikeStat,
   type RideMetrics,
+  rideDatetime,
   rideMonth,
   rideUid,
   type StravaStatus,
@@ -334,6 +335,10 @@ function migrate(data: unknown): Persisted | null {
 }
 
 export interface UpsertFields extends Partial<RideMetrics> {
+  /** The ride's display datetime (`record.key`). Set explicitly for content-
+   *  addressed uids (GPX), whose uid suffix is a content hash, not the datetime;
+   *  Beeline omits it (its uid suffix already IS the datetime). */
+  key?: string;
   title?: string;
   title_base?: string;
   strava_status?: StravaStatus;
@@ -419,16 +424,22 @@ export class Store {
     for (const [uid, raw] of Object.entries(
       rides as unknown as Record<string, Record<string, unknown>>,
     )) {
-      // The map keys by the (source, datetime) uid; a record's own `key` stays the
-      // bare datetime and `source` comes from the uid, so date bucketing and per-
-      // source routing both work. Derive both from the uid so they can't disagree
-      // with a corrupt stored value. The `...raw` spread also carries through any
-      // unknown fields a newer build wrote, so they survive a round-trip untouched.
+      // The map keys by the ride uid. For a datetime uid (Beeline, and legacy GPX)
+      // the suffix IS the display key, so derive it from the uid — authoritative
+      // even if a stored value got corrupted. For a content-addressed uid (GPX,
+      // `gpx::sha256:…`) the suffix is a hash, so the datetime lives in the stored
+      // record — trust `raw.key` there. `source` always comes from the uid. The
+      // `...raw` spread carries through any unknown fields a newer build wrote.
       const { source, dateKey } = splitUid(uid);
+      const uidIsDatetime = rideDatetime(dateKey) != null;
+      const key =
+        uidIsDatetime || typeof raw.key !== "string" || !raw.key
+          ? dateKey
+          : (raw.key as string);
       const rec: RideRecord = {
         ...blankRecord(uid),
         ...(raw as Partial<RideRecord>),
-        key: dateKey,
+        key,
         source: source as RideSource,
       };
       Object.assign(rec, metricsFromRecord(raw));
@@ -512,8 +523,10 @@ export class Store {
   upsert(key: string, fields: UpsertFields = {}): RideRecord {
     const uid = toUid(key);
     const rec = this.rides.get(uid) ?? blankRecord(uid);
-    if (fields.title) rec.title = fields.title;
-    if (fields.title_base) {
+    // Display datetime for content-addressed (GPX) uids, whose suffix is a hash;
+    // for Beeline the suffix already is the datetime so `key` is omitted there.
+    if (fields.key) rec.key = fields.key;
+    if (fields.title) rec.title = fields.title;    if (fields.title_base) {
       rec.title_base = fields.title_base;
       // Seed the display title from the scan name until a fuller one is checked.
       if (!rec.title) rec.title = fields.title_base;

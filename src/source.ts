@@ -110,10 +110,18 @@ export function gpxFilename(uid: string): string {
  * chronologically, then appends the ride's own title. Colons are rendered as `-`
  * (illegal in filenames), and any path separators / control chars in the title
  * are stripped. Falls back to a stamp-only name when the title is empty, and to
- * the device filename when the uid can't be parsed into a date.
+ * the device filename when the datetime can't be parsed.
+ *
+ * `dateKey` supplies the datetime; it defaults to the uid's suffix (a datetime for
+ * Beeline + legacy GPX), but content-addressed uids (GPX `gpx::sha256:…`) carry the
+ * datetime in the record, so the caller passes `record.key` explicitly.
  */
-export function gpxDownloadName(uid: string, title: string): string {
-  const dt = rideDatetime(splitUid(uid).dateKey);
+export function gpxDownloadName(
+  uid: string,
+  title: string,
+  dateKey: string = splitUid(uid).dateKey,
+): string {
+  const dt = rideDatetime(dateKey);
   if (dt === null) return gpxFilename(uid);
   const p2 = (n: number) => String(n).padStart(2, "0");
   const stamp =

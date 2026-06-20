@@ -156,6 +156,13 @@ export class GpxRideSource implements RideSource {
     const dateKey = beelineRideKey(startMs);
     if (!dateKey) return null;
 
+    // Content-addressed identity: distinct files become distinct rides regardless of
+    // their start minute (route GPX with no <time>, all falling back to a shared file
+    // mtime, would otherwise collapse into one ride), and re-importing the same bytes
+    // is idempotent (same id → updates the same ride). The display datetime stays in
+    // `key` for all sort/bucket/stats; identity is purely the storage handle.
+    const identity = await contentId(g.bytes);
+
     // Title: GPX's own name/desc → a name parsed from the filename → time-of-day.
     const base = extractGpxName(xml) || fromName.name || timeOfDayName(startMs);
     const place = fromName.place;
@@ -168,18 +175,21 @@ export class GpxRideSource implements RideSource {
     // Persist the original (gzipped) under the ride's cross-source uid in the data
     // vault so the full-track map + "Save full GPX" work locally/offline, and keep a
     // session copy. This is the ride's ONLY copy — primary data, never the cache.
-    this.originals.set(dateKey, g.bytes);
-    await this.gpxData.put(rideUid(this.kind, dateKey), g.bytes);
+    // Both are keyed by the content identity (the uid suffix), not the datetime.
+    this.originals.set(identity, g.bytes);
+    await this.gpxData.put(rideUid(this.kind, identity), g.bytes);
 
     return {
       key: dateKey,
+      identity,
       title: base,
       distance_km,
       elapsed_sec,
       fields: {
         ...blankMetrics(),
+        key: dateKey,
         source: this.kind,
-        source_id: `crc32:${crc32(g.bytes).toString(16)}`,
+        source_id: identity,
         title: fullTitle,
         title_base: base,
         distance_km,
@@ -293,6 +303,31 @@ function baseName(path: string): string {
 function errMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
+
+/**
+ * A content-addressed identity for an imported GPX — `sha256:<32 hex>`, the first
+ * 128 bits of the bytes' SHA-256. Same bytes → same id (idempotent re-import);
+ * different bytes → different id, with no realistic collision at any ride count, so
+ * two distinct files never overwrite one another in the Store. 128 bits is far past
+ * the point of birthday concerns (≈1e-18 at a billion rides).
+ *
+ * Falls back to `crc32:<hex>-<len>` only where SubtleCrypto is unavailable (which
+ * no evergreen browser nor Node ≥20 is) — still keyed on content, just weaker.
+ */
+async function contentId(bytes: Uint8Array): Promise<string> {
+  const subtle = globalThis.crypto?.subtle;
+  if (subtle) {
+    // Copy into a fresh ArrayBuffer-backed view so the digest input is a plain
+    // BufferSource (the source bytes may be a subarray over a SharedArrayBuffer).
+    const digest = await subtle.digest("SHA-256", new Uint8Array(bytes));
+    const hex = Array.from(new Uint8Array(digest), (b) =>
+      b.toString(16).padStart(2, "0"),
+    ).join("");
+    return `sha256:${hex.slice(0, 32)}`;
+  }
+  return `crc32:${crc32(bytes).toString(16)}-${bytes.length}`;
+}
+
 
 interface FilenameMeta {
   /** Start instant parsed from a leading `YYYY-MM-DD[ HH-MM]`, else null. */

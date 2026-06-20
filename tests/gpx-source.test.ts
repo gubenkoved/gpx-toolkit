@@ -4,7 +4,7 @@ import { Controller } from "../src/controller";
 import { GpxRideSource } from "../src/gpx-source";
 import { GpxCache } from "../src/gpxcache";
 import { memoryBackend } from "../src/kv";
-import { beelineRideKey, type RideCard, rideUid } from "../src/parsing";
+import { beelineRideKey, type RideCard, rideDatetime } from "../src/parsing";
 import { Store } from "../src/store";
 import { buildZip } from "../src/zip";
 
@@ -63,7 +63,10 @@ describe("GpxRideSource", () => {
     expect(card.distance_km).toBeGreaterThan(0);
     expect(card.elapsed_sec).toBe(600); // 10 minutes between the two points
     expect(card.fields?.source).toBe("gpx");
-    expect(card.fields?.source_id).toMatch(/^crc32:/);
+    // Identity is content-addressed (SHA-256 of the bytes), distinct from the
+    // display datetime in `key`; `source_id` mirrors it.
+    expect(card.identity).toMatch(/^sha256:[0-9a-f]+$/);
+    expect(card.fields?.source_id).toBe(card.identity);
     expect(card.fields?.moving_sec ?? null).toBeNull(); // deliberately not derived
     expect(card.fields?.track).toBeTruthy();
   });
@@ -117,7 +120,9 @@ describe("GpxRideSource", () => {
     await source.importFiles([gpxFile(gpx({ name: "Loop" }), "ride.gpx")], (c) =>
       cards.push(c),
     );
-    const key = cards[0].key;
+    // The source addresses rides by their content identity (the uid suffix), which
+    // the Controller hands back via splitUid — not the display datetime in `key`.
+    const key = cards[0].identity!;
 
     const files = await source.downloadGpx(new Set([key]));
     expect(files).toHaveLength(1);
@@ -141,6 +146,42 @@ describe("GpxRideSource", () => {
     expect(detail.title).toBe("New name");
     expect(detail.stravaStatus).toBe("unknown");
     expect(await source.processTargets()).toEqual([]);
+  });
+
+  it("keeps every file a distinct ride when start minutes collide (no <time>, shared mtime)", async () => {
+    const { source } = makeSource();
+    // Five DISTINCT route-style GPX files: no <time>, no date in the filename → each
+    // falls back to the SAME file mtime, so their minute-resolution display keys are
+    // identical. Content-addressed identity keeps them five separate rides anyway.
+    const mtime = Date.parse("2026-06-13T14:22:33Z");
+    const cards: RideCard[] = [];
+    const { skipped } = await source.importFiles(
+      [
+        gpxFile(gpx({ name: "A", times: false }), "a.gpx", mtime),
+        gpxFile(gpx({ name: "B", times: false }), "b.gpx", mtime),
+        gpxFile(gpx({ name: "C", times: false }), "c.gpx", mtime),
+        gpxFile(gpx({ name: "D", times: false }), "d.gpx", mtime),
+        gpxFile(gpx({ name: "E", times: false }), "e.gpx", mtime),
+      ],
+      (c) => cards.push(c),
+    );
+    expect(skipped).toEqual([]);
+    expect(cards).toHaveLength(5);
+    // The display datetime is allowed to repeat (same minute) — it's display only …
+    expect(new Set(cards.map((c) => c.key)).size).toBe(1);
+    // … but every ride has a UNIQUE content identity, so none overwrites another.
+    expect(new Set(cards.map((c) => c.identity)).size).toBe(5);
+  });
+
+  it("is idempotent: re-importing identical bytes yields the same identity", async () => {
+    const { source } = makeSource();
+    const bytes = gpx({ name: "Same ride" });
+    const a: RideCard[] = [];
+    const b: RideCard[] = [];
+    await source.importFiles([gpxFile(bytes, "first.gpx")], (c) => a.push(c));
+    await source.importFiles([gpxFile(bytes, "second.gpx")], (c) => b.push(c));
+    // Same content → same identity → the Store upsert updates one ride, never dupes.
+    expect(a[0].identity).toBe(b[0].identity);
   });
 });
 
@@ -171,7 +212,9 @@ describe("Controller + GpxRideSource (multi-source coexistence)", () => {
     expect(rides[0].source).toBe("gpx");
     expect(rides[0].can_upload).toBe(false);
     expect(rides[0].title).toBe("Imported ride");
-    expect(rides[0].key).toBe(rideUid("gpx", rides[0].date_key));
+    // The uid is content-addressed; the datetime lives in date_key, not the uid.
+    expect(rides[0].key).toMatch(/^gpx::sha256:[0-9a-f]+$/);
+    expect(rideDatetime(rides[0].date_key)).not.toBeNull();
   });
 
   it("emits onImported with the new ride uids after a successful import", async () => {

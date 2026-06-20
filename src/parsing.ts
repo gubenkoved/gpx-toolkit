@@ -43,6 +43,14 @@ export function looksLikeStat(text: string): boolean {
 export interface RideCard {
   key: string; // the datetime string, unique per ride
   title: string;
+  /**
+   * Storage identity for this ride (the uid suffix). When omitted, the identity is
+   * the `key` itself — the Beeline source's datetime IS its identity. The GPX source
+   * sets a CONTENT id here so two distinct files that share a start minute stay
+   * distinct rides, and re-importing the same file is idempotent (same id → same
+   * ride). `key` remains the display datetime regardless, for sort/bucket/stats.
+   */
+  identity?: string;
   /** Distance in km ("13,5km" → 13.5); null when absent. */
   distance_km: number | null;
   /** Elapsed time in whole seconds; null when absent. */

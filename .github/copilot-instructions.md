@@ -28,16 +28,23 @@ cache ONLY, so an imported GPX's bytes can never be destroyed by a cache flush (
 deleting the ride or a full `reset()`). Don't store re-derivable data in the data vault, or
 irreplaceable data in the cache.
 
-**Multi-source identity:** a ride's cross-source identity is the uid `${source}::${datetime}`
-([`rideUid`/`splitUid`](../src/parsing.ts)); the Store, GPX cache and UI `data-key` work in
-uids, while a record's own `key` stays the bare datetime so all date/month bucketing is
-unchanged (`rideDatetime` tolerates uids). The `RideSource` seam still speaks **bare datetime
-keys** in each source's own namespace; the Controller translates uid↔datetime at the boundary
-and dispatches each ride's action to that ride's source (grouping by `splitUid(uid).source`).
-Source-dependent actions are gated per ride by `capabilities` (e.g. Upload to Strava shows
-only on Beeline rides; a bulk upload over a mixed selection acts on the upload-capable subset
-and reports the rest as skipped). Storage-key strings and internal `beeline-*` module names are
-kept stable (persistence ids) despite the "GPX Toolkit" product framing.
+**Multi-source identity:** a ride's cross-source identity is the uid `${source}::${identity}`
+([`rideUid`/`splitUid`](../src/parsing.ts)). For **Beeline** the identity is the ride's
+`${datetime}` (its start instant genuinely IS its identity); for **GPX** it is a **content hash**
+of the file bytes (`gpx::sha256:<128-bit>`, minted in [`GpxRideSource`](../src/gpx-source.ts) —
+`contentId`), so two distinct files that share a start minute stay distinct rides and re-importing
+the same bytes is idempotent. Either way a record's own `key` stays the bare **datetime** (carried
+explicitly on the card via `RideCard.identity` vs `RideCard.key`, and set through `Store.upsert`'s
+`key` field) so all date/month bucketing is unchanged. The Store, GPX cache and UI `data-key` work
+in uids; **never reconstruct a uid as `rideUid(source, datetime)`** (true only for Beeline) — read
+the real Store Map key (`controller.state()` iterates `rides.entries()`). The `RideSource` seam
+speaks each source's **own key** in its namespace (datetime for Beeline, content hash for GPX); the
+Controller translates uid↔key at the boundary and dispatches each ride's action to that ride's
+source (grouping by `splitUid(uid).source`). Source-dependent actions are gated per ride by
+`capabilities` (e.g. Upload to Strava shows only on Beeline rides; a bulk upload over a mixed
+selection acts on the upload-capable subset and reports the rest as skipped). Storage-key strings
+and internal `beeline-*` module names are kept stable (persistence ids) despite the "GPX Toolkit"
+product framing.
 
 **No source "mode".** The app is ONE library over the unified store; there is no per-source
 mode. It boots straight into the library (`openApp()`); a first-ever launch shows the **Sources**
@@ -253,7 +260,7 @@ none. The table is grouped by concern; keep new modules in the group they belong
 
 | File | Responsibility | Key symbols |
 |------|----------------|-------------|
-| [src/gpx-source.ts](../src/gpx-source.ts) | Pure-GPX `RideSource`: import `.gpx`/`.zip`, local metrics/export | `GpxRideSource`, `importFiles()`, `parseGpxFilename()`, `extractGpxName()` |
+| [src/gpx-source.ts](../src/gpx-source.ts) | Pure-GPX `RideSource`: import `.gpx`/`.zip`, local metrics/export, **content-addressed identity** (`contentId` = SHA-256 of bytes) | `GpxRideSource`, `importFiles()`, `contentId()`, `parseGpxFilename()`, `extractGpxName()` |
 | [src/beeline-api.ts](../src/beeline-api.ts) | Beeline cloud backend client + ride mapping | `signIn()`, `refreshSession()`, `fetchRides()`, `uploadRideToStrava()`, `mapBeelineRide()`, `BeelineSession` |
 | [src/beeline-source.ts](../src/beeline-source.ts) | Account `RideSource` over the API (concurrent uploads) | `BeelineRideSource`, `BeelineApi`, `runPool()` |
 | [src/beeline-demo.ts](../src/beeline-demo.ts) | Simulated Beeline backend for the account demo | `demoBeelineDeps()`, `DEMO_BEELINE_EMAIL` |
@@ -354,7 +361,7 @@ none. The table is grouped by concern; keep new modules in the group they belong
   this reason), keep per-ride work O(1)-ish, and prefer culling/caching over recomputing the
   full set on every interaction. When adding a feature that scans all rides, sanity-check its
   cost against thousands of tracks before considering it done.
-- **Ride keys** are human dates like `"Sat Jun 13 2026 at 14:22"`; months are `"2026-06"` / `"June 2026"`. `beelineRideKey(startMs)` builds one from a Beeline ride's start instant; `rideDatetime()` is its inverse.
+- **Ride keys** are human dates like `"Sat Jun 13 2026 at 14:22"`; months are `"2026-06"` / `"June 2026"`. `beelineRideKey(startMs)` builds one from a Beeline ride's start instant; `rideDatetime()` is its inverse. A ride's `key` is its **display datetime** for all bucketing — distinct from its storage **uid** (`${source}::${identity}`): Beeline's identity is the datetime, but a GPX ride's is a content hash, so for GPX `key` ≠ the uid suffix.
 - **Job coalescing**: consecutive `upload`/`status`/`download-gpx` tasks merge into one sweep — preserve this when touching `JobQueue`.
 - Only the **Strava** upload path is automated (komoot is detected but left alone).
 

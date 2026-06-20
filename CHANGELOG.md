@@ -17,6 +17,27 @@ humans and the assistant can read this file as a compressed history of decisions
 
 ---
 
+## fix: importing several GPX files collapsing into one ride (content-addressed GPX identity)
+- **What:** GPX rides are now identified by a **content hash** of their bytes (`gpx::sha256:<128-bit>`)
+  rather than their minute-resolution start datetime. `GpxRideSource` mints the identity in
+  `importOne` (SHA-256 via SubtleCrypto, `crc32:<hex>-<len>` fallback) and keys both the data-vault
+  blob and `source_id` by it; `RideCard` gained an optional `identity` (the uid suffix) while `key`
+  stays the display datetime; `Store.upsert` accepts an explicit `key` field and `ingest` trusts the
+  stored `key` for content uids (deriving it from the uid only when the suffix is itself a datetime,
+  so Beeline + already-imported GPX are unchanged); `controller.state()` now reads the real Store
+  Map key instead of reconstructing `rideUid(source, datetime)`; `gpxDownloadName` takes an explicit
+  datetime so the human "Save As" stamp survives.
+- **Why:** ride keys are minute-resolution (`Wed Jun 3 2026 at 19:04`) and the uid was `gpx::<key>`,
+  fusing storage identity with the display datetime. Route-style GPX files carry no `<time>` and
+  often no date in the filename, so they all fell back to the file's `lastModified` — identical when
+  files are downloaded/saved together — producing the SAME key, and the per-uid upsert silently
+  overwrote each previous ride, collapsing N files into one. Content addressing fixes this at the
+  root: distinct files get distinct identities regardless of time, and re-importing the same bytes
+  is idempotent (same hash → updates one ride, no duplicate). The datetime keeps doing display/
+  bucketing as a record field. Beeline is untouched (its datetime genuinely is its identity).
+  Migration was deliberately skipped — old `gpx::<datetime>` rides keep working via the dual-scheme
+  `ingest`; only re-importing a pre-existing file (vs the new scheme) could make one duplicate.
+
 ## wind-vs-speed: crosswind colouring + crosswind filter
 - **What:** added two crosswind controls to the wind-vs-speed view, grouped together under a
   shared `.ctl-group` "Crosswind" cluster (the same hairline-rule + caption treatment as the
