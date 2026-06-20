@@ -17,6 +17,19 @@ humans and the assistant can read this file as a compressed history of decisions
 
 ---
 
+## feat: "Drop deleted" — permanently purge tombstoned rides
+- **What:** Deleted rides (soft-delete tombstones kept indefinitely) can now be permanently
+  dropped from local state. Added `Store.remove()` (hard delete) + `Controller.dropDeleted(keys?)`
+  which removes only `deleted` records, clears each ride's full-GPX blob (cache for Beeline, data
+  vault for imported GPX) and in-memory wind state, and reports the count. Three entry points:
+  per-ride "Drop from library" on deleted rows, "Drop deleted" in the Selected menu (deleted subset
+  of the selection), and a global "Drop N deleted" in the ⋯ menu shown only when tombstones exist.
+  All confirm with a count.
+- **Why:** Tombstones accumulated with no way to reclaim their space short of a full reset. Drop is
+  strictly guarded to deleted-only (never a live ride), local-only (a Beeline tombstone is already
+  gone upstream; a GPX ride's bytes were removed at delete time), and leaves the shared per-cell
+  wind cache untouched.
+
 ## fix: importing several GPX files collapsing into one ride (content-addressed GPX identity)
 - **What:** GPX rides are now identified by a **content hash** of their bytes (`gpx::sha256:<128-bit>`)
   rather than their minute-resolution start datetime. `GpxRideSource` mints the identity in

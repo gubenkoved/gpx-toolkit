@@ -1663,6 +1663,41 @@ export class Controller {
   }
 
   /**
+   * Permanently drop already-deleted rides from local state (hard delete) — the
+   * explicit, user-driven counterpart to the `deleted`/`deleted_at` tombstone.
+   * Pass a list of keys to drop a subset, or omit it to purge every tombstone.
+   *
+   * Strictly guarded: only records currently flagged `deleted` are removed, so this
+   * can never hard-delete a live ride. For each dropped ride it also clears the
+   * ride's full-GPX blob (the re-fetchable cache for Beeline, the data vault for an
+   * imported GPX) and its in-memory wind state; the shared per-cell wind cache is
+   * geographic data reused across rides and is deliberately left untouched.
+   *
+   * Local-only (no backend, no queued task — a Beeline tombstone is already gone
+   * upstream and a GPX ride's bytes were removed when it was deleted). Returns the
+   * number of rides actually dropped.
+   */
+  async dropDeleted(keys?: string[]): Promise<number> {
+    const uids = (keys ? keys.map((k) => this.normalizeUid(k)) : [...this.store.rides.keys()]).filter(
+      (uid) => this.store.rides.get(uid)?.deleted === true,
+    );
+    let dropped = 0;
+    for (const uid of uids) {
+      if (!this.store.remove(uid)) continue;
+      this.rideWinds.delete(uid);
+      this.rideWindGeom.delete(uid);
+      this.windBusy.delete(uid);
+      await this.blobFor(uid).delete(uid);
+      dropped++;
+    }
+    if (dropped) {
+      this.store.save();
+      this.notify();
+    }
+    return dropped;
+  }
+
+  /**
    * Set (or clear) an imported GPX ride's destination — stored as the title's
    * location suffix ("<name>, <place>"), mirroring the shape Beeline uses for a
    * routed destination so the Destination filter and the title-row suffix work

@@ -2489,6 +2489,21 @@ function render(): void {
     );
     selUploadBtn.style.display = selHasUploadable ? "" : "none";
   }
+  // "Drop deleted" (selection) permanently purges already-deleted rides — show it only
+  // when the selection actually contains a deleted ride, so it never offers a no-op.
+  const dropSelBtn = document.getElementById("btnDropDeletedSel") as HTMLButtonElement | null;
+  if (dropSelBtn) {
+    const selHasDeleted = [...selected].some((k) => allRides.find((r) => r.key === k)?.deleted);
+    dropSelBtn.style.display = selHasDeleted ? "" : "none";
+  }
+  // The global "Drop deleted" purges every tombstone — show it only when at least one
+  // deleted ride exists anywhere, and stamp the count into its label.
+  const dropAllBtn = document.getElementById("btnDropDeleted") as HTMLButtonElement | null;
+  if (dropAllBtn) {
+    const delAll = allRides.filter((r) => r.deleted).length;
+    dropAllBtn.style.display = delAll ? "" : "none";
+    dropAllBtn.textContent = `Drop ${delAll} deleted`;
+  }
   // The whole "Push all to Strava" menu item + the Strava-status filter are
   // Beeline-only; hide them when no ride can be pushed (a pure-GPX library).
   const uploadAllBtn = document.getElementById("btnUploadPending") as HTMLButtonElement | null;
@@ -2648,6 +2663,7 @@ function render(): void {
               ${r.deleted ? "" : `<button class="small ghost" data-act="rename-one" data-key="${r.key}" title="Rename this ride">Rename…</button>`}
               ${r.deleted || r.source !== "gpx" ? "" : `<button class="small ghost" data-act="destination-one" data-key="${r.key}" title="Set or edit this ride's destination (the place it went to)">${r.location.trim() ? "Edit destination…" : "Set destination…"}</button>`}
               ${r.deleted ? "" : `<button class="small danger" data-act="delete-one" data-key="${r.key}" title="Delete this ride">Delete…</button>`}
+              ${r.deleted ? `<button class="small danger" data-act="drop-one" data-key="${r.key}" title="Permanently remove this deleted ride (and its stored GPX) from this device">Drop from library</button>` : ""}
             </span>
           </div>`;
         rowsEl.appendChild(el);
@@ -3135,6 +3151,33 @@ function run(fn: () => void): void {
     fn();
   } catch (err) {
     pushError("Action failed", err instanceof Error ? err.message : String(err));
+  }
+}
+
+/**
+ * Permanently drop already-deleted rides (the explicit purge behind every "Drop
+ * deleted" affordance — per-ride, selection, and global). Confirms with a count,
+ * runs the local-only hard delete (record + stored GPX blob), prunes the dropped
+ * keys from the live selection, and re-renders. No-op (with a toast) when nothing
+ * deleted is in range, so a stray click never opens an empty dialog.
+ */
+async function dropDeletedKeys(keys: string[]): Promise<void> {
+  if (!keys.length) return void toast("No deleted rides to drop.");
+  const ok = await confirmDialog({
+    title: "Drop deleted?",
+    body:
+      `Permanently remove ${keys.length} deleted ride${keys.length === 1 ? "" : "s"} from ` +
+      `this device? This clears the local record and any stored GPX, and can't be undone.`,
+    confirmLabel: "Drop",
+  });
+  if (!ok) return;
+  try {
+    const n = await controller.dropDeleted(keys);
+    for (const k of keys) selected.delete(k);
+    render();
+    toast(`Dropped ${n} deleted ride${n === 1 ? "" : "s"}.`);
+  } catch (err) {
+    pushError("Drop failed", err instanceof Error ? err.message : String(err));
   }
 }
 
@@ -3695,6 +3738,18 @@ document.addEventListener("click", (e) => {
     })();
     return;
   }
+  if (t.id === "btnDropDeletedSel") {
+    openMenu = null;
+    void dropDeletedKeys(
+      [...selected].filter((k) => STATE.rides.find((r) => r.key === k)?.deleted),
+    );
+    return;
+  }
+  if (t.id === "btnDropDeleted") {
+    openMenu = null;
+    void dropDeletedKeys(STATE.rides.filter((r) => r.deleted).map((r) => r.key));
+    return;
+  }
 
   const act = t.dataset?.act;
   if (act === "gpx-save-one") {
@@ -3787,6 +3842,11 @@ document.addEventListener("click", (e) => {
       });
       if (ok) withRideAccess(ride.source, () => run(() => controller.deleteRide(key)));
     })();
+    return;
+  }
+  if (act === "drop-one") {
+    openMenu = null;
+    void dropDeletedKeys([t.dataset.key!]);
     return;
   }
 

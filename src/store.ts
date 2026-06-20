@@ -588,6 +588,16 @@ export class Store {
   }
 
   /**
+   * Permanently drop one ride record from the in-memory map (hard delete). Unlike
+   * `markDeleted` (a tombstone), this removes the record entirely — the caller is
+   * responsible for persisting (`save`) and for cleaning up any out-of-band blobs
+   * (the full-GPX cache). Returns true when a record was actually removed.
+   */
+  remove(key: string): boolean {
+    return this.rides.delete(toUid(key));
+  }
+
+  /**
    * Replace a known ride's tag list (the caller passes an already normalized +
    * deduped list; see tags.ts). Unlike `upsert`, this touches ONLY the tags — it
    * never clears the deleted flag or bumps `last_seen`, so tagging a ride (even a

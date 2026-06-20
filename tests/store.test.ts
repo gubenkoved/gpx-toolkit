@@ -328,4 +328,19 @@ describe("Store", () => {
     expect(byKey(s, "k")!.deleted).toBe(true);
     expect(byKey(s, "k")!.tags).toEqual(["Commute"]);
   });
+
+  it("remove() hard-deletes a record and reports whether one existed", async () => {
+    const s = await Store.load(backend);
+    s.upsert("a", { title: "Ride A" });
+    s.upsert("b", { title: "Ride B" });
+
+    // Removes the named record, leaves the other intact, returns true.
+    expect(s.remove(rideUid("beeline", "a"))).toBe(true);
+    expect(byKey(s, "a")).toBeUndefined();
+    expect(byKey(s, "b")!.title).toBe("Ride B");
+
+    // Removing an unknown (or already-removed) key is a no-op returning false.
+    expect(s.remove(rideUid("beeline", "a"))).toBe(false);
+    expect(s.remove(rideUid("beeline", "missing"))).toBe(false);
+  });
 });
