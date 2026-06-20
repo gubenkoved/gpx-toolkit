@@ -471,6 +471,7 @@ export class Controller {
     times: number[];
     eles: (number | null)[];
     along: (number | null)[];
+    cross: (number | null)[];
     realTimes: boolean;
   } | null> {
     const uid = this.normalizeUid(key);
@@ -492,7 +493,8 @@ export class Controller {
     const eles = usedFull ? ft!.eles : pt.points.map(() => null);
     const realTimes = usedFull && hasTimes(ft!);
     const along = winds.map((w) => (w ? w.alongKmh : null));
-    return { points: pt.points, times: pt.times, eles, along, realTimes };
+    const cross = winds.map((w) => (w ? w.crossKmh : null));
+    return { points: pt.points, times: pt.times, eles, along, cross, realTimes };
   }
 
   /** How many of the given rides have their wind resolved (cheap record-flag read). */

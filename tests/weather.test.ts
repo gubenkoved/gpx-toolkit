@@ -7,6 +7,7 @@ import {
   cellBounds,
   cellDayKey,
   computeRidePoints,
+  crossTrackComponentKmh,
   type Dataset,
   OpenMeteo,
   parseRetryAfter,
@@ -80,6 +81,14 @@ describe("wind math", () => {
     expect(alongTrackComponentKmh(0, 10, 0)).toBeCloseTo(-10, 6); // headwind −
     expect(alongTrackComponentKmh(90, 10, 0)).toBeCloseTo(0, 6); // crosswind
     expect(alongTrackComponentKmh(135, 10, 0)).toBeCloseTo(7.0711, 3); // quartering tail
+  });
+
+  it("crossTrackComponentKmh: side winds are full cross, head/tail are zero cross", () => {
+    expect(crossTrackComponentKmh(90, 10, 0)).toBeCloseTo(-10, 6); // from east, riding N
+    expect(crossTrackComponentKmh(270, 10, 0)).toBeCloseTo(10, 6); // from west, riding N
+    expect(crossTrackComponentKmh(180, 10, 0)).toBeCloseTo(0, 6); // pure tailwind
+    expect(crossTrackComponentKmh(0, 10, 0)).toBeCloseTo(0, 6); // pure headwind
+    expect(crossTrackComponentKmh(135, 10, 0)).toBeCloseTo(-7.0711, 3); // quartering
   });
 
   it("cellBounds: square centered on the cell, sized by gridKm", () => {

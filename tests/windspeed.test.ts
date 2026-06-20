@@ -2,11 +2,34 @@ import { describe, expect, it } from "vitest";
 
 import type { LatLon } from "../src/track";
 import {
+  crossColor,
   linearRegression,
   type SegmentOpts,
-  segmentRide,
+  segmentRide as segmentRideRaw,
   speedCapIndices,
+  type WindSeg,
 } from "../src/windspeed";
+
+// Most segmentRide tests don't exercise crosswind; default it to zero so their call
+// sites stay terse (the cross-track behaviour is covered by its own block below).
+function segmentRide(
+  points: LatLon[],
+  times: number[],
+  eles: (number | null)[],
+  along: (number | null)[],
+  opts: SegmentOpts,
+  uid: string,
+): WindSeg[] {
+  return segmentRideRaw(
+    points,
+    times,
+    eles,
+    along,
+    along.map(() => 0),
+    opts,
+    uid,
+  );
+}
 
 // A straight run, `k` points, 0.02° apart along one axis (~2.22 km/hop), `dtSec`
 // per hop (default 300s → ~26.6 km/h, well above the stop threshold).
@@ -235,5 +258,42 @@ describe("speedCapIndices", () => {
     const speeds = [10, 20, 30, 200];
     expect(speedCapIndices(speeds, 0)).toEqual([0, 1, 2, 3]);
     expect(speedCapIndices(speeds, -5)).toEqual([0, 1, 2, 3]);
+  });
+});
+
+describe("segmentRide cross-track wind", () => {
+  it("distance-weights the cross component like the along component", () => {
+    const { points, times } = run({ axis: "north", k: 5 });
+    const along = points.map(() => 0);
+    const cross = points.map(() => 7); // steady 7 km/h side-wind
+    const eles = points.map(() => null);
+    const segs = segmentRideRaw(points, times, eles, along, cross, { stopKmh: 1 }, "u1");
+    expect(segs.length).toBe(1);
+    expect(segs[0].avgCrossKmh).toBeCloseTo(7, 5);
+    expect(segs[0].avgAlongKmh).toBeCloseTo(0, 5);
+  });
+
+  it("treats a null cross sample as zero in the weighted mean", () => {
+    const { points, times } = run({ axis: "north", k: 5 });
+    const along = points.map(() => 0);
+    const cross: (number | null)[] = [10, null, 10, null, 10];
+    const eles = points.map(() => null);
+    const segs = segmentRideRaw(points, times, eles, along, cross, { stopKmh: 1 }, "u1");
+    // 4 hops, 2 carry +10 over equal distances → distance-weighted mean = 5.
+    expect(segs[0].avgCrossKmh).toBeCloseTo(5, 5);
+  });
+});
+
+describe("crossColor", () => {
+  it("returns calm/strong colours at the ramp ends, distinct, and clamps out of range", () => {
+    const calm = crossColor(0, 20);
+    const strong = crossColor(20, 20);
+    expect(calm).toMatch(/^hsl\(/);
+    expect(strong).toMatch(/^hsl\(/);
+    expect(calm).not.toBe(strong);
+    // Past the max clamps to t = 1 (the same colour as the max).
+    expect(crossColor(40, 20)).toBe(strong);
+    // A zero/negative scale degrades to t = 0 (the calm end) without throwing.
+    expect(crossColor(5, 0)).toBe(crossColor(0, 1));
   });
 });

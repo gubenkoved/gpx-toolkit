@@ -44,6 +44,9 @@ export interface WindSeg {
   avgSpeedKmh: number;
   /** Distance-weighted along-track wind over the segment (km/h; + tail, − head). */
   avgAlongKmh: number;
+  /** Distance-weighted cross-track (side) wind over the segment (km/h; signed, but
+   *  only its magnitude matters — it feeds the apparent/effective-wind X modes). */
+  avgCrossKmh: number;
   distanceKm: number;
   movingSec: number;
   /** Net grade over the segment as a percent ((endEle − startEle) / distance). NaN
@@ -72,6 +75,7 @@ export function segmentRide(
   times: number[],
   eles: (number | null)[],
   along: (number | null)[],
+  cross: (number | null)[],
   opts: SegmentOpts,
   uid: string,
 ): WindSeg[] {
@@ -99,6 +103,7 @@ export function segmentRide(
   let segKm = 0;
   let segSec = 0;
   let segAlongKm = 0; // Σ along·hopKm (the distance-weighted numerator)
+  let segCrossKm = 0; // Σ cross·hopKm (distance-weighted cross numerator)
   let refBrg: number | null = null;
   let startEle: number | null = null;
   let endEle: number | null = null;
@@ -114,6 +119,7 @@ export function segmentRide(
         uid,
         avgSpeedKmh: segKm / (segSec / 3600),
         avgAlongKmh: segAlongKm / segKm,
+        avgCrossKmh: segCrossKm / segKm,
         distanceKm: segKm,
         movingSec: segSec,
         netGradePct: grade,
@@ -122,6 +128,7 @@ export function segmentRide(
     segKm = 0;
     segSec = 0;
     segAlongKm = 0;
+    segCrossKm = 0;
     refBrg = null;
     startEle = null;
     endEle = null;
@@ -159,6 +166,8 @@ export function segmentRide(
     segKm += hopKm;
     segSec += dtSec;
     segAlongKm += a * hopKm;
+    const cx = cross[i];
+    if (cx != null) segCrossKm += cx * hopKm;
     if (eles[i + 1] != null) endEle = eles[i + 1];
     if (startEle == null && eles[i] != null) startEle = eles[i];
   }
@@ -227,4 +236,29 @@ export function speedCapIndices(speeds: number[], maxKmh: number): number[] {
     if (maxKmh <= 0 || speeds[i] <= maxKmh) keep.push(i);
   }
   return keep;
+}
+
+// --------------------------------------------------------------------------- //
+// Crosswind colouring. Each scatter dot can be tinted by its crosswind MAGNITUDE
+// (|avgCrossKmh|), so side-wind stretches stand out from clean head/tailwind ones.
+// One canonical ramp here (pure + testable) so the chart and the legend agree.
+// --------------------------------------------------------------------------- //
+
+/**
+ * Colour for a crosswind magnitude (km/h) on a calm→strong ramp, normalised to
+ * `maxKmh` (the strongest crosswind in view; clamped to a small floor by the caller
+ * so a near-still chart doesn't blow the scale up). The ramp runs bright azure (near-
+ * zero side-wind) → violet → vivid red (strong) — a cool→hot progression tuned to POP
+ * on the near-black chart panel (high lightness + saturation, no muddy green/grey
+ * midpoint), and distinct from the green/red the ride map uses for head/tailwind.
+ * Returns an `hsl()` string; `t = clamp(mag/maxKmh, 0..1)`.
+ */
+export function crossColor(magKmh: number, maxKmh: number): string {
+  const t = maxKmh > 0 ? Math.min(1, Math.max(0, magKmh / maxKmh)) : 0;
+  // Hue sweeps 200° (bright azure) → 360°≡0° (red) via violet, never green. Lightness
+  // stays high so even the blue end reads clearly over the dark panel.
+  const hue = (200 + t * (360 - 200)) % 360;
+  const sat = 90;
+  const light = 64 - 6 * t; // 64 (azure) → 58 (red): keep red from glowing too pale
+  return `hsl(${hue.toFixed(0)}, ${sat}%, ${light.toFixed(0)}%)`;
 }

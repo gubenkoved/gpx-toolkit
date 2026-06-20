@@ -1132,6 +1132,11 @@ type AnalyticsPrefs = {
   rangeMax: number | null;
   flatOnly: boolean;
   maxSpeed: number;
+  /** Tint scatter dots by crosswind magnitude (the "Colour by crosswind" toggle). */
+  colorByCross: boolean;
+  /** Crosswind band filter (km/h); null = no bound on that side. */
+  cwMin: number | null;
+  cwMax: number | null;
   // Segment-geometry tuning (mirrors the sliders; see windspeed-view).
   lookAheadM: number;
   turnDeg: number;
@@ -1143,6 +1148,9 @@ function loadAnalyticsPrefs(): AnalyticsPrefs {
     rangeMax: null,
     flatOnly: false,
     maxSpeed: 50,
+    colorByCross: false,
+    cwMin: null,
+    cwMax: null,
     ...SEG_TUNE_DEFAULTS,
   };
   try {
@@ -1158,6 +1166,9 @@ function loadAnalyticsPrefs(): AnalyticsPrefs {
       rangeMax: num(o.rangeMax),
       flatOnly: o.flatOnly === true,
       maxSpeed: clamp(o.maxSpeed, 20, 80, 50),
+      colorByCross: o.colorByCross === true,
+      cwMin: num(o.cwMin),
+      cwMax: num(o.cwMax),
       lookAheadM: clamp(o.lookAheadM, 0, 50, SEG_TUNE_DEFAULTS.lookAheadM),
       turnDeg: clamp(o.turnDeg, 15, 120, SEG_TUNE_DEFAULTS.turnDeg),
       minLenM: clamp(o.minLenM, 50, 2000, SEG_TUNE_DEFAULTS.minLenM),
@@ -1173,6 +1184,11 @@ function saveAnalyticsPrefs(): void {
       (document.getElementById("flatOnly") as HTMLInputElement | null)?.checked ?? false;
     const maxEl = document.getElementById("maxSpeed") as HTMLInputElement | null;
     const maxSpeed = maxEl ? parseInt(maxEl.value, 10) || 50 : 50;
+    const readNum = (id: string): number | null => {
+      const el = document.getElementById(id) as HTMLInputElement | null;
+      const v = el && el.value.trim() !== "" ? Number(el.value) : null;
+      return v != null && Number.isFinite(v) && v >= 0 ? v : null;
+    };
     const segVal = (id: string, d: number): number => {
       const el = document.getElementById(id) as HTMLInputElement | null;
       const v = el ? parseInt(el.value, 10) : d;
@@ -1183,6 +1199,11 @@ function saveAnalyticsPrefs(): void {
       rangeMax: analyticsRange?.maxMs ?? null,
       flatOnly,
       maxSpeed,
+      colorByCross:
+        (document.getElementById("colorByCross") as HTMLInputElement | null)?.checked ??
+        false,
+      cwMin: readNum("cwMin"),
+      cwMax: readNum("cwMax"),
       lookAheadM: segVal("segLookAhead", SEG_TUNE_DEFAULTS.lookAheadM),
       turnDeg: segVal("segTurn", SEG_TUNE_DEFAULTS.turnDeg),
       minLenM: segVal("segMinLen", SEG_TUNE_DEFAULTS.minLenM),
@@ -1225,6 +1246,12 @@ function applyAnalyticsPrefsToDom(): void {
   }
   const maxOut = document.getElementById("maxSpeedOut") as HTMLOutputElement | null;
   if (maxOut) maxOut.value = `${p.maxSpeed} km/h`;
+  const colorCb = document.getElementById("colorByCross") as HTMLInputElement | null;
+  if (colorCb) colorCb.checked = p.colorByCross;
+  const cwMin = document.getElementById("cwMin") as HTMLInputElement | null;
+  if (cwMin) cwMin.value = p.cwMin != null ? String(p.cwMin) : "";
+  const cwMax = document.getElementById("cwMax") as HTMLInputElement | null;
+  if (cwMax) cwMax.value = p.cwMax != null ? String(p.cwMax) : "";
   setSegTuneDom(p);
 }
 // The remembered date window, adopted on the first range computation after load
@@ -3913,6 +3940,11 @@ document.addEventListener("change", (e) => {
     saveAnalyticsPrefs();
     void mountWindSpeedView();
   }
+  // Colour-by-crosswind toggle: a cheap redraw (no re-sweep), like the post-filters.
+  if (cb.id === "colorByCross") {
+    saveAnalyticsPrefs();
+    void mountWindSpeedView();
+  }
   // Segment-geometry knobs re-chop every ride, so (unlike the cheap max-speed
   // post-filter) they commit on `change` (slider release) — never mid-drag — and
   // re-sweep with the existing progress overlay.
@@ -3998,6 +4030,12 @@ document.addEventListener("input", (e) => {
   }
   if (el.id === "maxSpeed") {
     ($("#maxSpeedOut") as HTMLOutputElement).value = `${parseInt(el.value, 10) || 0} km/h`;
+    saveAnalyticsPrefs();
+    void mountWindSpeedView();
+    return;
+  }
+  // Crosswind band filter: a cheap post-filter, so it re-renders live as typed.
+  if (el.id === "cwMin" || el.id === "cwMax") {
     saveAnalyticsPrefs();
     void mountWindSpeedView();
     return;

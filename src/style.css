@@ -462,6 +462,18 @@ button.small {
   color: var(--muted);
   font-weight: 400;
 }
+/* Flat mode of the .custom range: drops the pill box (no background / border / pad) so
+   it blends straight into a controls row instead of reading as a separate chip — the
+   underlined inputs stay as the only affordance. Used for the Wind/Speed crosswind
+   band, where the surrounding .ctl-group already frames it. */
+.custom.flat,
+.custom.flat:hover,
+.custom.flat:focus-within,
+.custom.flat.set {
+  background: transparent;
+  border-color: transparent;
+  padding: 0;
+}
 
 /* Global ride filter: one funnel button in the header opens a panel of AND-combined
    filter chips. The panel is moved to <body> at runtime (see initFilterPanel) so its
@@ -4056,10 +4068,11 @@ body.climate-expanded .cl-ctl input[type="range"] {
   min-width: 6ch;
   text-align: right;
 }
-/* Segment-geometry knobs (look-ahead / turn / min-length): a self-contained sub-group
-   so the "how a ride is chopped" controls stay together when the row wraps, set off
-   from the flat-only / max-speed post-filters by a hairline rule + a quiet caption. */
-.seg-tune {
+/* A self-contained sub-group of related controls (e.g. Segments, Crosswind): keeps
+   them together when the row wraps, set off from the leading filters by a hairline
+   rule + a quiet uppercase caption. One canonical grouping treatment for the chart
+   controls so every cluster reads the same. */
+.ctl-group {
   display: inline-flex;
   align-items: center;
   gap: 12px;
@@ -4067,11 +4080,40 @@ body.climate-expanded .cl-ctl input[type="range"] {
   padding-left: 14px;
   border-left: 1px solid var(--line);
 }
-.seg-tune-cap {
+.ctl-group-cap {
   text-transform: uppercase;
   letter-spacing: 0.04em;
   font-size: 11px;
   color: var(--muted);
+}
+/* Crosswind colour legend: a calm→strong gradient strip with 0/max end-labels, shown
+   under the chart controls only while "Colour by crosswind" is on. */
+.wind-legend {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: -2px 0 10px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.wind-legend .cw-cap {
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 11px;
+}
+.wind-legend .cw-bar {
+  flex: 0 1 180px;
+  height: 8px;
+  border-radius: 4px;
+  border: var(--ctrl-border) solid var(--line);
+}
+.wind-legend .cw-end {
+  font-family: var(--mono);
+  color: var(--text);
+}
+/* Crosswind min–max filter: the number inputs match the shared `.custom` range look. */
+.chart-controls .cw-filter input[type="number"] {
+  width: 4.5ch;
 }
 /* Narrow screens: let each control take a full row with a grabbable full-width
    thumb, and drop the sub-group's left rule/indent so it reads as a clean stack. */
@@ -4079,7 +4121,7 @@ body.climate-expanded .cl-ctl input[type="range"] {
   .chart-controls {
     gap: 10px;
   }
-  .seg-tune {
+  .ctl-group {
     width: 100%;
     padding-left: 0;
     border-left: 0;

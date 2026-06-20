@@ -25,6 +25,7 @@ import type { LatLon } from "./track";
 import { statNum } from "./ui";
 import { drawWindSpeedChart } from "./windchart";
 import {
+  crossColor,
   linearRegression,
   type SegmentOpts,
   segmentRide,
@@ -52,6 +53,7 @@ export interface WindSpeedDeps {
     times: number[];
     eles: (number | null)[];
     along: (number | null)[];
+    cross: (number | null)[];
     realTimes: boolean;
   } | null>;
   /** Sync the shared date-range control's bounds for this view. */
@@ -116,6 +118,61 @@ function analyticsMaxSpeed(): number {
   const el = document.getElementById("maxSpeed") as HTMLInputElement | null;
   const v = el ? parseInt(el.value, 10) : 50;
   return Number.isFinite(v) ? Math.max(20, Math.min(80, v)) : 50;
+}
+
+/** Whether to tint each scatter dot by its crosswind magnitude (the toggle). */
+function analyticsColorByCross(): boolean {
+  return (
+    (document.getElementById("colorByCross") as HTMLInputElement | null)?.checked ?? false
+  );
+}
+
+/** The crosswind-magnitude band to keep (km/h), read from the min/max inputs. A blank
+ *  side means "no bound"; values are clamped non-negative and ordered low≤high. */
+function analyticsCrosswind(): { min: number; max: number } {
+  const read = (id: string): number | null => {
+    const el = document.getElementById(id) as HTMLInputElement | null;
+    const v = el && el.value.trim() !== "" ? Number(el.value) : null;
+    return v != null && Number.isFinite(v) && v >= 0 ? v : null;
+  };
+  let min = read("cwMin") ?? 0;
+  let max = read("cwMax") ?? Number.POSITIVE_INFINITY;
+  if (min > max) [min, max] = [max, min];
+  return { min, max };
+}
+
+/** Compact label for a crosswind band, for the analysed-rides note. */
+function crosswindLabel(cw: { min: number; max: number }): string {
+  const hasMax = Number.isFinite(cw.max);
+  if (cw.min > 0 && hasMax) return `${cw.min}–${cw.max} km/h`;
+  if (hasMax) return `≤${cw.max} km/h`;
+  if (cw.min > 0) return `≥${cw.min} km/h`;
+  return "any";
+}
+
+/** Show/hide + fill the crosswind colour legend: a calm→strong gradient strip scaled
+ *  to the strongest crosswind in view, with 0 and max end-labels. Visible only when
+ *  the "Colour by crosswind" toggle is on. */
+function renderCrosswindLegend(on: boolean, maxKmh: number): void {
+  const el = document.getElementById("crosswindLegend");
+  if (!el) return;
+  if (!on) {
+    el.classList.add("hidden");
+    el.innerHTML = "";
+    return;
+  }
+  const stops: string[] = [];
+  const N = 6;
+  for (let i = 0; i <= N; i++) {
+    const t = i / N;
+    stops.push(`${crossColor(t * maxKmh, maxKmh)} ${Math.round(t * 100)}%`);
+  }
+  el.classList.remove("hidden");
+  el.innerHTML =
+    `<span class="cw-cap">crosswind</span>` +
+    `<span class="cw-end">0</span>` +
+    `<span class="cw-bar" style="background:linear-gradient(90deg, ${stops.join(", ")})"></span>` +
+    `<span class="cw-end">${maxKmh} km/h</span>`;
 }
 
 /** Default segment-geometry tuning (also the values the Reset button restores). */
@@ -335,7 +392,7 @@ async function runAnalyticsView(my: number, _opts: { fit?: boolean } = {}): Prom
       else if (!s.realTimes) entry = { segs: [], status: "needgpx" };
       else
         entry = {
-          segs: segmentRide(s.points, s.times, s.eles, s.along, opts, r.key),
+          segs: segmentRide(s.points, s.times, s.eles, s.along, s.cross, opts, r.key),
           status: "ok",
         };
     } catch (err) {
@@ -362,9 +419,11 @@ async function runAnalyticsView(my: number, _opts: { fit?: boolean } = {}): Prom
 
   const flatOnly =
     (document.getElementById("flatOnly") as HTMLInputElement | null)?.checked ?? false;
+  const cw = analyticsCrosswind();
   let usableRides = 0;
   let needGpxRides = 0;
   let skippedRides = 0;
+  let crossFiltered = 0;
   const segs: WindSeg[] = [];
   for (const r of resolved) {
     const entry = segCacheByUid.get(segKey(r));
@@ -377,6 +436,13 @@ async function runAnalyticsView(my: number, _opts: { fit?: boolean } = {}): Prom
       if (flatOnly) {
         if (!Number.isFinite(seg.netGradePct)) continue;
         if (Math.abs(seg.netGradePct) > FLAT_GRADE_PCT) continue;
+      }
+      // Crosswind band filter (on |cross| magnitude): drop side-windy or too-calm
+      // stretches per the min/max inputs.
+      const mag = Math.abs(seg.avgCrossKmh);
+      if (mag < cw.min || mag > cw.max) {
+        crossFiltered++;
+        continue;
       }
       segs.push(seg);
     }
@@ -399,6 +465,15 @@ async function runAnalyticsView(my: number, _opts: { fit?: boolean } = {}): Prom
   const ys = shown.map((s) => s.avgSpeedKmh);
   const w = shown.map((s) => s.distanceKm);
   const reg = linearRegression(xs, ys, w);
+
+  // Crosswind colouring: tint each dot by its |cross| when the toggle is on, on a
+  // ramp normalised to the strongest crosswind in view (floored so a near-still chart
+  // doesn't exaggerate tiny side-winds). The legend mirrors the same scale.
+  const colorByCross = analyticsColorByCross();
+  let crossMax = 0;
+  for (const s of shown) crossMax = Math.max(crossMax, Math.abs(s.avgCrossKmh));
+  crossMax = Math.max(5, Math.ceil(crossMax));
+  renderCrosswindLegend(colorByCross, crossMax);
 
   const cards = document.getElementById("analyticsCards");
   if (cards) {
@@ -428,7 +503,8 @@ async function runAnalyticsView(my: number, _opts: { fit?: boolean } = {}): Prom
       (unresolved ? ` · ${unresolved} not yet wind-resolved` : "") +
       (skippedRides ? ` · ${skippedRides} skipped` : "") +
       (flatOnly ? " · flat segments only" : "") +
-      (trimmed ? ` · ${trimmed} over ${maxSpeed} km/h dropped` : "");
+      (trimmed ? ` · ${trimmed} over ${maxSpeed} km/h dropped` : "") +
+      (crossFiltered ? ` · ${crossFiltered} outside crosswind ${crosswindLabel(cw)}` : "");
   }
   const canvas = document.getElementById("windSpeedChart") as HTMLCanvasElement | null;
   if (shown.length === 0) {
@@ -442,6 +518,11 @@ async function runAnalyticsView(my: number, _opts: { fit?: boolean } = {}): Prom
     );
   } else {
     showChartMessage(null);
-    if (canvas) drawWindSpeedChart(canvas, shown, reg);
+    if (canvas)
+      drawWindSpeedChart(canvas, shown, reg, {
+        dotColor: colorByCross
+          ? (s) => crossColor(Math.abs(s.avgCrossKmh), crossMax)
+          : undefined,
+      });
   }
 }

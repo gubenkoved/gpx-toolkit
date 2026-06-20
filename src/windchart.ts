@@ -43,17 +43,25 @@ function cssVar(name: string, fallback: string): string {
   return v || fallback;
 }
 
+/** Optional drawing tweaks for the scatter. */
+export interface ChartOpts {
+  /** Per-dot fill colour (e.g. crosswind-tinted); falls back to the flat accent. */
+  dotColor?: (seg: WindSeg) => string;
+}
+
 /**
- * Draw the wind-vs-speed scatter + regression on a canvas. X = along-track wind,
- * 0-centred so the two halves read as mirror images (← headwind / tailwind →); Y =
- * average moving speed. Each dot is a segment, sized by its distance. The headwind
- * half is tinted faint red and the tailwind half faint green, matching the ride
- * map's wind colouring. DPR-aware so it stays crisp on retina + after a resize.
+ * Draw the wind-vs-speed scatter + regression on a canvas. X = along-track (true)
+ * wind, 0-centred so the two halves read as mirror images (← headwind / tailwind →);
+ * Y = average moving speed. Each dot is a segment, sized by its distance and (when
+ * `opts.dotColor` is given) tinted by its crosswind. The headwind half is tinted
+ * faint red and the tailwind half faint green, matching the ride map's wind
+ * colouring. DPR-aware so it stays crisp on retina + after a resize.
  */
 export function drawWindSpeedChart(
   canvas: HTMLCanvasElement,
   segs: WindSeg[],
   reg: ChartReg,
+  opts: ChartOpts = {},
 ): void {
   const cssW = canvas.clientWidth || 600;
   const cssH = canvas.clientHeight || 360;
@@ -140,11 +148,19 @@ export function drawWindSpeedChart(
   ctx.stroke();
 
   // Scatter — radius by sqrt(distance), clamped 2..7 px. Kept calm (low alpha) so
-  // the regression line reads on top of the cloud rather than blending into it.
-  ctx.fillStyle = colAccent;
-  ctx.globalAlpha = 0.38;
+  // the regression line reads on top of the cloud rather than blending into it. When
+  // a per-dot colour is given (crosswind tint) each dot is filled individually at a
+  // slightly higher alpha so the hue reads.
+  const { dotColor } = opts;
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(x0, y1, x1 - x0, y0 - y1);
+  ctx.clip();
+  ctx.globalAlpha = dotColor ? 0.8 : 0.38;
+  if (!dotColor) ctx.fillStyle = colAccent;
   for (const s of segs) {
     const r = Math.max(2, Math.min(7, Math.sqrt(s.distanceKm) * 1.6));
+    if (dotColor) ctx.fillStyle = dotColor(s);
     ctx.beginPath();
     ctx.arc(sx(s.avgAlongKmh), sy(s.avgSpeedKmh), r, 0, Math.PI * 2);
     ctx.fill();
@@ -177,6 +193,7 @@ export function drawWindSpeedChart(
     ctx.stroke();
     ctx.lineCap = "butt";
   }
+  ctx.restore();
 
   // Axis captions.
   ctx.fillStyle = colMuted;

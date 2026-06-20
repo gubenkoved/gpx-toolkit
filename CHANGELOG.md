@@ -17,6 +17,29 @@ humans and the assistant can read this file as a compressed history of decisions
 
 ---
 
+## wind-vs-speed: crosswind colouring + crosswind filter
+- **What:** added two crosswind controls to the wind-vs-speed view, grouped together under a
+  shared `.ctl-group` "Crosswind" cluster (the same hairline-rule + caption treatment as the
+  Segments group, so the chart controls read as cohesive clusters rather than a loose row). A
+  **"Colour"** toggle tints each scatter dot by its crosswind (side-wind) magnitude on a
+  blue→violet→red cool→hot ramp (`crossColor`, blue = near-calm, red = strong; distinct from the
+  map's head/tail green/red), with a gradient **legend** scaled to the strongest crosswind in
+  view. A **crosswind band filter** (min–max km/h number inputs, reusing the `.custom` range
+  pattern) keeps only segments whose `|cross|` is within the band — set a max to drop side-windy
+  stretches, or a min to study them; the analysed-rides note reports how many fell outside. To
+  support both, a render-time cross-track wind component was threaded through the pipeline:
+  `crossTrackComponentKmh` + `PointWind.crossKmh` → `windSamples().cross` → `WindSeg.avgCrossKmh`;
+  `drawWindSpeedChart` took an optional per-dot `dotColor`. Both controls are cheap post-filters
+  (no re-sweep) and are persisted in `AnalyticsPrefs`.
+- **Why:** the X axis stays the *true* along-track wind (the clean, external regressor), but the
+  crosswind — previously invisible — is what often muddies the signal. Colouring surfaces it at a
+  glance and the band filter lets you isolate or exclude it. (An earlier exploration of Apparent /
+  Effective wind X-axis modes was dropped: apparent wind is almost always negative — you outrun the
+  wind — so it added little, and effective duplicated it; encoding crosswind directly is simpler
+  and more useful.)
+
+---
+
 ## control-geometry design tokens (button/chip size cohesion)
 - **What:** added a `--ctrl-*` token scale (`--ctrl-font[/-sm]`, `--ctrl-pad-y/x[/-sm]`,
   `--ctrl-radius[/-sm]`, `--ctrl-border`, `--ctrl-gap`, `--tap-min`) as the single source

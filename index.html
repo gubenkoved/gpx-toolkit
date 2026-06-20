@@ -231,8 +231,17 @@
             <input type="range" class="uslider" id="maxSpeed" min="20" max="80" step="1" value="50" />
             <output id="maxSpeedOut">50 km/h</output>
           </label>
-          <div class="seg-tune" title="How a ride is chopped into the roughly-straight stretches that become scatter points">
-            <span class="seg-tune-cap">Segments</span>
+          <div class="ctl-group" title="Crosswind (side-wind) options: colour the dots by it, and keep only segments within a crosswind band">
+            <span class="ctl-group-cap">Crosswind</span>
+            <label class="trim" title="Tint each segment dot by how strong its crosswind (side-wind) was — blue for calm, red for strong.">
+              <input type="checkbox" id="colorByCross" /> Colour
+            </label>
+            <label class="custom flat cw-filter" id="cwRange" title="Keep only segments whose crosswind magnitude is within this band, in km/h. Leave a side blank for no bound — set a max to drop side-windy stretches, or a min to study them.">
+              <input id="cwMin" type="number" min="0" step="1" inputmode="numeric" placeholder="min" />–<input id="cwMax" type="number" min="0" step="1" inputmode="numeric" placeholder="max" /> km/h
+            </label>
+          </div>
+          <div class="ctl-group" title="How a ride is chopped into the roughly-straight stretches that become scatter points">
+            <span class="ctl-group-cap">Segments</span>
             <label class="trim" title="Look this far along the track before deciding the heading has turned. On slow, dense tracks (a hike) the next point is only a metre or two away, so GPS wiggle looks like constant turning and the ride is shredded into tiny pieces — looking ahead smooths that out. 0 = use the very next point.">
               Look-ahead
               <input type="range" class="uslider" id="segLookAhead" min="0" max="50" step="5" value="15" />
@@ -253,6 +262,7 @@
           <button class="ghost small" id="analyticsResolve" style="display:none" title="Resolve historical wind for every ride in the current date range that doesn't have it yet">Resolve wind for rides in range</button>
           <button class="ghost small" id="analyticsFetchGpx" style="display:none" title="Download the full recorded GPX (real timestamps — needed for accurate speed) for the Beeline rides in range that lack it">Fetch full GPX for rides in range</button>
         </div>
+        <div class="wind-legend hidden" id="crosswindLegend"></div>
         <div class="chart-wrap">
           <canvas id="windSpeedChart"></canvas>
           <div id="analyticsChartMsg" class="chart-msg" style="display:none"></div>

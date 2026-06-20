@@ -179,6 +179,10 @@ export interface PointWind {
   gustKmh: number;
   /** Along-track component (km/h): positive = tailwind, negative = headwind. */
   alongKmh: number;
+  /** Cross-track component (km/h): the side-wind perpendicular to travel (positive =
+   *  pushing to the rider's right). Only its magnitude matters downstream (apparent-
+   *  wind drag is symmetric in side), but the sign is kept consistent for clarity. */
+  crossKmh: number;
   /** The rider's travel bearing here (0=N, clockwise), so the UI can show the wind
    *  RELATIVE to movement (e.g. a dial where "up" is the direction of travel). */
   headingDeg: number;
@@ -301,6 +305,22 @@ export function alongTrackComponentKmh(
   bearing: number,
 ): number {
   return -speed * Math.cos((fromDeg - bearing) * D2R);
+}
+
+/**
+ * Cross-track (side) wind component in km/h for a rider heading `bearing` while the
+ * wind blows FROM `fromDeg` at `speed`. Positive = pushing to the rider's right.
+ *
+ * It's the perpendicular partner of `alongTrackComponentKmh`: a wind from due east
+ * (90°) while riding due north (0°) is a pure crosswind → `-speed·sin(90−0) = −speed`
+ * (from the right side). A pure head/tailwind has zero cross component.
+ */
+export function crossTrackComponentKmh(
+  fromDeg: number,
+  speed: number,
+  bearing: number,
+): number {
+  return -speed * Math.sin((fromDeg - bearing) * D2R);
 }
 
 /** Hourly wind for one cell, sampled at exact epoch-ms instants (UTC-day based). */
@@ -441,6 +461,7 @@ export function computeRidePoints(
       speedKmh: s.speedKmh,
       gustKmh: s.gustKmh,
       alongKmh: alongTrackComponentKmh(s.fromDeg, s.speedKmh, bearing),
+      crossKmh: crossTrackComponentKmh(s.fromDeg, s.speedKmh, bearing),
       headingDeg: bearing,
       cellLat: s.cellLat,
       cellLon: s.cellLon,
