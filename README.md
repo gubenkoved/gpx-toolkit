@@ -24,7 +24,7 @@ shows only on Beeline rides). Two sources today:
   downloads your **entire** ride history (routes, stats, Strava status) in a single request
   from Beeline's own cloud backend, then uploads to Strava server-side (fast, several rides
   at once). Beeline only lets you upload one-by-one; this lists your rides with their upload
-  status, lets you select them, and uploads in a batch. No cable, any modern browser.
+  status, lets you select them, and uploads in a batch. Works in any modern browser.
 
 There's also a **demo** so you can explore the Beeline experience with no account and no data
 of your own.

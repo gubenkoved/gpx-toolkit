@@ -17,6 +17,16 @@ humans and the assistant can read this file as a compressed history of decisions
 
 ---
 
+## drop legacy "no cable" wording from source copy
+- **What:** reworded the Beeline source description in the Sources picker (`index.html`) and
+  the README intro — "with fast uploads and no cable" → "with fast, server-side uploads, all
+  in your browser", and the README's "No cable, any modern browser" → "Works in any modern
+  browser".
+- **Why:** "no cable" was a relic of the removed ADB/phone-cable source (v0.3.0); with that
+  source gone it contrasts against nothing and reads as meaningless to users. The cloud
+  source's real benefit (fast, server-side, browser-only) is now stated positively. CHANGELOG
+  ADB mentions are historical and left intact.
+
 ## ridemap: hide the empty wind-info strip when wind isn't resolved
 - **What:** the wind summary strip (`#rideMapWind`, the faint-blue band that shows the
   resolved head/tailwind + data provenance) was leaking as an empty ~15px band between the
