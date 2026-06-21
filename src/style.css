@@ -4226,8 +4226,8 @@ body.climate-expanded .cl-ctl input[type="range"] {
   display: none;
 }
 /* A single "Settings" accordion holding every tuning knob, its body split into all-caps
-   groups (Axes, Filters, Crosswind, Segments). One card with quiet internal separators
-   reads lighter than a stack of separate cards. */
+   groups (Segment extraction, Segment filters, Axes) ordered to follow the pipeline. One
+   card with quiet internal separators reads lighter than a stack of separate cards. */
 .ctl-accordions {
   display: flex;
   flex-direction: column;

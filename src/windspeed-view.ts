@@ -152,6 +152,20 @@ function analyticsMaxSpeed(): number {
   return Number.isFinite(v) ? Math.max(20, Math.min(80, v)) : 50;
 }
 
+/** Current min-speed floor (km/h) from the slider (0..40), defaulting to 0 (off).
+ *  Above 0, segments slower than this are dropped — near-stops add noise, not signal. */
+function analyticsMinSpeed(): number {
+  const el = document.getElementById("minSpeed") as HTMLInputElement | null;
+  const v = el ? parseInt(el.value, 10) : 0;
+  return Number.isFinite(v) ? Math.max(0, Math.min(40, v)) : 0;
+}
+
+/** Label for the Min-speed slider's `<output>`: `any` at 0, else `≥N km/h`. Shared by
+ *  the live render and the boot/restore path so wording can't drift. */
+export function minSpeedLabel(kmh: number): string {
+  return kmh <= 0 ? "any" : `≥${kmh} km/h`;
+}
+
 /** Current max-grade cap (percent) from the slider (0.5..MAX_GRADE_OFF). At the top it's
  *  `any` (no grade filter); below it, segments steeper than `pct` — or with unknown grade
  *  — are dropped, generalising the old binary "Flat segments only" preset. */
@@ -162,11 +176,39 @@ function analyticsMaxGrade(): { pct: number; any: boolean } {
   return { pct, any: pct >= MAX_GRADE_OFF };
 }
 
+/** Current min-grade floor (percent |grade|) from the slider (0..MAX_GRADE_OFF),
+ *  defaulting to 0 (off). Above 0, segments flatter than `pct` — or with unknown grade
+ *  — are dropped; pairs with the max-grade cap to keep only a band of steepness. */
+function analyticsMinGrade(): { pct: number; any: boolean } {
+  const el = document.getElementById("minGrade") as HTMLInputElement | null;
+  const v = el ? parseFloat(el.value) : 0;
+  const pct = Number.isFinite(v) ? Math.max(0, Math.min(MAX_GRADE_OFF, v)) : 0;
+  return { pct, any: pct <= 0 };
+}
+
 /** Label for the Max-grade slider's `<output>`: `any` at the top, else `≤N.N%`. Always
  *  one decimal so the width doesn't jump between integer and half steps as the slider
  *  moves. Shared by the live render and the boot/restore path so wording can't drift. */
 export function maxGradeLabel(pct: number): string {
   return pct >= MAX_GRADE_OFF ? "any" : `≤${pct.toFixed(1)}%`;
+}
+
+/** Label for the Min-grade slider's `<output>`: `any` at 0, else `≥N.N%`. One decimal,
+ *  like `maxGradeLabel`, so the width doesn't jump as the slider moves. */
+export function minGradeLabel(pct: number): string {
+  return pct <= 0 ? "any" : `≥${pct.toFixed(1)}%`;
+}
+
+/** How the analysed-rides note describes the grade-band drop, depending on which
+ *  bound(s) are active: only-max "over X% grade", only-min "under Y% grade", both
+ *  "outside Y–X% grade". (Unknown-grade segments are folded into the same count.) */
+function gradeDropLabel(
+  max: { pct: number; any: boolean },
+  min: { pct: number; any: boolean },
+): string {
+  if (!max.any && !min.any) return `outside ${min.pct.toFixed(1)}–${max.pct.toFixed(1)}% grade`;
+  if (!min.any) return `under ${min.pct.toFixed(1)}% grade`;
+  return `over ${max.pct.toFixed(1)}% grade`;
 }
 
 /** Whether the wind dimension is signed (head/tailwind, plotted on a 0-centred axis)
@@ -538,28 +580,55 @@ async function runAnalyticsView(my: number, _opts: { fit?: boolean } = {}): Prom
   if (my !== analyticsSeq) return;
 
   const grade = analyticsMaxGrade();
+  const minGrade = analyticsMinGrade();
+  const minSpeed = analyticsMinSpeed();
   const cw = analyticsCrosswind();
   let usableRides = 0;
   let needGpxRides = 0;
+  let untimedRides = 0;
   let skippedRides = 0;
   let crossFiltered = 0;
   let gradeFiltered = 0;
+  let speedMinFiltered = 0;
   const segs: WindSeg[] = [];
+  // Whether either grade bound is active — if so, segments with unknown grade are
+  // dropped too, since we can't place them in the band.
+  const gradeBounded = !grade.any || !minGrade.any;
   for (const r of resolved) {
     const entry = segCacheByUid.get(segKey(r));
     if (!entry) continue;
-    if (entry.status === "needgpx") needGpxRides++;
+    // A `needgpx` ride lacks the per-point timestamps speed needs. The remedy differs
+    // by source: a Beeline ride can still DOWNLOAD its full timed GPX, but a GPX-source
+    // ride imported from an untimed file already IS the GPX — there's nothing to fetch,
+    // it just has no `<time>`. Count them apart so the note doesn't tell you to fetch
+    // something that can't be fetched.
+    if (entry.status === "needgpx") {
+      if (r.source === "gpx") untimedRides++;
+      else needGpxRides++;
+    }
     if (entry.status === "skip") skippedRides++;
     if (entry.status !== "ok") continue;
     usableRides++;
     for (const seg of entry.segs) {
-      // Max-grade filter: once a limit is set, drop segments steeper than it — and any
-      // with unknown grade, since we can't assess them. At the top ("any") it's off.
-      if (!grade.any) {
-        if (!Number.isFinite(seg.netGradePct) || Math.abs(seg.netGradePct) > grade.pct) {
+      // Grade band filter (on |net grade|): once either bound is set, drop segments
+      // steeper than Max grade, flatter than Min grade, or with unknown grade. At the
+      // extremes ("any") each bound is off, so the pair acts as a steepness band.
+      if (gradeBounded) {
+        const g = Math.abs(seg.netGradePct);
+        if (
+          !Number.isFinite(seg.netGradePct) ||
+          (!grade.any && g > grade.pct) ||
+          (!minGrade.any && g < minGrade.pct)
+        ) {
           gradeFiltered++;
           continue;
         }
+      }
+      // Min-speed filter: above 0, drop crawling/near-stop stretches (noise, not wind
+      // signal). The Max-speed cap is applied as a post-step below.
+      if (minSpeed > 0 && seg.avgSpeedKmh < minSpeed) {
+        speedMinFiltered++;
+        continue;
       }
       // Crosswind band filter (on |cross| magnitude): drop side-windy or too-calm
       // stretches per the min/max inputs.
@@ -572,12 +641,16 @@ async function runAnalyticsView(my: number, _opts: { fit?: boolean } = {}): Prom
     }
   }
 
-  // Reflect the Max-grade knob into its output + accent fill (a cheap post-filter, like
-  // Max-speed below).
+  // Reflect the grade knobs into their outputs + accent fill (cheap post-filters, like
+  // the speed pair below).
   const gradeOut = document.getElementById("maxGradeOut") as HTMLOutputElement | null;
   if (gradeOut) gradeOut.value = maxGradeLabel(grade.pct);
   const gradeEl = document.getElementById("maxGrade") as HTMLInputElement | null;
   if (gradeEl) setSliderFill(gradeEl);
+  const minGradeOut = document.getElementById("minGradeOut") as HTMLOutputElement | null;
+  if (minGradeOut) minGradeOut.value = minGradeLabel(minGrade.pct);
+  const minGradeEl = document.getElementById("minGrade") as HTMLInputElement | null;
+  if (minGradeEl) setSliderFill(minGradeEl);
 
   // Drop physically-impossible segments above the Max-speed cap (GPS glitches).
   const maxSpeed = analyticsMaxSpeed();
@@ -585,6 +658,10 @@ async function runAnalyticsView(my: number, _opts: { fit?: boolean } = {}): Prom
   if (out) out.value = `${maxSpeed} km/h`;
   const maxEl = document.getElementById("maxSpeed") as HTMLInputElement | null;
   if (maxEl) setSliderFill(maxEl);
+  const minSpeedOut = document.getElementById("minSpeedOut") as HTMLOutputElement | null;
+  if (minSpeedOut) minSpeedOut.value = minSpeedLabel(minSpeed);
+  const minSpeedEl = document.getElementById("minSpeed") as HTMLInputElement | null;
+  if (minSpeedEl) setSliderFill(minSpeedEl);
   const keep = speedCapIndices(
     segs.map((s) => s.avgSpeedKmh),
     maxSpeed,
@@ -653,9 +730,11 @@ async function runAnalyticsView(my: number, _opts: { fit?: boolean } = {}): Prom
     note.textContent =
       ` ${usableRides} ride${usableRides === 1 ? "" : "s"} analysed` +
       (needGpxRides ? ` · ${needGpxRides} need full GPX` : "") +
+      (untimedRides ? ` · ${untimedRides} GPX without timestamps` : "") +
       (unresolved ? ` · ${unresolved} not yet wind-resolved` : "") +
       (skippedRides ? ` · ${skippedRides} skipped` : "") +
-      (gradeFiltered ? ` · ${gradeFiltered} over ${grade.pct.toFixed(1)}% grade dropped` : "") +
+      (gradeFiltered ? ` · ${gradeFiltered} ${gradeDropLabel(grade, minGrade)} dropped` : "") +
+      (speedMinFiltered ? ` · ${speedMinFiltered} under ${minSpeed} km/h dropped` : "") +
       (trimmed ? ` · ${trimmed} over ${maxSpeed} km/h dropped` : "") +
       (crossFiltered ? ` · ${crossFiltered} outside crosswind ${crosswindLabel(cw)}` : "");
   }
@@ -667,7 +746,9 @@ async function runAnalyticsView(my: number, _opts: { fit?: boolean } = {}): Prom
         ? "No wind-resolved rides in this date range."
         : needGpxRides > 0
           ? `${needGpxRides} ride${needGpxRides === 1 ? "" : "s"} in this range need full GPX for speed.`
-          : "No segments match the current filters.",
+          : untimedRides > 0
+            ? `${untimedRides} ride${untimedRides === 1 ? "" : "s"} here have GPX without timestamps, so speed can't be measured.`
+            : "No segments match the current filters.",
     );
   } else {
     showChartMessage(null);

@@ -242,9 +242,58 @@
           <details class="ctl-acc" id="accSettings" open>
             <summary title="Tune what the scatter is built from — which axes to plot, how dots are coloured, which segments to keep, and how rides are split into points">
               <span class="ctl-acc-cap">Settings</span>
-              <span class="ctl-acc-hint">axes · filters · segments</span>
+              <span class="ctl-acc-hint">segments · filters · axes</span>
             </summary>
             <div class="ctl-acc-body">
+              <div class="ctl-grp">
+                <div class="ctl-grp-head">Segment extraction</div>
+                <div class="ctl-grp-row">
+                  <label class="trim" title="Look this far along the track before deciding the heading has turned. On slow, dense tracks (a hike) the next point is only a metre or two away, so GPS wiggle looks like constant turning and the ride is shredded into tiny pieces — looking ahead smooths that out. 0 = use the very next point.">
+                    Look-ahead
+                    <input type="range" class="uslider" id="segLookAhead" min="0" max="50" step="5" value="15" />
+                    <output id="segLookAheadOut">15 m</output>
+                  </label>
+                  <label class="trim" title="Start a new segment once the heading swings more than this from where the segment began. Higher = longer, fewer segments.">
+                    Turn
+                    <input type="range" class="uslider" id="segTurn" min="15" max="120" step="5" value="35" />
+                    <output id="segTurnOut">35°</output>
+                  </label>
+                  <label class="trim" title="Drop segments shorter than this — too-short stretches are mostly noise.">
+                    Min length
+                    <input type="range" class="uslider" id="segMinLen" min="50" max="2000" step="50" value="300" />
+                    <output id="segMinLenOut">300 m</output>
+                  </label>
+                  <button type="button" class="ghost small" id="segReset" title="Reset segment tuning to its defaults">Reset</button>
+                </div>
+              </div>
+              <div class="ctl-grp">
+                <div class="ctl-grp-head">Segment filters</div>
+                <div class="ctl-grp-row">
+                  <label class="trim" title="Drop segments flatter than this (by net grade over the segment), to study only the hilly stretches. At the far left it's off — any grade is kept; segments with no elevation data are dropped once you set a grade limit. Pairs with Max grade to keep only a band of steepness.">
+                    Min grade
+                    <input type="range" class="uslider" id="minGrade" min="0" max="20" step="0.5" value="0" />
+                    <output id="minGradeOut">any</output>
+                  </label>
+                  <label class="trim" title="Drop segments steeper than this (by net grade over the segment), so hills don't muddy the wind signal. At the far right it's off — any grade is kept; segments with no elevation data are dropped once you set a grade limit.">
+                    Max grade
+                    <input type="range" class="uslider" id="maxGrade" min="0.5" max="20" step="0.5" value="20" />
+                    <output id="maxGradeOut">any</output>
+                  </label>
+                  <label class="trim" title="Drop segments whose average speed is below this — near-stops and crawling stretches add noise rather than wind signal. At the far left it's off.">
+                    Min speed
+                    <input type="range" class="uslider" id="minSpeed" min="0" max="40" step="1" value="0" />
+                    <output id="minSpeedOut">any</output>
+                  </label>
+                  <label class="trim" title="Drop segments whose average speed is above this — a bike can't really average that fast, so they're GPS glitches">
+                    Max speed
+                    <input type="range" class="uslider" id="maxSpeed" min="20" max="80" step="1" value="50" />
+                    <output id="maxSpeedOut">50 km/h</output>
+                  </label>
+                  <label class="custom flat cw-filter" id="cwRange" title="Keep only segments whose crosswind magnitude is within this band, in km/h. Leave a side blank for no bound — set a max to drop side-windy stretches, or a min to study them.">
+                    Crosswind <input id="cwMin" type="number" min="0" step="1" inputmode="numeric" placeholder="min" />–<input id="cwMax" type="number" min="0" step="1" inputmode="numeric" placeholder="max" /> km/h
+                  </label>
+                </div>
+              </div>
               <div class="ctl-grp">
                 <div class="ctl-grp-head">Axes</div>
                 <div class="ctl-grp-row">
@@ -265,50 +314,6 @@
                       <button type="button" data-colorby="cross" title="Tint each dot by crosswind magnitude — blue for calm, red for strong">Crosswind</button>
                     </span>
                   </label>
-                </div>
-              </div>
-              <div class="ctl-grp">
-                <div class="ctl-grp-head">Filters</div>
-                <div class="ctl-grp-row">
-                  <label class="trim" title="Drop segments steeper than this (by net grade over the segment), so hills don't muddy the wind signal. At the far right it's off — any grade is kept; segments with no elevation data are dropped once you set a limit.">
-                    Max grade
-                    <input type="range" class="uslider" id="maxGrade" min="0.5" max="20" step="0.5" value="20" />
-                    <output id="maxGradeOut">any</output>
-                  </label>
-                  <label class="trim" title="Drop segments whose average speed is above this — a bike can't really average that fast, so they're GPS glitches">
-                    Max speed
-                    <input type="range" class="uslider" id="maxSpeed" min="20" max="80" step="1" value="50" />
-                    <output id="maxSpeedOut">50 km/h</output>
-                  </label>
-                </div>
-              </div>
-              <div class="ctl-grp">
-                <div class="ctl-grp-head">Crosswind</div>
-                <div class="ctl-grp-row">
-                  <label class="custom flat cw-filter" id="cwRange" title="Keep only segments whose crosswind magnitude is within this band, in km/h. Leave a side blank for no bound — set a max to drop side-windy stretches, or a min to study them.">
-                    <input id="cwMin" type="number" min="0" step="1" inputmode="numeric" placeholder="min" />–<input id="cwMax" type="number" min="0" step="1" inputmode="numeric" placeholder="max" /> km/h
-                  </label>
-                </div>
-              </div>
-              <div class="ctl-grp">
-                <div class="ctl-grp-head">Segments</div>
-                <div class="ctl-grp-row">
-                  <label class="trim" title="Look this far along the track before deciding the heading has turned. On slow, dense tracks (a hike) the next point is only a metre or two away, so GPS wiggle looks like constant turning and the ride is shredded into tiny pieces — looking ahead smooths that out. 0 = use the very next point.">
-                    Look-ahead
-                    <input type="range" class="uslider" id="segLookAhead" min="0" max="50" step="5" value="15" />
-                    <output id="segLookAheadOut">15 m</output>
-                  </label>
-                  <label class="trim" title="Start a new segment once the heading swings more than this from where the segment began. Higher = longer, fewer segments.">
-                    Turn
-                    <input type="range" class="uslider" id="segTurn" min="15" max="120" step="5" value="35" />
-                    <output id="segTurnOut">35°</output>
-                  </label>
-                  <label class="trim" title="Drop segments shorter than this — too-short stretches are mostly noise.">
-                    Min length
-                    <input type="range" class="uslider" id="segMinLen" min="50" max="2000" step="50" value="300" />
-                    <output id="segMinLenOut">300 m</output>
-                  </label>
-                  <button type="button" class="ghost small" id="segReset" title="Reset segment tuning to its defaults">Reset</button>
                 </div>
               </div>
             </div>

@@ -17,6 +17,33 @@ humans and the assistant can read this file as a compressed history of decisions
 
 ---
 
+## wind/speed: distinguish fetchable "need full GPX" from untimed GPX in the analysed note
+- **What:** the analysed-rides note (and the empty-chart message) split the single `needgpx`
+  count by source: a Beeline ride still missing its download stays **"N need full GPX"**
+  (fetchable), while a GPX-source ride imported from a file with no `<time>` is now reported
+  separately as **"N GPX without timestamps"** (nothing to fetch). Phrasing is grammar-neutral so
+  it reads for any N, and the note already wraps (a `flex-wrap` caption) so the extra fragment
+  grows vertically rather than overflowing.
+- **Why:** the old note lumped both into "need full GPX", which told users to fetch a timed GPX for
+  rides whose GPX is already local and simply has no timestamps — a remedy the gate (correctly)
+  never offers, so the count and the missing Fetch button disagreed. The split makes the note
+  match what's actually actionable.
+
+## wind/speed: add Min speed + Min grade filters; reorder controls to match the pipeline
+- **What:** added a **Min speed** slider (0–40 km/h, left = "any") that drops crawling/near-stop
+  segments, and a **Min grade** slider (0–20%, left = "any") that drops segments flatter than its
+  |net grade| — pairing with Max grade to keep only a *band* of steepness (and dropping
+  unknown-grade segments once either bound is set). Both are cheap live post-filters like their Max
+  twins, with `≥N` / `any` outputs, accent fill, persistence, and analysed-note counts ("N under
+  X km/h", band-aware grade wording: only-max "over X%", only-min "under Y%", both "outside Y–X%").
+  Also restructured the Settings accordion to follow the computation pipeline: renamed *Segments* →
+  **Segment extraction** (moved first) and *Filters* → **Segment filters**, and folded the
+  standalone *Crosswind* band into Segment filters.
+- **Why:** the view already had upper bounds on speed/grade; the matching lower bounds let you
+  isolate hilly or faster stretches, which the wind-vs-speed question often wants. Ordering the
+  groups extract → filter (with all post-extraction filters together) makes the controls mirror how
+  the data actually flows, so the panel reads as the pipeline it drives.
+
 ## wind/speed: generalise "Flat segments only" into a Max-grade slider
 - **What:** replaced the binary "Flat segments only" checkbox (a fixed 1.5% preset) with a
   **Max grade** slider (0.5–20%, top = "any"). Below the top it drops segments steeper than

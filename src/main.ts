@@ -129,6 +129,8 @@ import {
   initWindSpeedView,
   MAX_GRADE_OFF,
   maxGradeLabel,
+  minGradeLabel,
+  minSpeedLabel,
   mountWindSpeedView,
   SEG_TUNE_DEFAULTS,
   syncColorByGating,
@@ -1302,7 +1304,11 @@ type AnalyticsPrefs = {
   rangeMax: number | null;
   /** Max net grade kept (percent); `MAX_GRADE_OFF` = off (any grade). */
   maxGrade: number;
+  /** Min |net grade| kept (percent); 0 = off. Pairs with `maxGrade` as a band. */
+  minGrade: number;
   maxSpeed: number;
+  /** Min average speed kept (km/h); 0 = off. */
+  minSpeed: number;
   /** Wind dimension on the X axis: head/tailwind (along-track) or crosswind. */
   xAxis: "along" | "cross";
   /** Which dimension tints the dots (or none). */
@@ -1320,7 +1326,9 @@ function loadAnalyticsPrefs(): AnalyticsPrefs {
     rangeMin: null,
     rangeMax: null,
     maxGrade: MAX_GRADE_OFF,
+    minGrade: 0,
     maxSpeed: 50,
+    minSpeed: 0,
     xAxis: "along",
     colorBy: "none",
     cwMin: null,
@@ -1356,7 +1364,9 @@ function loadAnalyticsPrefs(): AnalyticsPrefs {
       rangeMin: num(o.rangeMin),
       rangeMax: num(o.rangeMax),
       maxGrade,
+      minGrade: clamp(o.minGrade, 0, MAX_GRADE_OFF, 0),
       maxSpeed: clamp(o.maxSpeed, 20, 80, 50),
+      minSpeed: clamp(o.minSpeed, 0, 40, 0),
       xAxis: o.xAxis === "cross" ? "cross" : "along",
       colorBy,
       cwMin: num(o.cwMin),
@@ -1374,8 +1384,12 @@ function saveAnalyticsPrefs(): void {
   try {
     const gradeEl = document.getElementById("maxGrade") as HTMLInputElement | null;
     const maxGrade = gradeEl ? parseFloat(gradeEl.value) || MAX_GRADE_OFF : MAX_GRADE_OFF;
+    const minGradeEl = document.getElementById("minGrade") as HTMLInputElement | null;
+    const minGrade = minGradeEl ? parseFloat(minGradeEl.value) || 0 : 0;
     const maxEl = document.getElementById("maxSpeed") as HTMLInputElement | null;
     const maxSpeed = maxEl ? parseInt(maxEl.value, 10) || 50 : 50;
+    const minSpeedEl = document.getElementById("minSpeed") as HTMLInputElement | null;
+    const minSpeed = minSpeedEl ? parseInt(minSpeedEl.value, 10) || 0 : 0;
     const readNum = (id: string): number | null => {
       const el = document.getElementById(id) as HTMLInputElement | null;
       const v = el && el.value.trim() !== "" ? Number(el.value) : null;
@@ -1394,7 +1408,9 @@ function saveAnalyticsPrefs(): void {
       rangeMin: analyticsRange?.minMs ?? null,
       rangeMax: analyticsRange?.maxMs ?? null,
       maxGrade,
+      minGrade,
       maxSpeed,
+      minSpeed,
       xAxis: activeSeg("analyticsXAxis", "xaxis") === "cross" ? "cross" : "along",
       colorBy: ((): AnalyticsPrefs["colorBy"] => {
         const v = activeSeg("analyticsColorBy", "colorby");
@@ -1442,6 +1458,13 @@ function applyAnalyticsPrefsToDom(): void {
   }
   const gradeOut = document.getElementById("maxGradeOut") as HTMLOutputElement | null;
   if (gradeOut) gradeOut.value = maxGradeLabel(p.maxGrade);
+  const minGrade = document.getElementById("minGrade") as HTMLInputElement | null;
+  if (minGrade) {
+    minGrade.value = String(p.minGrade);
+    setSliderFill(minGrade); // keep the `.uslider` accent fill in sync with the restored value
+  }
+  const minGradeOut = document.getElementById("minGradeOut") as HTMLOutputElement | null;
+  if (minGradeOut) minGradeOut.value = minGradeLabel(p.minGrade);
   const max = document.getElementById("maxSpeed") as HTMLInputElement | null;
   if (max) {
     max.value = String(p.maxSpeed);
@@ -1449,6 +1472,13 @@ function applyAnalyticsPrefsToDom(): void {
   }
   const maxOut = document.getElementById("maxSpeedOut") as HTMLOutputElement | null;
   if (maxOut) maxOut.value = `${p.maxSpeed} km/h`;
+  const minSpeed = document.getElementById("minSpeed") as HTMLInputElement | null;
+  if (minSpeed) {
+    minSpeed.value = String(p.minSpeed);
+    setSliderFill(minSpeed); // keep the `.uslider` accent fill in sync with the restored value
+  }
+  const minSpeedOut = document.getElementById("minSpeedOut") as HTMLOutputElement | null;
+  if (minSpeedOut) minSpeedOut.value = minSpeedLabel(p.minSpeed);
   // Mirror the saved X-axis + colour-by selections into their segmented controls, then
   // gate the colour options against the X dimension.
   setActiveSeg("analyticsXAxis", "xaxis", p.xAxis);
@@ -4403,12 +4433,26 @@ document.addEventListener("input", (e) => {
     void mountWindSpeedView();
     return;
   }
+  // Min-speed filter: a cheap post-filter, so it re-renders live as the slider moves.
+  if (el.id === "minSpeed") {
+    ($("#minSpeedOut") as HTMLOutputElement).value = minSpeedLabel(parseInt(el.value, 10) || 0);
+    saveAnalyticsPrefs();
+    void mountWindSpeedView();
+    return;
+  }
   // Max-grade filter: a cheap post-filter (grade is precomputed per segment), so it
   // re-renders live as the slider moves — like Max-speed.
   if (el.id === "maxGrade") {
     ($("#maxGradeOut") as HTMLOutputElement).value = maxGradeLabel(
       parseFloat(el.value) || MAX_GRADE_OFF,
     );
+    saveAnalyticsPrefs();
+    void mountWindSpeedView();
+    return;
+  }
+  // Min-grade filter: cheap post-filter too, pairing with Max grade as a steepness band.
+  if (el.id === "minGrade") {
+    ($("#minGradeOut") as HTMLOutputElement).value = minGradeLabel(parseFloat(el.value) || 0);
     saveAnalyticsPrefs();
     void mountWindSpeedView();
     return;
