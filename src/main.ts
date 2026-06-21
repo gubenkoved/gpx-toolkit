@@ -981,11 +981,7 @@ function esc(s: string): string {
 const mapRegistry = new Map<string, L.Map>();
 
 /** Markup for a ride's mini-map + its caption. */
-function trackBlock(key: string, track: string, source: RideSource): string {
-  // Beeline rides carry the FULL route polyline from the download (the map is the
-  // real track, no caveat); an imported GPX ride's displayed line is a simplified
-  // sketch of its original, so it gets the "rough approximation" note.
-  const rough = source !== "beeline";
+function trackBlock(key: string, track: string): string {
   if (!track) {
     return `<div class="rmaphint">No route available for this ride.</div>`;
   }
@@ -995,8 +991,7 @@ function trackBlock(key: string, track: string, source: RideSource): string {
     `<button class="iconbtn map-expand rmap-expand" data-expand="${escHtml(key)}" aria-label="Expand route" title="Open this route full-screen (Esc to exit)">` +
     `<svg class="mi mi-expand" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M8 3H5a2 2 0 0 0-2 2v3M21 8V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3M16 21h3a2 2 0 0 0 2-2v-3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>` +
     `</button>` +
-    `</div>` +
-    (rough ? `<div class="rmapnote">Rough approximation only — not the full GPX.</div>` : "")
+    `</div>`
   );
 }
 
@@ -1022,7 +1017,7 @@ function detailsBlock(r: RideView): string {
   }
   return (
     `<div class="stats open" id="st-${esc(r.key)}">${fmtStats(r)}</div>` +
-    trackBlock(r.key, r.track, r.source)
+    trackBlock(r.key, r.track)
   );
 }
 
@@ -3894,7 +3889,7 @@ document.addEventListener("click", (e) => {
   // Clicking anywhere on a ride tile toggles its details — except on the
   // interactive bits (buttons, links, checkbox) or inside the already-open
   // details/map area, so the user can interact with those without collapsing.
-  if (!target.closest("button, a, input, .stats, .rmap, .rmapnote, .rmaphint, .rdetailhint")) {
+  if (!target.closest("button, a, input, .stats, .rmap, .rmaphint, .rdetailhint")) {
     const rrow = target.closest(".rrow") as HTMLElement | null;
     if (rrow?.dataset.key) {
       const k = rrow.dataset.key;

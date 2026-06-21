@@ -17,6 +17,13 @@ humans and the assistant can read this file as a compressed history of decisions
 
 ---
 
+## drop the "rough approximation only" route note
+- **What:** Removed the per-ride caveat shown under imported-GPX mini-maps
+  ("Rough approximation only — not the full GPX") in `trackBlock`, plus its now-dead
+  `.rmapnote` CSS and the `source` plumbing it needed.
+- **Why:** The note added clutter without telling the user anything actionable; the
+  mini-map already reads as a simplified sketch, so the caption was just noise.
+
 ## privacy-friendly usage analytics (GoatCounter)
 - **What:** Embedded the cookieless GoatCounter counter (`index.html`) plus a tiny
   fail-soft seam ([src/analytics.ts](src/analytics.ts)) with two primitives:

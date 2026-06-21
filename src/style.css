@@ -2097,12 +2097,6 @@ span.caret.open::before {
 .rmap .leaflet-tile-pane {
   filter: grayscale(85%) brightness(0.6) contrast(1.1);
 }
-.rmapnote {
-  margin-top: 5px;
-  color: var(--muted);
-  font-size: 11.5px;
-  font-style: italic;
-}
 .gpxinfo {
   display: block;
   margin-top: 2px;
