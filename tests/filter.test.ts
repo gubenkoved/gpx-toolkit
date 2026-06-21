@@ -2,12 +2,15 @@ import { describe, expect, it } from "vitest";
 
 import type { RideView } from "../src/controller";
 import {
+  discriminatingDims,
   emptyFilters,
   type Filters,
   filterActiveCount,
   filtersActive,
   matchesFilters,
   rideKm,
+  type ToggleDim,
+  togglePredicate,
   visibleRides,
 } from "../src/filter";
 
@@ -429,5 +432,99 @@ describe("visibleRides", () => {
     expect(visibleRides(f({ distMin: 10 }), rides).map((r) => r.key)).toEqual(["a", "c"]);
     // device __none__ → only 'c'.
     expect(visibleRides(f({ device: "__none__" }), rides).map((r) => r.key)).toEqual(["c"]);
+  });
+});
+
+describe("togglePredicate / discriminatingDims", () => {
+  // One ride that satisfies the positive side of each toggle dimension, and one that
+  // doesn't, so we can assert the shared predicate and the matchesFilters wiring agree.
+  const matching: Record<ToggleDim, Partial<RideView>> = {
+    gps: { track: "xy" },
+    cached: { gpx_cached: true },
+    wind: { wind_resolved: true },
+    destination: { location: "Cafe" },
+    named: { title: "Coffee loop" },
+    deleted: { deleted: true },
+  };
+  const notMatching: Record<ToggleDim, Partial<RideView>> = {
+    gps: { track: "" },
+    cached: { gpx_cached: false },
+    wind: { wind_resolved: false },
+    destination: { location: "  " }, // whitespace-only = no destination
+    named: { title: "Morning ride" }, // synthesized time-of-day fallback
+    deleted: { deleted: false },
+  };
+  const dims = Object.keys(matching) as ToggleDim[];
+
+  it("predicate is true for the matching ride and false for the non-matching one", () => {
+    for (const dim of dims) {
+      expect(togglePredicate[dim](ride(matching[dim]))).toBe(true);
+      expect(togglePredicate[dim](ride(notMatching[dim]))).toBe(false);
+    }
+  });
+
+  it("shared predicate agrees with matchesFilters for every toggle dimension", () => {
+    // The chip's positive ("yes"/"only") side keeps exactly the predicate-true ride and
+    // drops the predicate-false one; the negative ("no"/"none") side is the mirror. This
+    // is the guard against the shared predicate drifting from the filter logic.
+    const pos: Record<ToggleDim, Partial<Filters>> = {
+      gps: { gps: "yes" },
+      cached: { cached: "yes" },
+      wind: { wind: "yes" },
+      destination: { destination: "yes" },
+      named: { named: "yes" },
+      deleted: { deleted: "only" },
+    };
+    const neg: Record<ToggleDim, Partial<Filters>> = {
+      gps: { gps: "no" },
+      cached: { cached: "no" },
+      wind: { wind: "no" },
+      destination: { destination: "no" },
+      named: { named: "no" },
+      deleted: { deleted: "none" },
+    };
+    for (const dim of dims) {
+      const yes = ride(matching[dim]);
+      const no = ride(notMatching[dim]);
+      expect(matchesFilters(f(pos[dim]), yes)).toBe(true);
+      expect(matchesFilters(f(pos[dim]), no)).toBe(false);
+      expect(matchesFilters(f(neg[dim]), yes)).toBe(false);
+      expect(matchesFilters(f(neg[dim]), no)).toBe(true);
+    }
+  });
+
+  it("is empty for an empty library", () => {
+    expect(discriminatingDims([]).size).toBe(0);
+  });
+
+  it("excludes every dimension when the whole library shares one value", () => {
+    // All rides have a route but otherwise share defaults (no full GPX, no wind, no
+    // destination, synthesized name, not deleted) → uniform on every dimension.
+    const uniform = [ride({ track: "xy" }), ride({ track: "ab" }), ride({ track: "cd" })];
+    expect(discriminatingDims(uniform).size).toBe(0);
+  });
+
+  it("includes only the dimensions the library is actually split on", () => {
+    const split = [
+      ride({ track: "xy", gpx_cached: true, deleted: false }),
+      ride({ track: "", gpx_cached: true, deleted: true }),
+    ];
+    // gps: one has a track, one doesn't → split. deleted: one each → split.
+    // cached: both cached → NOT split. wind/destination/named: both uniform.
+    expect([...discriminatingDims(split)].sort()).toEqual(["deleted", "gps"]);
+  });
+
+  it("GPX-only library: drops Route/Full GPX/Deleted, keeps Named when names vary", () => {
+    // Imported GPX rides each carry their full track (route + cached) and are never
+    // deleted; some get a real name, some keep the synthesized fallback.
+    const gpx = [
+      ride({ source: "gpx", track: "xy", gpx_cached: true, title: "Coffee loop" }),
+      ride({ source: "gpx", track: "ab", gpx_cached: true, title: "Morning ride" }),
+    ];
+    const d = discriminatingDims(gpx);
+    expect(d.has("gps")).toBe(false);
+    expect(d.has("cached")).toBe(false);
+    expect(d.has("deleted")).toBe(false);
+    expect(d.has("named")).toBe(true);
   });
 });

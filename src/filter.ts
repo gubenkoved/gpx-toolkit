@@ -138,6 +138,52 @@ export function filterActiveCount(f: Filters): number {
   return n;
 }
 
+/**
+ * The binary toggle filter dimensions — each surfaced as a single tri-state chip
+ * ("any" / yes / no) whose predicate splits the library in two. Distinct from the
+ * range / multi-value dimensions (status, source, device, distance, dates, tags).
+ */
+export type ToggleDim = "gps" | "cached" | "wind" | "destination" | "named" | "deleted";
+
+/**
+ * The canonical "does this ride satisfy the positive side of the dimension?" test for
+ * each toggle dimension. The SINGLE source of truth, shared by `matchesFilters` (to
+ * actually filter) and `discriminatingDims` (to decide whether a chip can narrow
+ * anything) — so the two can never drift apart.
+ */
+export const togglePredicate: Record<ToggleDim, (r: RideView) => boolean> = {
+  // Route-preview (lightweight stored polyline) present.
+  gps: (r) => r.track.length > 0,
+  // Full recorded GPX cached locally (real time + elevation) — distinct from the
+  // lightweight route preview `gps` checks.
+  cached: (r) => r.gpx_cached,
+  // Historical wind resolved (Open-Meteo summary cached) for the ride.
+  wind: (r) => r.wind_resolved,
+  // Routed-destination present (navigated/tagged with a place). The location suffix
+  // doubles as the "has destination" signal.
+  destination: (r) => r.location.trim().length > 0,
+  // Real user-given name vs the synthesized "<time> ride" fallback.
+  named: (r) => r.title.trim().length > 0 && !isSynthesizedRideName(r.title),
+  // Removed from the remote account (Beeline) — never true for a local GPX import.
+  deleted: (r) => r.deleted,
+};
+
+/**
+ * Which toggle dimensions can actually narrow this ride list — i.e. the library is
+ * SPLIT on them: at least one ride matches the predicate AND at least one doesn't.
+ * A dimension where every ride shares one value (all have a route, none are deleted,
+ * …) is a guaranteed no-op, so the UI hides its chip. Pure + DOM-free so the gating
+ * is unit-testable; main.ts maps the returned set to chip visibility.
+ */
+export function discriminatingDims(rides: RideView[]): Set<ToggleDim> {
+  const out = new Set<ToggleDim>();
+  for (const dim of Object.keys(togglePredicate) as ToggleDim[]) {
+    const pass = togglePredicate[dim];
+    if (rides.some(pass) && rides.some((r) => !pass(r))) out.add(dim);
+  }
+  return out;
+}
+
 /** Does a ride pass every active filter? (AND across all dimensions.) */
 export function matchesFilters(f: Filters, r: RideView): boolean {
   // Strava upload status. The three concrete buckets partition every ride:
@@ -150,18 +196,18 @@ export function matchesFilters(f: Filters, r: RideView): boolean {
     return false;
 
   // Route-preview presence.
-  const hasGps = r.track.length > 0;
+  const hasGps = togglePredicate.gps(r);
   if (f.gps === "yes" && !hasGps) return false;
   if (f.gps === "no" && hasGps) return false;
 
   // Full recorded GPX cached locally (real time + elevation) — distinct from the
   // lightweight route preview the `gps` dimension checks.
-  if (f.cached === "yes" && !r.gpx_cached) return false;
-  if (f.cached === "no" && r.gpx_cached) return false;
+  if (f.cached === "yes" && !togglePredicate.cached(r)) return false;
+  if (f.cached === "no" && togglePredicate.cached(r)) return false;
 
   // Historical wind resolved (Open-Meteo summary cached) for the ride.
-  if (f.wind === "yes" && !r.wind_resolved) return false;
-  if (f.wind === "no" && r.wind_resolved) return false;
+  if (f.wind === "yes" && !togglePredicate.wind(r)) return false;
+  if (f.wind === "no" && togglePredicate.wind(r)) return false;
 
   // Average-wind-speed band (km/h). Only resolved rides carry a wind speed, so any
   // bound excludes unresolved (and no-data) rides outright — mirroring how the
@@ -176,19 +222,19 @@ export function matchesFilters(f: Filters, r: RideView): boolean {
   // Routed-destination presence. The location suffix is set only when the ride
   // navigated to a place (Beeline) or was tagged with one (imported GPX), so it
   // doubles as the "has destination" signal.
-  const hasDestination = r.location.trim().length > 0;
+  const hasDestination = togglePredicate.destination(r);
   if (f.destination === "yes" && !hasDestination) return false;
   if (f.destination === "no" && hasDestination) return false;
 
   // Real user-given name vs the synthesized time-of-day fallback. A ride is "named"
   // when its title is non-empty AND not one of our auto "<time> ride" names.
-  const hasName = r.title.trim().length > 0 && !isSynthesizedRideName(r.title);
+  const hasName = togglePredicate.named(r);
   if (f.named === "yes" && !hasName) return false;
   if (f.named === "no" && hasName) return false;
 
   // Deletion.
-  if (f.deleted === "only" && !r.deleted) return false;
-  if (f.deleted === "none" && r.deleted) return false;
+  if (f.deleted === "only" && !togglePredicate.deleted(r)) return false;
+  if (f.deleted === "none" && togglePredicate.deleted(r)) return false;
 
   // Which backend the ride came from.
   if (f.source !== "all" && r.source !== f.source) return false;

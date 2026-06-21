@@ -17,10 +17,12 @@ import { setSliderFill } from "./slider";
 import { closeDatePicker, openDatePicker } from "./datepicker";
 import { type AppState, Controller, type RideView } from "./controller";
 import {
+  discriminatingDims,
   emptyFilters,
   type Filters,
   filterActiveCount,
   filtersActive,
+  type ToggleDim,
   type TriState,
   visibleRides,
 } from "./filter";
@@ -1988,16 +1990,10 @@ function syncFilterBar(allRides: AppState["rides"]): void {
     statusEl.classList.toggle("on", filters.status !== "all");
   }
 
-  // Beeline-centric dimensions: Strava upload status, route-preview presence, full-
-  // GPX caching, synthesized-name and remote deletion are concepts that only exist
-  // for Beeline rides — a GPX import always carries its full track, takes its filename
-  // as its name, and is never deleted out from under us. So these controls can only
-  // ever narrow a Beeline library: show them only when Beeline rides are present, and
-  // neutralize any active one so a hidden control can't keep rides hidden. (Destination
-  // is NOT here — it now applies to both sources: Beeline rides route to a place, and a
-  // GPX ride's destination is user-editable, so the chip stays available either way.)
+  // Strava upload status is Beeline-only — a GPX import has no Strava relationship —
+  // so the chip shows only when Beeline rides are present; neutralize any active one
+  // so a hidden control can't keep rides hidden.
   const hasBeeline = allRides.some((r) => r.source === "beeline");
-
   const statusChip = document.getElementById("fStatus");
   if (statusChip) statusChip.classList.toggle("hidden", !hasBeeline);
   if (!hasBeeline && filters.status !== "all") {
@@ -2005,32 +2001,31 @@ function syncFilterBar(allRides: AppState["rides"]): void {
     saveFilters();
   }
 
-  for (const [id, key] of [
-    ["fGps", "gps"],
-    ["fCached", "cached"],
-    ["fNamed", "named"],
-    ["fDeleted", "deleted"],
-  ] as const) {
-    const el = document.getElementById(id);
-    if (el) el.classList.toggle("hidden", !hasBeeline);
-    if (!hasBeeline && filters[key] !== "any") {
+  // Binary toggle chips: a chip can only ever narrow the list when the library is
+  // actually SPLIT on its dimension — some rides match the predicate AND some don't
+  // (`discriminatingDims`, the pure + tested core in filter.ts). When every ride
+  // shares one value (all have a route, all carry Full GPX, none are deleted, …) the
+  // chip can't partition anything, so hide it and neutralize any active one so a
+  // hidden control can't keep rides hidden. Gated purely on this real signal — not a
+  // source/mode flag — so e.g. a GPX-only library (every ride carries its full track,
+  // is never deleted) naturally drops the Route/Full GPX/Deleted chips, while Named
+  // still appears if some imported names are real and some synthesized.
+  const diverse = discriminatingDims(allRides);
+  const gateDiverse = (id: string, key: ToggleDim): boolean => {
+    const ok = diverse.has(key);
+    document.getElementById(id)?.classList.toggle("hidden", !ok);
+    if (!ok && filters[key] !== "any") {
       filters[key] = "any";
       saveFilters();
     }
-  }
-
-  // Wind chip: appears only once the library has DIVERSITY on this dimension — some
-  // rides with wind resolved AND some without — since with no such split there's
-  // nothing to narrow. Gated on the real signal (not a flag), like the Source chip.
-  const someWind = allRides.some((r) => r.wind_resolved);
-  const someNoWind = allRides.some((r) => !r.wind_resolved);
-  const windDiverse = someWind && someNoWind;
-  const windChip = document.getElementById("fWind");
-  if (windChip) windChip.classList.toggle("hidden", !windDiverse);
-  if (!windDiverse && filters.wind !== "any") {
-    filters.wind = "any";
-    saveFilters();
-  }
+    return ok;
+  };
+  gateDiverse("fGps", "gps");
+  gateDiverse("fCached", "cached");
+  gateDiverse("fDestination", "destination");
+  gateDiverse("fNamed", "named");
+  gateDiverse("fDeleted", "deleted");
+  const windDiverse = gateDiverse("fWind", "wind");
 
   // Wind speed min/max range: a contextual companion to the Wind chip, shown ONLY
   // while filtering to resolved-wind rides ("Wind ✓"). When that's not the case the

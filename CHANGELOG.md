@@ -17,6 +17,24 @@ humans and the assistant can read this file as a compressed history of decisions
 
 ---
 
+## filters: hide a chip when it can't actually narrow anything
+- **What:** every binary toggle filter chip (Route, Full GPX, Destination, Named,
+  Deleted, Wind) now shows only when the library is *split* on that dimension — some
+  rides match the predicate AND some don't. A library where every ride has a route, or
+  carries Full GPX, no longer shows that chip at all. The decision is extracted into a
+  pure, DOM-free `discriminatingDims(rides)` in [src/filter.ts](src/filter.ts), built on
+  a shared `togglePredicate` map that is now the SINGLE source of truth for each toggle
+  dimension — `matchesFilters` (to filter) and the chip-gating (to decide visibility)
+  both read it, so they can't drift. `syncFilterBar` just maps the returned set to chip
+  visibility (and neutralizes any active filter on a hidden chip).
+- **Why:** *show only what applies* — a chip that can only ever be a no-op is clutter and
+  a false affordance. Gating purely on the real diversity signal (not a source/mode flag)
+  also subsumes the old Beeline gate: a GPX-only library naturally drops Route/Full GPX/
+  Deleted, while Named correctly appears when some imported names are real and some
+  synthesized. Pulling the logic out of the DOM glue makes it unit-testable — 6 new
+  filter tests cover the diversity decision AND assert the shared predicate agrees with
+  `matchesFilters` for every dimension (the guard against drift).
+
 ## ride-map: keep the wind dial's value from jumping as you scrub
 - **What:** the hover readout's wind pill (`.rmh-dial`) is pinned to the bar's right
   edge, so when its km/h value changed digit count while scrubbing (`8` → `12`), the
