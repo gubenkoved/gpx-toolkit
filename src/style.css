@@ -2241,6 +2241,28 @@ body.ridemap-open {
   padding: 10px 14px;
   background: var(--panel);
   border-bottom: 1px solid var(--line);
+  /* Pin the bar to the height of its control row (the tallest content). Scrub mode
+     (below) hides those controls, so without this the bar would shrink to the shorter
+     readout — a visible vertical jump AND, because the bar's own ResizeObserver drives
+     the icon-fold, a size change that re-evaluates the fold and makes the buttons
+     unfold/refold for no reason. Holding the height constant means scrubbing changes
+     nothing about the bar box: no jump, no spurious fold animation. */
+  min-height: 51px;
+}
+/* "Scrub" / discovery mode: while you actively follow the track (desktop hover) or drag
+   the profile, the header strips down to just the live readout + the right-pinned wind
+   dial, giving the data the whole bar width. It's transient — restored the instant the
+   pointer leaves the route (desktop) or lifts (touch) — so you reach the full toolbar
+   again simply by stopping. The readout brightens from its muted resting state to take
+   centre stage. */
+.ridemap.scrubbing .ridemap-title,
+.ridemap.scrubbing .ridemap-est,
+.ridemap.scrubbing .ridemap-tools,
+.ridemap.scrubbing #btnRideMapClose {
+  display: none;
+}
+.ridemap.scrubbing .ridemap-hover {
+  color: var(--text);
 }
 .ridemap-title {
   font-weight: 500;
@@ -2249,10 +2271,25 @@ body.ridemap-open {
   text-overflow: ellipsis;
   max-width: 50%;
 }
+/* The live hover readout. It must NEVER reflow the bar as you scrub: it claims exactly
+   the leftover space (flex-basis 0 + grow) and ellipsises its text WITHIN that box, so a
+   longer/shorter readout — or the wind pill appearing — can't shove the toolbar (which
+   would otherwise trip the compact-fold and make the buttons jump). The wind dial is
+   pinned to the box's right edge so it holds a stable position instead of sliding with
+   the text length. */
 .ridemap-hover {
-  flex: 1 1 auto;
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  overflow: hidden;
   color: var(--muted);
   font-variant-numeric: tabular-nums;
+}
+.ridemap-hover .rmh-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 /* The along-track wind in the hover readout — a tiny compass DIAL: "up" is your
@@ -2264,7 +2301,8 @@ body.ridemap-open {
   display: inline-flex;
   align-items: center;
   gap: 3px;
-  margin-left: 10px;
+  flex: 0 0 auto;
+  margin-left: auto;
   padding: 1px 8px 1px 4px;
   border-radius: 999px;
   border: 1px solid color-mix(in srgb, var(--wind) 45%, transparent);
@@ -2307,6 +2345,14 @@ body.ridemap-open {
   font-weight: 700;
   color: var(--wind);
   transition: color 0.18s ease;
+  /* Reserve space for the value (right-aligned, tabular) so its digit count changing
+     as you scrub — 8 → 12 → 120 — can't change the dial's overall width. Without this
+     the dial is pinned to the bar's right edge, so a wider number shoves its compass
+     icon sideways: the indicator visibly jumps. A fixed min-width keeps it rock-still. */
+  display: inline-block;
+  min-width: 2ch;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 .rmh-dial i {
   font-style: normal;
@@ -2392,6 +2438,19 @@ body.ridemap-open {
   stroke-width: 2;
   stroke-linecap: round;
   stroke-linejoin: round;
+}
+/* A standalone bar toggle (Wind, Hide stops) signals its ON state with the same accent
+   fill the segmented controls (`.seg button.active`) use, so an active toggle reads the
+   same everywhere in the bar. The icon stroke is `currentColor`, so it whitens too. */
+.ridemap-tools > .rmb.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.ridemap-tools > .rmb.active:hover:not(:disabled) {
+  background: var(--accent);
+  border-color: var(--accent);
+  filter: brightness(1.08);
 }
 .ridemap-bar.compact .rmb .lbl {
   display: none;
@@ -2520,6 +2579,13 @@ body.ridemap-open {
 .ridemap-profile .rp-stop-top {
   stroke: rgba(150, 178, 214, 0.7);
   stroke-width: 1;
+}
+/* "Hide stops" collapses each no-movement stretch to zero width, so instead of a band
+   a thin dashed cool rule marks the join — a subtle "the track was cut here". */
+.ridemap-profile .rp-cut {
+  stroke: rgba(150, 178, 214, 0.45);
+  stroke-width: 1;
+  stroke-dasharray: 2 4;
 }
 .ridemap-profile .rp-line {
   fill: none;

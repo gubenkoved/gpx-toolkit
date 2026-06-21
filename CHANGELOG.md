@@ -17,6 +17,62 @@ humans and the assistant can read this file as a compressed history of decisions
 
 ---
 
+## ride-map: keep the wind dial's value from jumping as you scrub
+- **What:** the hover readout's wind pill (`.rmh-dial`) is pinned to the bar's right
+  edge, so when its km/h value changed digit count while scrubbing (`8` → `12`), the
+  whole pill grew leftward and its compass icon visibly hopped sideways. The numeric
+  value (`.rd-val`) now reserves a fixed `min-width: 2ch` (right-aligned, tabular) so
+  1–2 digit speeds — the entire realistic wind range — never change the pill's width.
+- **Why:** with scrub mode giving the readout centre stage, a twitching wind indicator
+  is exactly the kind of micro-jitter that reads as unpolished; reserving space holds it
+  rock-still without moving it off the right corner.
+
+## ride-map: a transient "scrub" mode that clears the bar while you follow the track
+- **What:** while you actively follow the route (desktop hover) or drag the elevation
+  profile, the full-screen map's header strips down to just the live readout + the
+  right-pinned wind dial — the ride title, the whole control cluster and the Close
+  button hide (via a `.scrubbing` class on the modal), giving the data the full bar
+  width. It's transient: it restores the instant the pointer leaves the route or the
+  finger lifts, so the normal toolbar is always one small move away. The bar carries a
+  `min-height` matching its control row, so hiding the controls can't change the bar's
+  box at all — which kills two glitches at once: the header no longer jumps height, and
+  (because the bar's own ResizeObserver drives the icon-fold) the buttons no longer
+  unfold/refold for no reason as you enter/leave the mode. A mobile map *tap* deliberately
+  stays out of scrub (it's a discrete inspect, and dragging the map pans it); the gesture
+  is reserved for the profile drag and desktop hover. Esc still closes throughout.
+- **Why:** the earlier flex fix stabilised the bar but left the readout fighting the
+  toolbar for width, so the live distance/speed/elevation details got ellipsised away
+  exactly when you wanted them. Hiding the chrome while you're "discovering" a point on
+  the track gives the readout room to show everything, and auto-restoring keeps the full
+  toolbar reachable.
+
+## ride-map bar: stop the toolbar jumping on hover
+- **What:** the full-screen ride map's header no longer reflows as you scrub the track
+  or profile. The live hover readout (`.rmh-text`) and the wind pill (`.rmh-dial`) shared
+  the toolbar's flex row and, being `nowrap` with no `min-width`, grew/shrank with each
+  hovered point — shoving the control cluster, which tripped the icon-fold and made the
+  buttons jump. The readout now claims exactly the leftover space (`flex: 1 1 0;
+  min-width: 0`) and ellipsises its text within that fixed box, and the wind dial is
+  pinned to the box's right edge (`margin-left: auto`) so it holds a stable position.
+- **Why:** a header that twitches on every hover is distracting and makes the controls
+  hard to hit; the toolbar's compact-fold should track the viewport width, not the
+  transient readout content.
+
+## ride-map profile "hide stops" switch
+- **What:** added a subtle `.rmb` toggle to the single-ride map's elevation/speed
+  profile that collapses every no-movement stretch out of the chart — each detected
+  stop contributes zero width so the moving sections fill the graph, and a thin dashed
+  cool rule (`.rp-cut`) marks where the track was cut instead of the grey stop band.
+  Reuses the existing `stableStoppedRanges` detection; works on both the distance and
+  time axes (the bottom-right extent label then reflects the moving span actually drawn).
+  Off by default; the button shows only when the profile is open and a real stop exists.
+  When ON it lights up with the shared accent fill (a new `.ridemap-tools > .rmb.active`
+  rule mirroring `.seg button.active`), so the toggle — and the Wind toggle beside it —
+  reads as "on" the same way the segmented controls do.
+- **Why:** rides with long pauses (lights, cafés, the time axis especially) waste chart
+  width on flatlined idle stretches; letting the user fold them away makes the moving
+  profile far more legible while still flagging where the cuts happened.
+
 ## ingestion-date ("Added") range filter
 - **What:** added an "Added" from/to date filter to the global filter panel that
   narrows the library by each ride's *ingestion date* (when it entered the library,

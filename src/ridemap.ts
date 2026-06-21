@@ -69,6 +69,11 @@ export function initRideMap(d: RideMapDeps): void {
     // first event of a drag is pointerdown — bind it so scrubbing starts immediately.
     profile.addEventListener("pointerdown", onRideProfileHover);
     profile.addEventListener("pointerleave", clearRideTrackPoint);
+    // Lifting a finger (or a cancelled gesture) ends a touch drag — clear the dot and,
+    // crucially, leave scrub mode so the toolbar comes back even if `pointerleave` is
+    // flaky on touch. Ignored for the mouse, which keeps following on hover.
+    profile.addEventListener("pointerup", onRideProfilePointerEnd);
+    profile.addEventListener("pointercancel", onRideProfilePointerEnd);
   }
 }
 
@@ -188,6 +193,10 @@ let rideMapProfileMetric: "elevation" | "speed" = "elevation";
 /** The profile's x-axis: along-track distance, or recorded time (only when the full
  *  track carries timestamps). Time stretches idle stretches out so stops read true. */
 let rideMapProfileAxis: "distance" | "time" = "distance";
+/** When on, the profile collapses the stretches we detected as not moving: each stop
+ *  contributes zero width so the moving sections fill the chart, and a thin dashed cool
+ *  rule marks where the track was cut (instead of the grey stop band). Off by default. */
+let rideMapProfileHideStops = false;
 /** Cached hover state for the open ride map, recomputed on pan/zoom/resize. */
 let rideHover: {
   pts: [number, number][];
@@ -204,6 +213,27 @@ let rideHover: {
    *  render and reused for cursor↔distance mapping. Null until the profile draws. */
   axisX: number[] | null;
 } | null = null;
+
+/** True while the user is actively following the route/profile (desktop hover or a
+ *  touch drag on the profile). In this transient "scrub" mode we hide the bar's title +
+ *  controls (via the `.scrubbing` class) so the live readout gets the full width; it
+ *  ends the moment the pointer leaves the route or the finger lifts. */
+let rideMapScrubbing = false;
+
+/** Enter/leave scrub mode, toggling the `.scrubbing` class on the open modal. Guarded so
+ *  it only touches the DOM on an actual state change (this runs on every hover move). */
+function setRideMapScrub(on: boolean): void {
+  if (on === rideMapScrubbing) return;
+  rideMapScrubbing = on;
+  document.getElementById("rideMapModal")?.classList.toggle("scrubbing", on);
+}
+
+/** Touch drag end (finger lifted / gesture cancelled) on the profile: clear the dot and
+ *  leave scrub mode. Ignored for the mouse, which keeps following while it hovers. */
+function onRideProfilePointerEnd(e: PointerEvent): void {
+  if (e.pointerType === "mouse") return;
+  clearRideTrackPoint();
+}
 
 /** Seconds → "H:MM:SS" / "M:SS" for the hover readout. */
 function fmtSecsShort(sec: number): string {
@@ -436,10 +466,45 @@ function renderRideProfile(): void {
   const times = hasTimes(full) ? filledTimes(full.times) : null;
   const useTime = rideMapProfileAxis === "time" && times != null;
 
+  // The stretches we classified as not moving (same threshold as the moving-avg figure).
+  // A stopped hop run [s, e] spans points s … e+1. Computed once: it drives both the
+  // axis (when collapsing) and the stop bands / cut rules below.
+  const speeds = rideHover!.speeds;
+  const stopRanges =
+    speeds && full
+      ? stableStoppedRanges(full, getState().settings.movingThresholdKmh, speeds)
+      : [];
+  // "Hide stops" collapses every no-movement stretch to zero width so the moving
+  // sections fill the chart; only meaningful when there's actually a stop to remove.
+  const collapse = rideMapProfileHideStops && stopRanges.length > 0;
+
   // Per-point viewBox x under the active axis. Both cum and times are non-decreasing,
   // so axisX is monotonic — the cursor sync (below) inverts it back to distance.
   const axisX = new Array<number>(cum.length);
-  if (useTime && times) {
+  // Interior points of a collapsed stop (everything between its boundaries) are dropped
+  // from the line so the moving runs meet cleanly at the cut instead of diving to ~0.
+  let skipPt: Uint8Array | null = null;
+  // The span actually drawn when collapsing — the sum of moving-hop metric deltas, in
+  // the active axis's units (km or ms). Drives the bottom-right extent label.
+  let shownSpan = 0;
+  if (collapse) {
+    const metric = useTime && times ? times : cum;
+    const stoppedHop = new Uint8Array(cum.length); // hop i connects point i → i+1
+    skipPt = new Uint8Array(cum.length);
+    for (const [s, e] of stopRanges) {
+      for (let h = s; h <= e; h++) stoppedHop[h] = 1;
+      for (let p = s + 1; p <= e; p++) skipPt[p] = 1; // interior stop points
+    }
+    const comp = new Array<number>(cum.length);
+    comp[0] = 0;
+    for (let i = 1; i < cum.length; i++) {
+      const d = stoppedHop[i - 1] ? 0 : Math.max(0, metric[i] - metric[i - 1]);
+      comp[i] = comp[i - 1] + d;
+    }
+    shownSpan = comp[comp.length - 1];
+    const denom = shownSpan || 1;
+    for (let i = 0; i < cum.length; i++) axisX[i] = padX + (comp[i] / denom) * innerW;
+  } else if (useTime && times) {
     const t0 = times[0];
     const tSpan = times[times.length - 1] - t0 || 1;
     for (let i = 0; i < cum.length; i++) axisX[i] = padX + ((times[i] - t0) / tSpan) * innerW;
@@ -453,24 +518,31 @@ function renderRideProfile(): void {
   const lo = speed ? Math.min(0, range.lo) : range.lo;
   const vSpan = range.hi - lo || 1;
   const yOf = (v: number) => padTop + (1 - (v - lo) / vSpan) * (H - padTop - padBot);
-  // Bands over the stretches we classified as not moving (same threshold as the
-  // moving-avg figure). Drawn in the BACKGROUND (behind the area + line, so the orange
-  // profile stays the foreground) as a faint cool fill topped by a crisp cool rule — a
-  // stop reads as a quietly marked "paused" region that's legible even where the speed
-  // line flatlines at zero. A stopped hop run [s, e] spans points s … e+1, so its x runs
-  // axisX[s] → axisX[e+1]; a min width keeps a brief stop visible on the distance axis
-  // (where idle time barely advances), while the time axis shows its true duration.
+
+  // Two ways to mark a stop, mutually exclusive:
+  //  • bands (default) — a faint cool fill (`.rp-stop`) topped by a crisp cool rule
+  //    (`.rp-stop-top`) drawn in the BACKGROUND (behind the area + line, so the orange
+  //    profile stays the foreground). On the distance axis the band marks WHERE a stop
+  //    was; on the time axis its width is the stop's true duration.
+  //  • cuts (when "Hide stops" is on) — the stop has zero width, so instead a thin
+  //    dashed cool rule (`.rp-cut`) sits at the join in the FOREGROUND, a subtle "the
+  //    track was cut here" marker. A stopped run [s, e] collapses onto axisX[s].
   const bandTop = padTop;
   const bandH = H - padTop - padBot;
   const minBandW = 4;
-  let stops = "";
-  const speeds = rideHover!.speeds;
-  if (speeds && full) {
-    for (const [s, e] of stableStoppedRanges(
-      full,
-      getState().settings.movingThresholdKmh,
-      speeds,
-    )) {
+  const baseY = (H - padBot).toFixed(1);
+  let bands = "";
+  let cuts = "";
+  for (const [s, e] of stopRanges) {
+    const tip = times
+      ? `stopped ${fmtSecsShort((times[Math.min(e + 1, times.length - 1)] - times[s]) / 1000)}`
+      : "stopped";
+    if (collapse) {
+      const xs = axisX[s].toFixed(1);
+      cuts +=
+        `<line class="rp-cut" x1="${xs}" y1="${padTop}" x2="${xs}" y2="${baseY}">` +
+        `<title>${tip}</title></line>`;
+    } else {
       let x1 = axisX[s];
       let x2 = axisX[Math.min(e + 1, axisX.length - 1)];
       if (x2 - x1 < minBandW) {
@@ -478,20 +550,18 @@ function renderRideProfile(): void {
         x1 = Math.max(padX, mid - minBandW / 2);
         x2 = Math.min(W - padX, mid + minBandW / 2);
       }
-      const tip = times
-        ? `stopped ${fmtSecsShort((times[Math.min(e + 1, times.length - 1)] - times[s]) / 1000)}`
-        : "stopped";
       const xs = x1.toFixed(1);
       const ws = Math.max(0, x2 - x1).toFixed(1);
       const topY = (bandTop + 0.5).toFixed(1);
-      stops +=
+      bands +=
         `<rect class="rp-stop" x="${xs}" y="${bandTop}" width="${ws}" height="${bandH}">` +
         `<title>${tip}</title></rect>` +
         `<line class="rp-stop-top" x1="${xs}" y1="${topY}" x2="${(x1 + Math.max(0, x2 - x1)).toFixed(1)}" y2="${topY}"/>`;
     }
   }
 
-  // Build the area + line path over points that carry a value.
+  // Build the area + line path over points that carry a value (skipping the interior
+  // of collapsed stops so the line doesn't dive to ~0 at each cut).
   let line = "";
   let firstX = padX;
   let lastX = padX;
@@ -499,6 +569,7 @@ function renderRideProfile(): void {
   for (let i = 0; i < values.length; i++) {
     const v = values[i];
     if (v == null) continue;
+    if (skipPt && skipPt[i]) continue;
     const x = axisX[i];
     const y = yOf(v);
     if (!started) {
@@ -510,21 +581,28 @@ function renderRideProfile(): void {
     }
     lastX = x;
   }
-  const baseY = (H - padBot).toFixed(1);
   const area = `${line} L${lastX.toFixed(1)},${baseY} L${firstX.toFixed(1)},${baseY} Z`;
   const fmt = (v: number) => (speed ? v.toFixed(0) : Math.round(v).toString());
-  // Bottom-right: the axis's full extent, so distance vs time reads at a glance.
-  const extentLabel = useTime
-    ? fmtSecsShort((times![times!.length - 1] - times![0]) / 1000)
-    : `${totalKm.toFixed(1)} km`;
+  // Bottom-right: the axis's full extent, so distance vs time reads at a glance. When
+  // collapsing, the extent is the MOVING span actually drawn (stops removed), not the
+  // recorded total — so the label matches the compressed axis.
+  const extentLabel = collapse
+    ? useTime
+      ? fmtSecsShort(shownSpan / 1000)
+      : `${shownSpan.toFixed(1)} km`
+    : useTime
+      ? fmtSecsShort((times![times!.length - 1] - times![0]) / 1000)
+      : `${totalKm.toFixed(1)} km`;
   host.innerHTML =
     `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" ` +
     `aria-label="${speed ? "Speed" : "Elevation"} profile vs ${useTime ? "time" : "distance"}">` +
     // Stop bands sit in the BACKGROUND (behind the area + line) so the orange profile
     // always reads as the foreground (see `.rp-stop` / `.rp-stop-top`).
-    stops +
+    bands +
     `<path class="rp-area" d="${area}"/>` +
     `<path class="rp-line" d="${line}"/>` +
+    // Cut rules sit in the FOREGROUND, marking each removed (zero-width) stop.
+    cuts +
     `<line class="rp-cursor" id="rpCursor" x1="0" y1="${padTop}" x2="0" y2="${baseY}" style="display:none"/>` +
     `<text class="rp-axis" x="${padX}" y="12">${fmt(range.hi)} ${unit}</text>` +
     `<text class="rp-axis" x="${padX}" y="${H - 5}">${fmt(lo)} ${unit}</text>` +
@@ -632,6 +710,11 @@ function renderRideSummary(): void {
  *  track loaded the time/elevation are REAL (read from the nearest recorded point);
  *  otherwise the time is an even-pace estimate (rendered with a "~"). */
 function onRideMapHover(e: L.LeafletMouseEvent): void {
+  // Desktop hover = actively following the route → enter scrub mode (give the readout
+  // the full bar). `mousemove` never fires on touch, so this can't trigger on a mobile
+  // map tap (that goes through the `click` handler, which deliberately stays out of
+  // scrub mode). An off-route move clears below and drops back out.
+  setRideMapScrub(true);
   updateRideHoverAt(e.containerPoint, 28);
 }
 
@@ -687,6 +770,8 @@ function clearRideTrackPoint(): void {
   rideMapMarker?.remove();
   rideMapMarker = null;
   moveProfileCursor(null);
+  // Stopped following → restore the full toolbar.
+  setRideMapScrub(false);
 }
 
 /**
@@ -863,6 +948,9 @@ function trackPointAtKm(km: number): { latLng: [number, number]; idx: number } |
  */
 function onRideProfileHover(e: PointerEvent): void {
   if (!rideHover) return;
+  // A moving pointer over the profile (desktop hover, or a touch drag — but NOT the
+  // initial `pointerdown` of a tap) means we're following the track → enter scrub mode.
+  if (e.type === "pointermove") setRideMapScrub(true);
   const svg = (e.currentTarget as HTMLElement).querySelector("svg");
   if (!svg) return;
   const rect = svg.getBoundingClientRect();
@@ -885,6 +973,7 @@ function syncRideMapControls(): void {
   const profileBtn = document.getElementById("btnRideMapProfile") as HTMLButtonElement | null;
   const metricSeg = document.getElementById("rideMapProfileMetric");
   const axisSeg = document.getElementById("rideMapProfileAxis");
+  const stopsBtn = document.getElementById("btnRideMapProfileStops") as HTMLButtonElement | null;
   const est = document.getElementById("rideMapEst");
   const hasTime = (ride?.elapsed_sec || ride?.moving_sec || 0) > 0;
 
@@ -956,6 +1045,20 @@ function syncRideMapControls(): void {
     axisSeg?.querySelectorAll<HTMLButtonElement>("button").forEach((b) => {
       b.classList.toggle("active", b.dataset.axis === rideMapProfileAxis);
     });
+    // "Hide stops" toggle: collapses the no-movement stretches out of the profile.
+    // Offered only when the profile is open AND the track actually has a detected stop
+    // to remove (so the switch is never a no-op).
+    const speeds = rideHover?.speeds ?? null;
+    const hasStops =
+      !!speeds &&
+      stableStoppedRanges(full, getState().settings.movingThresholdKmh, speeds).length > 0;
+    const showStopsBtn = rideMapProfileShown && hasStops;
+    stopsBtn?.classList.toggle("hidden", !showStopsBtn);
+    if (stopsBtn) {
+      setRmbLabel(stopsBtn, rideMapProfileHideStops ? "Show stops" : "Hide stops");
+      stopsBtn.classList.toggle("active", rideMapProfileHideStops);
+      stopsBtn.setAttribute("aria-pressed", String(rideMapProfileHideStops));
+    }
   } else {
     if (fetchBtn) {
       fetchBtn.classList.remove("hidden");
@@ -966,6 +1069,7 @@ function syncRideMapControls(): void {
     profileBtn?.classList.add("hidden");
     metricSeg?.classList.add("hidden");
     axisSeg?.classList.add("hidden");
+    stopsBtn?.classList.add("hidden");
     est?.classList.toggle("hidden", !hasTime);
   }
   syncRideMapBarCompact();
@@ -1055,6 +1159,7 @@ export function openRideMap(key: string): void {
   rideMapColorMode = "none";
   rideMapProfileMetric = "elevation";
   rideMapProfileAxis = "distance";
+  setRideMapScrub(false);
   setRideMapStatus("");
   // If this ride's wind was resolved earlier, recompute its overlay from the cache
   // (no network) so the "Show wind" toggle paints instantly; never auto-fetches.
@@ -1294,11 +1399,20 @@ export function setRideMapProfileAxis(axis: "distance" | "time"): void {
   syncRideMapControls();
 }
 
+/** Toggle "hide stops": collapse the no-movement stretches out of the profile (each
+ *  marked by a thin dashed cut rule), redrawing the graph in place. */
+export function toggleRideMapProfileStops(): void {
+  rideMapProfileHideStops = !rideMapProfileHideStops;
+  renderRideProfile();
+  syncRideMapControls();
+}
+
 /** Close the full-screen route map and release its Leaflet instance. */
 export function closeRideMap(): void {
   const modal = document.getElementById("rideMapModal");
   modal?.classList.add("hidden");
   document.body.classList.remove("ridemap-open");
+  setRideMapScrub(false);
   rideMapBarObserver?.disconnect();
   rideMapBarObserver = null;
   if (rideMapBig) {

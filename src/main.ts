@@ -103,6 +103,7 @@ import {
   setRideMapProfileAxis,
   setRideMapProfileMetric,
   toggleRideMapProfile,
+  toggleRideMapProfileStops,
   toggleRideMapWind,
 } from "./ridemap";
 import type { SourceFactory } from "./source";
@@ -3577,6 +3578,9 @@ document.addEventListener("click", (e) => {
   }
   if (t.dataset?.axis && t.closest("#rideMapProfileAxis")) {
     return setRideMapProfileAxis(t.dataset.axis as "distance" | "time");
+  }
+  if (t.id === "btnRideMapProfileStops") {
+    return toggleRideMapProfileStops();
   }
   if (t.id === "btnRideMapProfile") {
     return toggleRideMapProfile();
