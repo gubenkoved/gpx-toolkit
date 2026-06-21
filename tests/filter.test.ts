@@ -333,6 +333,52 @@ describe("matchesFilters — ingestion-date band", () => {
   });
 });
 
+describe("matchesFilters — ride-date band", () => {
+  // Ride keys carry a LOCAL wall-clock datetime ("Wed Jun 17 2026 at 08:05"), so the
+  // filter's local-day bounds line up exactly with the parsed reference date.
+  it("includes rides whose own date falls within an inclusive from–to day range", () => {
+    const r = ride({ date_key: "Wed Jun 17 2026 at 08:05" });
+    expect(matchesFilters(f({ rideFrom: "2026-06-10", rideTo: "2026-06-20" }), r)).toBe(true);
+    expect(matchesFilters(f({ rideFrom: "2026-06-18" }), r)).toBe(false);
+    expect(matchesFilters(f({ rideTo: "2026-06-16" }), r)).toBe(false);
+  });
+
+  it("includes the very start of the from day and the very end of the to day", () => {
+    const start = ride({ date_key: "Wed Jun 10 2026 at 00:00" });
+    const end = ride({ date_key: "Sat Jun 20 2026 at 23:59" });
+    expect(matchesFilters(f({ rideFrom: "2026-06-10" }), start)).toBe(true);
+    expect(matchesFilters(f({ rideTo: "2026-06-20" }), end)).toBe(true);
+  });
+
+  it("excludes a ride dated just before the from day or just after the to day", () => {
+    const before = ride({ date_key: "Tue Jun 9 2026 at 23:59" });
+    const after = ride({ date_key: "Sun Jun 21 2026 at 00:00" });
+    expect(matchesFilters(f({ rideFrom: "2026-06-10" }), before)).toBe(false);
+    expect(matchesFilters(f({ rideTo: "2026-06-20" }), after)).toBe(false);
+  });
+
+  it("drops a ride with an unparseable date_key once a bound is set, keeps it when neutral", () => {
+    const bad = ride({ date_key: "gpx::sha256:deadbeef" });
+    expect(matchesFilters(f({ rideFrom: "2026-06-10" }), bad)).toBe(false);
+    expect(matchesFilters(f({ rideTo: "2026-06-20" }), bad)).toBe(false);
+    expect(matchesFilters(f({}), bad)).toBe(true);
+  });
+
+  it("filters on the ride's own date independently of its ingestion date", () => {
+    // Ridden Jun 17 but added Jun 14 — a ride-date window that excludes Jun 17 drops it
+    // even though its ingestion date is inside the same window.
+    const r = ride({ date_key: "Wed Jun 17 2026 at 08:05", ingested_at: "2026-06-14T09:30:00Z" });
+    expect(matchesFilters(f({ rideTo: "2026-06-15" }), r)).toBe(false);
+    expect(matchesFilters(f({ ingestedTo: "2026-06-15" }), r)).toBe(true);
+  });
+
+  it("counts the ride-date band as a single active dimension", () => {
+    expect(filterActiveCount(f({ rideFrom: "2026-06-10" }))).toBe(1);
+    expect(filterActiveCount(f({ rideFrom: "2026-06-10", rideTo: "2026-06-20" }))).toBe(1);
+    expect(filtersActive(f({ rideTo: "2026-06-20" }))).toBe(true);
+  });
+});
+
 describe("matchesFilters — tags (OR)", () => {
   it("keeps a ride that carries ANY selected tag", () => {
     const r = ride({ tags: ["Commute", "Gravel"] });

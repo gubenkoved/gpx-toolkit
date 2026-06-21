@@ -17,6 +17,42 @@ humans and the assistant can read this file as a compressed history of decisions
 
 ---
 
+## datepicker: clear-this-date button in the calendar header
+- **What:** the shared date-picker ([datepicker.ts](src/datepicker.ts)) gained an optional
+  eraser button beside the month nav that clears just the bound being edited. It shows only
+  when the picker has both an `onClear` handler and a current value, so an empty bound stays
+  uncluttered. Wired into the Ridden and Added from/to pickers — clearing one date leaves every
+  other active filter untouched (unlike the panel's "Clear filters", which resets everything).
+- **Why:** there was no way to drop a single date bound without nuking the whole filter set;
+  re-picking can't express "no bound". A per-field clear, right where the user is already
+  looking (in the calendar), is the concise fix — and living in the shared picker, the Added
+  field gets it for free.
+
+## datepicker: zoom-out month/year navigation + fix close-on-navigate
+- **What:** the shared date-picker popover ([datepicker.ts](src/datepicker.ts)) gained two
+  zoom-out levels — clicking the header title steps day grid → month grid → year grid (and
+  picking a cell zooms back in), so distant dates are a couple of taps away instead of one
+  month-arrow click at a time. Also fixed a bug where clicking the month-nav arrows (or the new
+  zoom title) **closed** the picker: the nav re-render detached the clicked button, and by the
+  time the event reached the app's document-level click handler the orphaned target read as
+  "outside the filter panel", so the panel (and picker) was dismissed. `onPopClick` now stops
+  propagation so picker-internal clicks never reach that handler.
+- **Why:** the freshly-added "Ridden" filter exposed both problems — navigation was unusable
+  (the picker vanished on every arrow/label click) and, with rides spanning months/years,
+  month-by-month stepping was tedious. The fix lives in the one shared picker, so the Added
+  filter and the Timeline day-jump get the same zoom-out + reliable navigation for free.
+
+## global filter: filter by the ride's own date
+- **What:** added a "Ridden" date-range filter to the global filter panel — two `from`/`to`
+  triggers (next to the existing "Added" ingestion-date field) reusing the shared date-picker.
+  New `Filters.rideFrom`/`rideTo` bounds match each ride against its reference date
+  (`date_key`, via `rideDatetime`) with the same inclusive local-day semantics as the
+  ingestion band; persisted, counted in the active-filter badge, and reset by Clear.
+- **Why:** users sort/group Explore by the ride's own date, so narrowing the library to a
+  span of *ride* dates (e.g. "this summer's rides") was the obvious missing complement to the
+  "Added" filter, which only narrows by when a ride entered the library. Built on the existing
+  ingestion-date filter rather than a new mechanism, keeping one date-filter pattern.
+
 ## drop legacy "no cable" wording from source copy
 - **What:** reworded the Beeline source description in the Sources picker (`index.html`) and
   the README intro — "with fast uploads and no cable" → "with fast, server-side uploads, all

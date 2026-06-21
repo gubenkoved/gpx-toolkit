@@ -8,7 +8,7 @@
  */
 
 import type { RideView } from "./controller";
-import { isSynthesizedRideName } from "./parsing";
+import { isSynthesizedRideName, rideDatetime } from "./parsing";
 import { tagKey } from "./tags";
 
 export type TriState = "any" | "yes" | "no";
@@ -46,6 +46,13 @@ export interface Filters {
    *  its local 23:59:59.999, so both picked days are fully included. */
   ingestedFrom: string | null;
   ingestedTo: string | null;
+  /** Inclusive ride-date bounds as local `"YYYY-MM-DD"` day strings — the ride's OWN
+   *  reference date (the `date_key` Explore sorts/buckets on), independent of when it
+   *  was added to the library; null = unbounded on that side. The `from` day is taken
+   *  from its local 00:00:00.000, the `to` day through its local 23:59:59.999, so both
+   *  picked days are fully included. */
+  rideFrom: string | null;
+  rideTo: string | null;
   /** Selected tags, as lowercase comparison keys (see tags.ts). OR semantics: a ride
    *  passes when it carries ANY selected tag. Empty = no-op. */
   tags: string[];
@@ -72,6 +79,8 @@ export function emptyFilters(): Filters {
     distMax: null,
     ingestedFrom: null,
     ingestedTo: null,
+    rideFrom: null,
+    rideTo: null,
     tags: [],
     untagged: false,
   };
@@ -134,6 +143,7 @@ export function filterActiveCount(f: Filters): number {
   if (f.device !== "all") n++;
   if (f.distMin !== null || f.distMax !== null) n++;
   if (f.ingestedFrom !== null || f.ingestedTo !== null) n++;
+  if (f.rideFrom !== null || f.rideTo !== null) n++;
   if (f.tags.length > 0 || f.untagged) n++;
   return n;
 }
@@ -267,6 +277,24 @@ export function matchesFilters(f: Filters, r: RideView): boolean {
     }
     if (f.ingestedTo !== null) {
       const toMs = dayEndMs(f.ingestedTo);
+      if (toMs !== null && t > toMs) return false;
+    }
+  }
+
+  // Ride-date band (the ride's OWN reference date — the `date_key` Explore sorts on,
+  // not the ingestion date above). Same inclusive-day semantics as the ingestion band.
+  // A ride whose date_key can't be parsed (shouldn't happen, but be safe) can't satisfy
+  // a known range, so it drops out once either bound is set.
+  if (f.rideFrom !== null || f.rideTo !== null) {
+    const rd = rideDatetime(r.date_key);
+    if (!rd) return false;
+    const t = rd.getTime();
+    if (f.rideFrom !== null) {
+      const fromMs = dayStartMs(f.rideFrom);
+      if (fromMs !== null && t < fromMs) return false;
+    }
+    if (f.rideTo !== null) {
+      const toMs = dayEndMs(f.rideTo);
       if (toMs !== null && t > toMs) return false;
     }
   }

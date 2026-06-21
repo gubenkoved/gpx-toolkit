@@ -50,6 +50,7 @@ import {
   bucketRide,
   compareRidesByDateDesc,
   type Granularity,
+  rideDatetime,
   rideShortLabel,
   trimmedSpeed,
 } from "./parsing";
@@ -882,6 +883,8 @@ function loadFilters(): Filters {
     f.windMax = sanitizeBound(o.windMax);
     f.ingestedFrom = sanitizeDay(o.ingestedFrom);
     f.ingestedTo = sanitizeDay(o.ingestedTo);
+    f.rideFrom = sanitizeDay(o.rideFrom);
+    f.rideTo = sanitizeDay(o.rideTo);
     if (Array.isArray(o.tags)) {
       // Persisted as lowercase comparison keys; re-normalize + dedupe defensively.
       const seen = new Set<string>();
@@ -916,6 +919,9 @@ const DP_CHEV_LEFT =
   '<svg class="bi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m15 18-6-6 6-6"/></svg>';
 const DP_CHEV_RIGHT =
   '<svg class="bi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m9 18 6-6-6-6"/></svg>';
+// "Clear this date" glyph — an eraser, distinct from the panel's plain Close ✕.
+const DP_CLEAR =
+  '<svg class="bi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21"/><path d="M22 21H7"/><path d="m5 11 9 9"/></svg>';
 
 /** Local `"YYYY-MM-DD"` for an ISO instant (the ingestion-date filter works in
  *  local days, matching the picker and `matchesFilters`). Null if unparseable. */
@@ -967,7 +973,7 @@ function openIngestionPicker(which: "from" | "to", anchor: HTMLElement): void {
     min,
     max,
     esc: escHtml,
-    icons: { chevLeft: DP_CHEV_LEFT, chevRight: DP_CHEV_RIGHT },
+    icons: { chevLeft: DP_CHEV_LEFT, chevRight: DP_CHEV_RIGHT, clear: DP_CLEAR },
     onPick: (day) => {
       if (which === "from") {
         filters.ingestedFrom = day;
@@ -976,6 +982,80 @@ function openIngestionPicker(which: "from" | "to", anchor: HTMLElement): void {
         filters.ingestedTo = day;
         if (filters.ingestedFrom && filters.ingestedFrom > day) filters.ingestedFrom = day;
       }
+      saveFilters();
+      applyState();
+    },
+    onClear: () => {
+      if (which === "from") filters.ingestedFrom = null;
+      else filters.ingestedTo = null;
+      saveFilters();
+      applyState();
+    },
+  });
+}
+
+// -- ride-date filter pickers ----------------------------------------------
+// The Ridden (ride-date) filter mirrors the Added one but works on each ride's OWN
+// reference date (its `date_key`, what Explore sorts/buckets on) rather than its
+// ingestion instant. Same shared picker, same from ≤ to constraint.
+
+/** Local `"YYYY-MM-DD"` for a ride's reference `date_key`, or null if unparseable. */
+function rideDay(dateKey: string): string | null {
+  const d = rideDatetime(dateKey);
+  if (!d) return null;
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+/** Earliest / latest ride reference day across the library, as local `"YYYY-MM-DD"`.
+ *  Falls back to today when no ride has a parseable date. The selectable picker range
+ *  runs between these two (clamped today-inclusive so a future-dated ride still fits). */
+function rideDayExtent(): { earliest: string; latest: string } {
+  let min: string | null = null;
+  let max: string | null = null;
+  for (const r of STATE.rides) {
+    const day = rideDay(r.date_key);
+    if (!day) continue;
+    if (min === null || day < min) min = day;
+    if (max === null || day > max) max = day;
+  }
+  const today = todayDay();
+  return {
+    earliest: min ?? today,
+    latest: max && max > today ? max : today,
+  };
+}
+
+/** Open the shared date-picker for one ride-date bound, keeping from ≤ to. */
+function openRidePicker(which: "from" | "to", anchor: HTMLElement): void {
+  const { earliest, latest } = rideDayExtent();
+  // Constrain each side against the other so the two bounds can never cross.
+  const min = which === "to" ? (filters.rideFrom ?? earliest) : earliest;
+  const max = which === "from" ? (filters.rideTo ?? latest) : latest;
+  openDatePicker({
+    anchor,
+    parent: document.getElementById("filterPanel") ?? document.body,
+    value: which === "from" ? filters.rideFrom : filters.rideTo,
+    min,
+    max,
+    esc: escHtml,
+    icons: { chevLeft: DP_CHEV_LEFT, chevRight: DP_CHEV_RIGHT, clear: DP_CLEAR },
+    onPick: (day) => {
+      if (which === "from") {
+        filters.rideFrom = day;
+        if (filters.rideTo && filters.rideTo < day) filters.rideTo = day;
+      } else {
+        filters.rideTo = day;
+        if (filters.rideFrom && filters.rideFrom > day) filters.rideFrom = day;
+      }
+      saveFilters();
+      applyState();
+    },
+    onClear: () => {
+      if (which === "from") filters.rideFrom = null;
+      else filters.rideTo = null;
       saveFilters();
       applyState();
     },
@@ -2057,6 +2137,18 @@ function syncFilterBar(allRides: AppState["rides"]): void {
     ingTo.classList.toggle("placeholder", !filters.ingestedTo);
   }
 
+  // Ridden (ride-date) triggers — same label/placeholder treatment as the Added field.
+  const rideFromBtn = document.getElementById("fRideFrom");
+  const rideToBtn = document.getElementById("fRideTo");
+  if (rideFromBtn) {
+    rideFromBtn.textContent = filters.rideFrom ? dayLabel(filters.rideFrom) : "from";
+    rideFromBtn.classList.toggle("placeholder", !filters.rideFrom);
+  }
+  if (rideToBtn) {
+    rideToBtn.textContent = filters.rideTo ? dayLabel(filters.rideTo) : "to";
+    rideToBtn.classList.toggle("placeholder", !filters.rideTo);
+  }
+
   // Tags filter: a single chip opening a multi-select popover (OR). Shown only once
   // some ride is tagged; gated on the real signal like the Source/Wind chips. Any
   // selected tag that no longer exists in the library is pruned so a hidden/absent
@@ -2233,6 +2325,8 @@ function clearFilters(): void {
   filters.distMax = null;
   filters.ingestedFrom = null;
   filters.ingestedTo = null;
+  filters.rideFrom = null;
+  filters.rideTo = null;
   filters.tags = [];
   filters.untagged = false;
 }
@@ -3665,6 +3759,12 @@ document.addEventListener("click", (e) => {
   const ingTrigger = t.closest<HTMLElement>("#fIngFrom, #fIngTo");
   if (ingTrigger) {
     openIngestionPicker(ingTrigger.id === "fIngFrom" ? "from" : "to", ingTrigger);
+    return;
+  }
+  // Ridden (ride-date) range: same shared picker, constrained on the ride's own date.
+  const rideTrigger = t.closest<HTMLElement>("#fRideFrom, #fRideTo");
+  if (rideTrigger) {
+    openRidePicker(rideTrigger.id === "fRideFrom" ? "from" : "to", rideTrigger);
     return;
   }
   // Tags filter: the chip toggles its in-panel multi-select section; each tag chip ORs

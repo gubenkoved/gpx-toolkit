@@ -3040,6 +3040,21 @@ body.ridemap-open {
   font-weight: 650;
   color: var(--text);
 }
+/* The title doubles as a "zoom out" control (day grid → month grid → year grid):
+   render it as a flat button that hints at its tappability without looking like a
+   chip. Reset the global button padding/border so it sits flush in the header. */
+button.dp-month.dp-zoom {
+  padding: 2px 6px;
+  margin: -2px -6px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  cursor: pointer;
+}
+button.dp-month.dp-zoom:hover {
+  background: var(--panel2);
+  color: var(--accent);
+}
 .dp-nav {
   display: inline-flex;
   gap: 4px;
@@ -3068,10 +3083,37 @@ body.ridemap-open {
   opacity: 0.35;
   cursor: default;
 }
+/* Clear-this-date button: sits just left of the nav arrows, reads quieter until
+   hovered (it's a destructive-ish shortcut, not a primary control). */
+.dp-clear {
+  margin-right: 6px;
+  color: var(--muted);
+}
+.dp-clear:hover {
+  color: var(--accent);
+  border-color: var(--border-hover);
+  background: var(--surface-hover);
+}
 .dp-grid {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
   gap: 2px;
+}
+/* Month / year zoom-out grids: a roomier 3-column layout (12 cells = 4 rows) so
+   the short labels ("Jan", "2026") stay legible and easy to tap. */
+.dp-mygrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px;
+}
+.dp-myc {
+  height: 38px;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+/* The two pad years either side of the visible decade read quieter. */
+.dp-myc.dp-pad:not(.sel) {
+  color: var(--muted);
 }
 .dp-dow {
   margin-bottom: 4px;

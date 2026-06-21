@@ -77,6 +77,9 @@
               <label class="custom fdist" title="Filter by distance in km (leave a side blank for no bound)">Distance
                 <input id="fDistMin" type="number" min="0" step="1" inputmode="numeric" placeholder="min" />–<input id="fDistMax" type="number" min="0" step="1" inputmode="numeric" placeholder="max" /> km
               </label>
+              <span class="custom fadded" id="fRidden" title="Filter by the ride's own date — the date Explore sorts and groups by, independent of when it was added to your library">Ridden
+                <button type="button" class="fadded-btn placeholder" id="fRideFrom" aria-label="Earliest ride date">from</button>–<button type="button" class="fadded-btn placeholder" id="fRideTo" aria-label="Latest ride date">to</button>
+              </span>
               <span class="custom fadded" id="fAdded" title="Filter by the date a ride was added to your library (its ingestion date, independent of the ride's own date)">Added
                 <button type="button" class="fadded-btn placeholder" id="fIngFrom" aria-label="Earliest added date">from</button>–<button type="button" class="fadded-btn placeholder" id="fIngTo" aria-label="Latest added date">to</button>
               </span>
