@@ -21,7 +21,6 @@ import type { RideView } from "./controller";
 import { fmtKm, fmtKmDetail, fmtSpeed } from "./format";
 import type { DateRange } from "./mapview";
 import { compareRidesByDateDesc, rideShortLabel } from "./parsing";
-import { setSliderFill } from "./slider";
 import type { LatLon } from "./track";
 import { escHtml, statNum } from "./ui";
 import {
@@ -36,7 +35,6 @@ import {
   linearRegression,
   type SegmentOpts,
   segmentRide,
-  speedCapIndices,
   type WindSeg,
 } from "./windspeed";
 
@@ -93,9 +91,6 @@ let analyticsRerunQueued = false;
  *  (possibly heavy) sweep — we never auto-analyse on entering the tab. Resets on
  *  reload; once armed the view runs live (slider / filter changes re-sweep). */
 let analyticsArmed = false;
-/** Slider top (percent): the Max-grade knob at this value means "off — keep any grade".
- *  Below it, segments steeper than the set value (or with unknown grade) are dropped. */
-export const MAX_GRADE_OFF = 20;
 
 // -- Dot ↔ ride discovery -------------------------------------------------- //
 // The last drawn scatter's hit-test geometry, plus which segment the user has
@@ -126,13 +121,14 @@ export function initWindSpeedView(d: WindSpeedDeps): void {
 
 /** Memo key for a ride's segments: uid + wind version + full-GPX presence, so a
  *  re-resolve or a full-GPX fetch busts it. The segment-geometry tuning (look-ahead /
- *  turn / min-length) also changes the chopper's output, so its signature is folded
- *  in — a knob change yields fresh cache entries and reverting reuses the old ones. */
+ *  turn tolerance) also changes the chopper's output, so its signature is folded in — a
+ *  knob change yields fresh cache entries and reverting reuses the old ones. (Segment
+ *  length is NOT here: it's a cheap post-filter, not a chopper input.) */
 function segKey(r: RideView): string {
   const t = segmentTuning();
   return (
     `${r.key}::${deps.weatherFetchedAt(r.key)}::${r.gpx_cached ? "g" : "_"}` +
-    `::la${t.lookAheadM}t${t.turnDeg}m${t.minLenM}`
+    `::la${t.lookAheadM}t${t.turnDeg}`
   );
 }
 
@@ -144,71 +140,24 @@ export function windSpeedVisibleRides(): RideView[] {
   return visible.filter((r) => !r.deleted);
 }
 
-/** Current max-speed cap (km/h) from the slider (20..80), defaulting to 50. Segments
- *  whose average speed exceeds this are dropped as GPS glitches. */
-function analyticsMaxSpeed(): number {
-  const el = document.getElementById("maxSpeed") as HTMLInputElement | null;
-  const v = el ? parseInt(el.value, 10) : 50;
-  return Number.isFinite(v) ? Math.max(20, Math.min(80, v)) : 50;
+/** The average-speed band to keep (km/h), read from the min/max inputs. A blank max
+ *  means no cap (GPS-glitch over-speed segments stay); a blank min keeps near-stops. */
+function analyticsSpeed(): { min: number; max: number } {
+  return readBand("sMin", "sMax");
 }
 
-/** Current min-speed floor (km/h) from the slider (0..40), defaulting to 0 (off).
- *  Above 0, segments slower than this are dropped — near-stops add noise, not signal. */
-function analyticsMinSpeed(): number {
-  const el = document.getElementById("minSpeed") as HTMLInputElement | null;
-  const v = el ? parseInt(el.value, 10) : 0;
-  return Number.isFinite(v) ? Math.max(0, Math.min(40, v)) : 0;
+/** The net-grade (steepness) magnitude band to keep (percent |grade|), read from the
+ *  min/max inputs. Once either bound is set, segments with unknown grade are dropped
+ *  too (they can't be placed in the band). */
+function analyticsGrade(): { min: number; max: number } {
+  return readBand("gMin", "gMax");
 }
 
-/** Label for the Min-speed slider's `<output>`: `any` at 0, else `≥N km/h`. Shared by
- *  the live render and the boot/restore path so wording can't drift. */
-export function minSpeedLabel(kmh: number): string {
-  return kmh <= 0 ? "any" : `≥${kmh} km/h`;
-}
-
-/** Current max-grade cap (percent) from the slider (0.5..MAX_GRADE_OFF). At the top it's
- *  `any` (no grade filter); below it, segments steeper than `pct` — or with unknown grade
- *  — are dropped, generalising the old binary "Flat segments only" preset. */
-function analyticsMaxGrade(): { pct: number; any: boolean } {
-  const el = document.getElementById("maxGrade") as HTMLInputElement | null;
-  const v = el ? parseFloat(el.value) : MAX_GRADE_OFF;
-  const pct = Number.isFinite(v) ? Math.max(0.5, Math.min(MAX_GRADE_OFF, v)) : MAX_GRADE_OFF;
-  return { pct, any: pct >= MAX_GRADE_OFF };
-}
-
-/** Current min-grade floor (percent |grade|) from the slider (0..MAX_GRADE_OFF),
- *  defaulting to 0 (off). Above 0, segments flatter than `pct` — or with unknown grade
- *  — are dropped; pairs with the max-grade cap to keep only a band of steepness. */
-function analyticsMinGrade(): { pct: number; any: boolean } {
-  const el = document.getElementById("minGrade") as HTMLInputElement | null;
-  const v = el ? parseFloat(el.value) : 0;
-  const pct = Number.isFinite(v) ? Math.max(0, Math.min(MAX_GRADE_OFF, v)) : 0;
-  return { pct, any: pct <= 0 };
-}
-
-/** Label for the Max-grade slider's `<output>`: `any` at the top, else `≤N.N%`. Always
- *  one decimal so the width doesn't jump between integer and half steps as the slider
- *  moves. Shared by the live render and the boot/restore path so wording can't drift. */
-export function maxGradeLabel(pct: number): string {
-  return pct >= MAX_GRADE_OFF ? "any" : `≤${pct.toFixed(1)}%`;
-}
-
-/** Label for the Min-grade slider's `<output>`: `any` at 0, else `≥N.N%`. One decimal,
- *  like `maxGradeLabel`, so the width doesn't jump as the slider moves. */
-export function minGradeLabel(pct: number): string {
-  return pct <= 0 ? "any" : `≥${pct.toFixed(1)}%`;
-}
-
-/** How the analysed-rides note describes the grade-band drop, depending on which
- *  bound(s) are active: only-max "over X% grade", only-min "under Y% grade", both
- *  "outside Y–X% grade". (Unknown-grade segments are folded into the same count.) */
-function gradeDropLabel(
-  max: { pct: number; any: boolean },
-  min: { pct: number; any: boolean },
-): string {
-  if (!max.any && !min.any) return `outside ${min.pct.toFixed(1)}–${max.pct.toFixed(1)}% grade`;
-  if (!min.any) return `under ${min.pct.toFixed(1)}% grade`;
-  return `over ${max.pct.toFixed(1)}% grade`;
+/** The segment-length band to keep (metres), read from the min/max inputs. A blank min
+ *  defaults to nothing (the segmenter's own 50 m noise floor still applies); a blank
+ *  max means no upper bound. */
+function analyticsLength(): { min: number; max: number } {
+  return readBand("lenMin", "lenMax");
 }
 
 /** Whether the wind dimension is signed (head/tailwind, plotted on a 0-centred axis)
@@ -235,26 +184,48 @@ function analyticsColorBy(): ColorBy {
   return activeSeg<ColorBy>("analyticsColorBy", "colorby", "none");
 }
 
-/** The crosswind-magnitude band to keep (km/h), read from the min/max inputs. A blank
- *  side means "no bound"; values are clamped non-negative and ordered low≤high. */
-function analyticsCrosswind(): { min: number; max: number } {
+/** A wind-magnitude band [min,max] in km/h to keep, read from a pair of number inputs.
+ *  A blank side means "no bound"; values are clamped non-negative and ordered low≤high.
+ *  Shared by the crosswind, headwind and tailwind filters. */
+function readBand(minId: string, maxId: string): { min: number; max: number } {
   const read = (id: string): number | null => {
     const el = document.getElementById(id) as HTMLInputElement | null;
     const v = el && el.value.trim() !== "" ? Number(el.value) : null;
     return v != null && Number.isFinite(v) && v >= 0 ? v : null;
   };
-  let min = read("cwMin") ?? 0;
-  let max = read("cwMax") ?? Number.POSITIVE_INFINITY;
+  let min = read(minId) ?? 0;
+  let max = read(maxId) ?? Number.POSITIVE_INFINITY;
   if (min > max) [min, max] = [max, min];
   return { min, max };
 }
 
-/** Compact label for a crosswind band, for the analysed-rides note. */
-function crosswindLabel(cw: { min: number; max: number }): string {
-  const hasMax = Number.isFinite(cw.max);
-  if (cw.min > 0 && hasMax) return `${cw.min}–${cw.max} km/h`;
-  if (hasMax) return `≤${cw.max} km/h`;
-  if (cw.min > 0) return `≥${cw.min} km/h`;
+/** The crosswind-magnitude band to keep (km/h). */
+function analyticsCrosswind(): { min: number; max: number } {
+  return readBand("cwMin", "cwMax");
+}
+
+/** The headwind-magnitude band to keep (km/h). A segment's headwind magnitude is
+ *  `max(0, −avgAlongKmh)` — tailwind-leaning segments count as 0. */
+function analyticsHeadwind(): { min: number; max: number } {
+  return readBand("hwMin", "hwMax");
+}
+
+/** The tailwind-magnitude band to keep (km/h). A segment's tailwind magnitude is
+ *  `max(0, avgAlongKmh)` — headwind-leaning segments count as 0. */
+function analyticsTailwind(): { min: number; max: number } {
+  return readBand("twMin", "twMax");
+}
+
+/** Compact label for a wind/speed/grade band, for the analysed-rides note. `unit` is
+ *  the trailing unit (a leading space is added for word units like "km/h", none for
+ *  "%"); `decimals` fixes the number precision so the width doesn't jump. */
+function bandLabel(b: { min: number; max: number }, unit = "km/h", decimals = 0): string {
+  const sep = unit === "%" ? "" : " ";
+  const fmt = (n: number): string => `${n.toFixed(decimals)}${sep}${unit}`;
+  const hasMax = Number.isFinite(b.max);
+  if (b.min > 0 && hasMax) return `${b.min.toFixed(decimals)}–${fmt(b.max)}`;
+  if (hasMax) return `≤${fmt(b.max)}`;
+  if (b.min > 0) return `≥${fmt(b.min)}`;
   return "any";
 }
 
@@ -303,13 +274,13 @@ function renderColorLegend(mode: ColorBy, maxKmh: number): void {
 }
 
 /** Default segment-geometry tuning (also the values the Reset button restores). */
-export const SEG_TUNE_DEFAULTS = { lookAheadM: 15, turnDeg: 35, minLenM: 300 };
+export const SEG_TUNE_DEFAULTS = { lookAheadM: 15, turnDeg: 35 };
 
 /** Read + clamp the segment-geometry knobs from their sliders. These feed BOTH the
  *  chopper (`SegmentOpts`) and the segment-cache key, so they must be read in one
  *  canonical place. Unlike the max-speed / flat-only post-filters, changing any of
  *  these re-runs the per-ride segmentation (the cache key changes). */
-function segmentTuning(): { lookAheadM: number; turnDeg: number; minLenM: number } {
+function segmentTuning(): { lookAheadM: number; turnDeg: number } {
   const read = (id: string, lo: number, hi: number, def: number): number => {
     const el = document.getElementById(id) as HTMLInputElement | null;
     const v = el ? parseInt(el.value, 10) : def;
@@ -317,8 +288,7 @@ function segmentTuning(): { lookAheadM: number; turnDeg: number; minLenM: number
   };
   return {
     lookAheadM: read("segLookAhead", 0, 50, SEG_TUNE_DEFAULTS.lookAheadM),
-    turnDeg: read("segTurn", 15, 120, SEG_TUNE_DEFAULTS.turnDeg),
-    minLenM: read("segMinLen", 50, 2000, SEG_TUNE_DEFAULTS.minLenM),
+    turnDeg: read("segTurn", 5, 120, SEG_TUNE_DEFAULTS.turnDeg),
   };
 }
 
@@ -534,7 +504,9 @@ async function runAnalyticsView(my: number, _opts: { fit?: boolean } = {}): Prom
     stopKmh: deps.movingThresholdKmh(),
     lookAheadM: tune.lookAheadM,
     turnDeg: tune.turnDeg,
-    minKm: tune.minLenM / 1000,
+    // Emit down to a small fixed noise floor (50 m); the user-facing Length band is a
+    // cheap post-filter applied later, so it never needs a re-sweep.
+    minKm: 0.05,
   };
   // Sweep only the wind-resolved rides inside the selected window (not the whole
   // dataset) — the date slicer scopes the work, so a narrow window stays cheap.
@@ -579,21 +551,26 @@ async function runAnalyticsView(my: number, _opts: { fit?: boolean } = {}): Prom
   }
   if (my !== analyticsSeq) return;
 
-  const grade = analyticsMaxGrade();
-  const minGrade = analyticsMinGrade();
-  const minSpeed = analyticsMinSpeed();
+  const grade = analyticsGrade();
+  const speed = analyticsSpeed();
+  const length = analyticsLength();
   const cw = analyticsCrosswind();
+  const hw = analyticsHeadwind();
+  const tw = analyticsTailwind();
   let usableRides = 0;
   let needGpxRides = 0;
   let untimedRides = 0;
   let skippedRides = 0;
   let crossFiltered = 0;
+  let headFiltered = 0;
+  let tailFiltered = 0;
   let gradeFiltered = 0;
-  let speedMinFiltered = 0;
+  let speedFiltered = 0;
+  let lengthFiltered = 0;
   const segs: WindSeg[] = [];
   // Whether either grade bound is active — if so, segments with unknown grade are
   // dropped too, since we can't place them in the band.
-  const gradeBounded = !grade.any || !minGrade.any;
+  const gradeBounded = grade.min > 0 || Number.isFinite(grade.max);
   for (const r of resolved) {
     const entry = segCacheByUid.get(segKey(r));
     if (!entry) continue;
@@ -610,24 +587,31 @@ async function runAnalyticsView(my: number, _opts: { fit?: boolean } = {}): Prom
     if (entry.status !== "ok") continue;
     usableRides++;
     for (const seg of entry.segs) {
+      // Length band filter (segment distance, metres): keep only segments within the
+      // band. The segmenter already emits down to a 50 m noise floor, so this is a
+      // cheap synchronous post-filter — a max bound drops long straights, a min bound
+      // (default 300 m) drops the short stretches that used to be cut in the chopper.
+      const lenM = seg.distanceKm * 1000;
+      if (lenM < length.min || lenM > length.max) {
+        lengthFiltered++;
+        continue;
+      }
       // Grade band filter (on |net grade|): once either bound is set, drop segments
-      // steeper than Max grade, flatter than Min grade, or with unknown grade. At the
-      // extremes ("any") each bound is off, so the pair acts as a steepness band.
+      // steeper than the max, flatter than the min, or with unknown grade. With both
+      // sides blank it's off, so the pair acts as a steepness band.
       if (gradeBounded) {
         const g = Math.abs(seg.netGradePct);
-        if (
-          !Number.isFinite(seg.netGradePct) ||
-          (!grade.any && g > grade.pct) ||
-          (!minGrade.any && g < minGrade.pct)
-        ) {
+        if (!Number.isFinite(seg.netGradePct) || g < grade.min || g > grade.max) {
           gradeFiltered++;
           continue;
         }
       }
-      // Min-speed filter: above 0, drop crawling/near-stop stretches (noise, not wind
-      // signal). The Max-speed cap is applied as a post-step below.
-      if (minSpeed > 0 && seg.avgSpeedKmh < minSpeed) {
-        speedMinFiltered++;
+      // Speed band filter: drop near-stop crawling (below min) and physically-impossible
+      // GPS-glitch over-speed segments (above max). A blank max means no cap, a blank
+      // min keeps near-stops; this is a per-segment plausibility/noise cut, never a
+      // statistical trim that would flatten the wind-vs-speed slope.
+      if (seg.avgSpeedKmh < speed.min || seg.avgSpeedKmh > speed.max) {
+        speedFiltered++;
         continue;
       }
       // Crosswind band filter (on |cross| magnitude): drop side-windy or too-calm
@@ -637,37 +621,27 @@ async function runAnalyticsView(my: number, _opts: { fit?: boolean } = {}): Prom
         crossFiltered++;
         continue;
       }
+      // Headwind band filter: avgAlongKmh is signed (+ tail, − head), so a segment's
+      // headwind magnitude is max(0, −along) — tailwind-leaning segments count as 0.
+      const headMag = Math.max(0, -seg.avgAlongKmh);
+      if (headMag < hw.min || headMag > hw.max) {
+        headFiltered++;
+        continue;
+      }
+      // Tailwind band filter: the mirror — tailwind magnitude is max(0, along), so
+      // headwind-leaning segments count as 0.
+      const tailMag = Math.max(0, seg.avgAlongKmh);
+      if (tailMag < tw.min || tailMag > tw.max) {
+        tailFiltered++;
+        continue;
+      }
       segs.push(seg);
     }
   }
 
-  // Reflect the grade knobs into their outputs + accent fill (cheap post-filters, like
-  // the speed pair below).
-  const gradeOut = document.getElementById("maxGradeOut") as HTMLOutputElement | null;
-  if (gradeOut) gradeOut.value = maxGradeLabel(grade.pct);
-  const gradeEl = document.getElementById("maxGrade") as HTMLInputElement | null;
-  if (gradeEl) setSliderFill(gradeEl);
-  const minGradeOut = document.getElementById("minGradeOut") as HTMLOutputElement | null;
-  if (minGradeOut) minGradeOut.value = minGradeLabel(minGrade.pct);
-  const minGradeEl = document.getElementById("minGrade") as HTMLInputElement | null;
-  if (minGradeEl) setSliderFill(minGradeEl);
-
-  // Drop physically-impossible segments above the Max-speed cap (GPS glitches).
-  const maxSpeed = analyticsMaxSpeed();
-  const out = document.getElementById("maxSpeedOut") as HTMLOutputElement | null;
-  if (out) out.value = `${maxSpeed} km/h`;
-  const maxEl = document.getElementById("maxSpeed") as HTMLInputElement | null;
-  if (maxEl) setSliderFill(maxEl);
-  const minSpeedOut = document.getElementById("minSpeedOut") as HTMLOutputElement | null;
-  if (minSpeedOut) minSpeedOut.value = minSpeedLabel(minSpeed);
-  const minSpeedEl = document.getElementById("minSpeed") as HTMLInputElement | null;
-  if (minSpeedEl) setSliderFill(minSpeedEl);
-  const keep = speedCapIndices(
-    segs.map((s) => s.avgSpeedKmh),
-    maxSpeed,
-  );
-  const shown = keep.map((i) => segs[i]);
-  const trimmed = segs.length - shown.length;
+  // All five segment filters (grade, speed, crosswind, headwind, tailwind) run inside
+  // the loop above, so `segs` is already the kept set — nothing more to trim here.
+  const shown = segs;
 
   // Keep the "Colour by" options in step with the X axis (the X dimension can't be a
   // colour), then read both. X picks the plotted wind dimension; head/tailwind stays
@@ -733,10 +707,12 @@ async function runAnalyticsView(my: number, _opts: { fit?: boolean } = {}): Prom
       (untimedRides ? ` · ${untimedRides} GPX without timestamps` : "") +
       (unresolved ? ` · ${unresolved} not yet wind-resolved` : "") +
       (skippedRides ? ` · ${skippedRides} skipped` : "") +
-      (gradeFiltered ? ` · ${gradeFiltered} ${gradeDropLabel(grade, minGrade)} dropped` : "") +
-      (speedMinFiltered ? ` · ${speedMinFiltered} under ${minSpeed} km/h dropped` : "") +
-      (trimmed ? ` · ${trimmed} over ${maxSpeed} km/h dropped` : "") +
-      (crossFiltered ? ` · ${crossFiltered} outside crosswind ${crosswindLabel(cw)}` : "");
+      (lengthFiltered ? ` · ${lengthFiltered} outside length ${bandLabel(length, "m")}` : "") +
+      (gradeFiltered ? ` · ${gradeFiltered} outside grade ${bandLabel(grade, "%", 1)}` : "") +
+      (speedFiltered ? ` · ${speedFiltered} outside speed ${bandLabel(speed)}` : "") +
+      (crossFiltered ? ` · ${crossFiltered} outside crosswind ${bandLabel(cw)}` : "") +
+      (headFiltered ? ` · ${headFiltered} outside headwind ${bandLabel(hw)}` : "") +
+      (tailFiltered ? ` · ${tailFiltered} outside tailwind ${bandLabel(tw)}` : "");
   }
   const canvas = document.getElementById("windSpeedChart") as HTMLCanvasElement | null;
   if (shown.length === 0) {

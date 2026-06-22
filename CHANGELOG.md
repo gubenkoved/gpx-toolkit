@@ -17,6 +17,49 @@ humans and the assistant can read this file as a compressed history of decisions
 
 ---
 
+## wind/speed: Length becomes a live min/max band filter (moved out of segment extraction)
+- **What:** the "Min length" slider (which lived under *Segment extraction*) is replaced
+  by a **Length** min/max band in the *Segment filters* row, alongside grade/speed/wind.
+  It's now a cheap synchronous **post-filter**, not a chopper input: the segmenter emits
+  down to a fixed 50 m noise floor and the Length band (default min 300 m, optional max)
+  filters the cached segments live — no re-sweep, and it reports drops in the analysed
+  note like the other bands. `minLenM` left `SegmentOpts`/the cache key.
+- **Why:** Length never drove *where* the path is chopped (heading turn / stop / data gap
+  do that) — it only dropped already-cut segments that came out too short. So it was a
+  filter masquerading as an extraction knob, paying a full re-segmentation on every
+  change. Moving it to the band row makes the categorisation honest, the interaction live
+  and consistent with the other filters, and adds a max-length bound for free.
+
+## wind/speed: unify grade + speed filters into the same min/max band controls
+- **What:** replaced the four grade/speed range sliders (Min/Max grade, Min/Max speed)
+  with two compact min/max number-input **band controls** (Grade %, Speed km/h),
+  matching the Crosswind/Headwind/Tailwind filters — so all five segment filters now
+  share one control idiom. Grade and speed became nullable-bound bands (blank = no
+  bound) instead of slider sentinels: the `MAX_GRADE_OFF` sentinel, the per-bound
+  reader/label helpers (`analyticsMaxGrade`/`analyticsMinGrade`/`analyticsMaxSpeed`/
+  `analyticsMinSpeed`, `maxGradeLabel`/`minGradeLabel`/`minSpeedLabel`, `gradeDropLabel`)
+  and the post-loop `speedCapIndices` step all collapse into the shared `readBand` +
+  generalised `bandLabel` and one in-loop check. The max-speed GPS-glitch cap is
+  preserved as a default of 50. The grade/speed/length filter controls reset to their
+  defaults on first load after this change (they're not precious — no migration kept).
+- **Why:** consistency — the grade/speed and wind filters did the same thing (keep
+  segments within a band) through two different control styles and two parallel code
+  paths. One idiom and one canonical band reader/label means less surface area, one
+  behaviour to reason about, and a calmer, more uniform filter row.
+
+## wind/speed: per-segment headwind + tailwind band filters; "Turn tolerance" down to 5°
+- **What:** added two Crosswind-style min/max band filters to the Wind/Speed view —
+  **Headwind** and **Tailwind** — each applied per segment on the signed along-track wind
+  (headwind magnitude `max(0, −along)`, tailwind `max(0, along)`); the analysed-rides note
+  reports how many segments each band dropped, and both bands persist across reloads. The
+  crosswind band reader/label were generalised into a shared `readBand`/`bandLabel`. Also
+  renamed the segment-tuning "Turn" knob to **"Turn tolerance"** and lowered its slider
+  minimum from 15° to 5°.
+- **Why:** when crosswind is on the X axis, segments that also carried significant head- or
+  tailwind muddy the relationship being studied — these bands let you drop them (set a small
+  Headwind-max + Tailwind-max) while keeping head and tail independently controllable. The
+  lower turn tolerance allows chopping segments on gentler heading changes.
+
 ## wind/speed: distinguish fetchable "need full GPX" from untimed GPX in the analysed note
 - **What:** the analysed-rides note (and the empty-chart message) split the single `needgpx`
   count by source: a Beeline ride still missing its download stays **"N need full GPX"**

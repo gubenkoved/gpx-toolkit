@@ -127,10 +127,6 @@ import { escHtml } from "./ui";
 import { WindCache } from "./windcache";
 import {
   initWindSpeedView,
-  MAX_GRADE_OFF,
-  maxGradeLabel,
-  minGradeLabel,
-  minSpeedLabel,
   mountWindSpeedView,
   SEG_TUNE_DEFAULTS,
   syncColorByGating,
@@ -1302,13 +1298,14 @@ let analyticsRangeBounds: DateRange | null = null;
 type AnalyticsPrefs = {
   rangeMin: number | null;
   rangeMax: number | null;
-  /** Max net grade kept (percent); `MAX_GRADE_OFF` = off (any grade). */
-  maxGrade: number;
-  /** Min |net grade| kept (percent); 0 = off. Pairs with `maxGrade` as a band. */
-  minGrade: number;
-  maxSpeed: number;
-  /** Min average speed kept (km/h); 0 = off. */
-  minSpeed: number;
+  /** Net-grade (steepness) magnitude band kept (percent |grade|); null = no bound on
+   *  that side. Once either bound is set, unknown-grade segments are dropped too. */
+  gMin: number | null;
+  gMax: number | null;
+  /** Average-speed band kept (km/h); null = no bound. A blank max means no GPS-glitch
+   *  cap; the default max is 50. */
+  sMin: number | null;
+  sMax: number | null;
   /** Wind dimension on the X axis: head/tailwind (along-track) or crosswind. */
   xAxis: "along" | "cross";
   /** Which dimension tints the dots (or none). */
@@ -1316,64 +1313,68 @@ type AnalyticsPrefs = {
   /** Crosswind band filter (km/h); null = no bound on that side. */
   cwMin: number | null;
   cwMax: number | null;
+  /** Headwind band filter (km/h); null = no bound on that side. */
+  hwMin: number | null;
+  hwMax: number | null;
+  /** Tailwind band filter (km/h); null = no bound on that side. */
+  twMin: number | null;
+  twMax: number | null;
+  /** Segment-length band filter (metres); null = no bound. Default min 300. */
+  lenMin: number | null;
+  lenMax: number | null;
   // Segment-geometry tuning (mirrors the sliders; see windspeed-view).
   lookAheadM: number;
   turnDeg: number;
-  minLenM: number;
 };
 function loadAnalyticsPrefs(): AnalyticsPrefs {
   const def: AnalyticsPrefs = {
     rangeMin: null,
     rangeMax: null,
-    maxGrade: MAX_GRADE_OFF,
-    minGrade: 0,
-    maxSpeed: 50,
-    minSpeed: 0,
+    gMin: null,
+    gMax: null,
+    sMin: null,
+    sMax: 50,
     xAxis: "along",
     colorBy: "none",
     cwMin: null,
     cwMax: null,
+    hwMin: null,
+    hwMax: null,
+    twMin: null,
+    twMax: null,
+    lenMin: 300,
+    lenMax: null,
     ...SEG_TUNE_DEFAULTS,
   };
   try {
     const raw = localStorage.getItem(ANALYTICS_PREFS_KEY);
     if (!raw) return def;
-    const o = JSON.parse(raw) as Partial<AnalyticsPrefs> & {
-      colorByCross?: unknown;
-      flatOnly?: unknown;
-    };
+    const o = JSON.parse(raw) as Partial<AnalyticsPrefs>;
     const num = (v: unknown): number | null =>
       typeof v === "number" && Number.isFinite(v) ? v : null;
     const clamp = (v: unknown, lo: number, hi: number, d: number): number =>
       Math.max(lo, Math.min(hi, num(v) ?? d));
-    // Migrate the legacy "colour by crosswind" checkbox: on → colour by crosswind.
-    const colorBy: AnalyticsPrefs["colorBy"] =
-      o.colorBy === "along" || o.colorBy === "cross" || o.colorBy === "none"
-        ? o.colorBy
-        : o.colorByCross === true
-          ? "cross"
-          : "none";
-    // Migrate the legacy binary "Flat segments only" checkbox: on → cap at 1.5%, off → any.
-    const maxGrade =
-      num(o.maxGrade) !== null
-        ? clamp(o.maxGrade, 0.5, MAX_GRADE_OFF, MAX_GRADE_OFF)
-        : o.flatOnly === true
-          ? 1.5
-          : MAX_GRADE_OFF;
     return {
       rangeMin: num(o.rangeMin),
       rangeMax: num(o.rangeMax),
-      maxGrade,
-      minGrade: clamp(o.minGrade, 0, MAX_GRADE_OFF, 0),
-      maxSpeed: clamp(o.maxSpeed, 20, 80, 50),
-      minSpeed: clamp(o.minSpeed, 0, 40, 0),
+      gMin: num(o.gMin),
+      gMax: num(o.gMax),
+      sMin: num(o.sMin),
+      // `"key" in o` distinguishes a user-cleared bound (stored null → keep null) from
+      // an absent key (→ the non-null default), so clearing the cap/min isn't undone.
+      sMax: "sMax" in o ? num(o.sMax) : 50,
+      lenMin: "lenMin" in o ? num(o.lenMin) : 300,
+      lenMax: num(o.lenMax),
       xAxis: o.xAxis === "cross" ? "cross" : "along",
-      colorBy,
+      colorBy: o.colorBy === "along" || o.colorBy === "cross" ? o.colorBy : "none",
       cwMin: num(o.cwMin),
       cwMax: num(o.cwMax),
+      hwMin: num(o.hwMin),
+      hwMax: num(o.hwMax),
+      twMin: num(o.twMin),
+      twMax: num(o.twMax),
       lookAheadM: clamp(o.lookAheadM, 0, 50, SEG_TUNE_DEFAULTS.lookAheadM),
-      turnDeg: clamp(o.turnDeg, 15, 120, SEG_TUNE_DEFAULTS.turnDeg),
-      minLenM: clamp(o.minLenM, 50, 2000, SEG_TUNE_DEFAULTS.minLenM),
+      turnDeg: clamp(o.turnDeg, 5, 120, SEG_TUNE_DEFAULTS.turnDeg),
     };
   } catch {
     return def; // malformed JSON / storage disabled — fall back to neutral
@@ -1382,14 +1383,6 @@ function loadAnalyticsPrefs(): AnalyticsPrefs {
 /** Persist the current Wind/Speed window + chart filters (non-fatal if unavailable). */
 function saveAnalyticsPrefs(): void {
   try {
-    const gradeEl = document.getElementById("maxGrade") as HTMLInputElement | null;
-    const maxGrade = gradeEl ? parseFloat(gradeEl.value) || MAX_GRADE_OFF : MAX_GRADE_OFF;
-    const minGradeEl = document.getElementById("minGrade") as HTMLInputElement | null;
-    const minGrade = minGradeEl ? parseFloat(minGradeEl.value) || 0 : 0;
-    const maxEl = document.getElementById("maxSpeed") as HTMLInputElement | null;
-    const maxSpeed = maxEl ? parseInt(maxEl.value, 10) || 50 : 50;
-    const minSpeedEl = document.getElementById("minSpeed") as HTMLInputElement | null;
-    const minSpeed = minSpeedEl ? parseInt(minSpeedEl.value, 10) || 0 : 0;
     const readNum = (id: string): number | null => {
       const el = document.getElementById(id) as HTMLInputElement | null;
       const v = el && el.value.trim() !== "" ? Number(el.value) : null;
@@ -1407,10 +1400,10 @@ function saveAnalyticsPrefs(): void {
     const prefs: AnalyticsPrefs = {
       rangeMin: analyticsRange?.minMs ?? null,
       rangeMax: analyticsRange?.maxMs ?? null,
-      maxGrade,
-      minGrade,
-      maxSpeed,
-      minSpeed,
+      gMin: readNum("gMin"),
+      gMax: readNum("gMax"),
+      sMin: readNum("sMin"),
+      sMax: readNum("sMax"),
       xAxis: activeSeg("analyticsXAxis", "xaxis") === "cross" ? "cross" : "along",
       colorBy: ((): AnalyticsPrefs["colorBy"] => {
         const v = activeSeg("analyticsColorBy", "colorby");
@@ -1418,9 +1411,14 @@ function saveAnalyticsPrefs(): void {
       })(),
       cwMin: readNum("cwMin"),
       cwMax: readNum("cwMax"),
+      hwMin: readNum("hwMin"),
+      hwMax: readNum("hwMax"),
+      twMin: readNum("twMin"),
+      twMax: readNum("twMax"),
+      lenMin: readNum("lenMin"),
+      lenMax: readNum("lenMax"),
       lookAheadM: segVal("segLookAhead", SEG_TUNE_DEFAULTS.lookAheadM),
       turnDeg: segVal("segTurn", SEG_TUNE_DEFAULTS.turnDeg),
-      minLenM: segVal("segMinLen", SEG_TUNE_DEFAULTS.minLenM),
     };
     localStorage.setItem(ANALYTICS_PREFS_KEY, JSON.stringify(prefs));
   } catch {
@@ -1433,11 +1431,10 @@ function segTuneLabel(id: string, value: number): string {
 }
 /** Write segment-tuning values into their sliders + outputs (shared by restore-on-boot
  *  and the Reset button), keeping each `.uslider` accent fill in sync. */
-function setSegTuneDom(v: { lookAheadM: number; turnDeg: number; minLenM: number }): void {
+function setSegTuneDom(v: { lookAheadM: number; turnDeg: number }): void {
   for (const [id, value] of [
     ["segLookAhead", v.lookAheadM],
     ["segTurn", v.turnDeg],
-    ["segMinLen", v.minLenM],
   ] as const) {
     const el = document.getElementById(id) as HTMLInputElement | null;
     if (el) {
@@ -1451,34 +1448,16 @@ function setSegTuneDom(v: { lookAheadM: number; turnDeg: number; minLenM: number
 /** Mirror the saved chart filters into their DOM controls (called once at boot). */
 function applyAnalyticsPrefsToDom(): void {
   const p = loadAnalyticsPrefs();
-  const grade = document.getElementById("maxGrade") as HTMLInputElement | null;
-  if (grade) {
-    grade.value = String(p.maxGrade);
-    setSliderFill(grade); // keep the `.uslider` accent fill in sync with the restored value
-  }
-  const gradeOut = document.getElementById("maxGradeOut") as HTMLOutputElement | null;
-  if (gradeOut) gradeOut.value = maxGradeLabel(p.maxGrade);
-  const minGrade = document.getElementById("minGrade") as HTMLInputElement | null;
-  if (minGrade) {
-    minGrade.value = String(p.minGrade);
-    setSliderFill(minGrade); // keep the `.uslider` accent fill in sync with the restored value
-  }
-  const minGradeOut = document.getElementById("minGradeOut") as HTMLOutputElement | null;
-  if (minGradeOut) minGradeOut.value = minGradeLabel(p.minGrade);
-  const max = document.getElementById("maxSpeed") as HTMLInputElement | null;
-  if (max) {
-    max.value = String(p.maxSpeed);
-    setSliderFill(max); // keep the `.uslider` accent fill in sync with the restored value
-  }
-  const maxOut = document.getElementById("maxSpeedOut") as HTMLOutputElement | null;
-  if (maxOut) maxOut.value = `${p.maxSpeed} km/h`;
-  const minSpeed = document.getElementById("minSpeed") as HTMLInputElement | null;
-  if (minSpeed) {
-    minSpeed.value = String(p.minSpeed);
-    setSliderFill(minSpeed); // keep the `.uslider` accent fill in sync with the restored value
-  }
-  const minSpeedOut = document.getElementById("minSpeedOut") as HTMLOutputElement | null;
-  if (minSpeedOut) minSpeedOut.value = minSpeedLabel(p.minSpeed);
+  const setBand = (id: string, v: number | null): void => {
+    const el = document.getElementById(id) as HTMLInputElement | null;
+    if (el) el.value = v != null ? String(v) : "";
+  };
+  setBand("gMin", p.gMin);
+  setBand("gMax", p.gMax);
+  setBand("sMin", p.sMin);
+  setBand("sMax", p.sMax);
+  setBand("lenMin", p.lenMin);
+  setBand("lenMax", p.lenMax);
   // Mirror the saved X-axis + colour-by selections into their segmented controls, then
   // gate the colour options against the X dimension.
   setActiveSeg("analyticsXAxis", "xaxis", p.xAxis);
@@ -1488,6 +1467,14 @@ function applyAnalyticsPrefsToDom(): void {
   if (cwMin) cwMin.value = p.cwMin != null ? String(p.cwMin) : "";
   const cwMax = document.getElementById("cwMax") as HTMLInputElement | null;
   if (cwMax) cwMax.value = p.cwMax != null ? String(p.cwMax) : "";
+  const hwMin = document.getElementById("hwMin") as HTMLInputElement | null;
+  if (hwMin) hwMin.value = p.hwMin != null ? String(p.hwMin) : "";
+  const hwMax = document.getElementById("hwMax") as HTMLInputElement | null;
+  if (hwMax) hwMax.value = p.hwMax != null ? String(p.hwMax) : "";
+  const twMin = document.getElementById("twMin") as HTMLInputElement | null;
+  if (twMin) twMin.value = p.twMin != null ? String(p.twMin) : "";
+  const twMax = document.getElementById("twMax") as HTMLInputElement | null;
+  if (twMax) twMax.value = p.twMax != null ? String(p.twMax) : "";
   setSegTuneDom(p);
 }
 /** Set the active button of a `.seg` segmented control to the one whose `data-*` value
@@ -4347,7 +4334,7 @@ document.addEventListener("change", (e) => {
   // Segment-geometry knobs re-chop every ride, so (unlike the cheap max-speed
   // post-filter) they commit on `change` (slider release) — never mid-drag — and
   // re-sweep with the existing progress overlay.
-  if (cb.id === "segLookAhead" || cb.id === "segTurn" || cb.id === "segMinLen") {
+  if (cb.id === "segLookAhead" || cb.id === "segTurn") {
     saveAnalyticsPrefs();
     void mountWindSpeedView();
   }
@@ -4427,43 +4414,27 @@ document.addEventListener("input", (e) => {
     run(() => controller.setHeatRadius(v));
     return;
   }
-  if (el.id === "maxSpeed") {
-    ($("#maxSpeedOut") as HTMLOutputElement).value = `${parseInt(el.value, 10) || 0} km/h`;
+  // Grade / speed / crosswind / headwind / tailwind band filters: cheap post-filters
+  // (each precomputed per segment), so they re-render live as typed.
+  if (
+    el.id === "gMin" ||
+    el.id === "gMax" ||
+    el.id === "sMin" ||
+    el.id === "sMax" ||
+    el.id === "lenMin" ||
+    el.id === "lenMax" ||
+    el.id === "cwMin" ||
+    el.id === "cwMax" ||
+    el.id === "hwMin" ||
+    el.id === "hwMax" ||
+    el.id === "twMin" ||
+    el.id === "twMax"
+  ) {
     saveAnalyticsPrefs();
     void mountWindSpeedView();
     return;
   }
-  // Min-speed filter: a cheap post-filter, so it re-renders live as the slider moves.
-  if (el.id === "minSpeed") {
-    ($("#minSpeedOut") as HTMLOutputElement).value = minSpeedLabel(parseInt(el.value, 10) || 0);
-    saveAnalyticsPrefs();
-    void mountWindSpeedView();
-    return;
-  }
-  // Max-grade filter: a cheap post-filter (grade is precomputed per segment), so it
-  // re-renders live as the slider moves — like Max-speed.
-  if (el.id === "maxGrade") {
-    ($("#maxGradeOut") as HTMLOutputElement).value = maxGradeLabel(
-      parseFloat(el.value) || MAX_GRADE_OFF,
-    );
-    saveAnalyticsPrefs();
-    void mountWindSpeedView();
-    return;
-  }
-  // Min-grade filter: cheap post-filter too, pairing with Max grade as a steepness band.
-  if (el.id === "minGrade") {
-    ($("#minGradeOut") as HTMLOutputElement).value = minGradeLabel(parseFloat(el.value) || 0);
-    saveAnalyticsPrefs();
-    void mountWindSpeedView();
-    return;
-  }
-  // Crosswind band filter: a cheap post-filter, so it re-renders live as typed.
-  if (el.id === "cwMin" || el.id === "cwMax") {
-    saveAnalyticsPrefs();
-    void mountWindSpeedView();
-    return;
-  }
-  if (el.id === "segLookAhead" || el.id === "segTurn" || el.id === "segMinLen") {
+  if (el.id === "segLookAhead" || el.id === "segTurn") {
     // Live label only while dragging; the re-sweeping recompute commits on `change`.
     const out = document.getElementById(`${el.id}Out`) as HTMLOutputElement | null;
     if (out) out.value = segTuneLabel(el.id, parseInt(el.value, 10) || 0);
