@@ -1,42 +1,10 @@
 /**
- * Ride data types and helpers: normalized metrics, ride-key/date utilities, the
- * canonical locale-aware number parsers, and stat-shape detection.
+ * Ride data types and helpers: normalized metrics and ride-key/date utilities.
  *
- * The numeric figures (distance/speed/elevation/duration) are parsed ONCE here —
- * on the ingestion boundary — into normalized numbers, so localized strings like
- * "13,5km" (comma-decimal) and "13.5km" both yield 13.5.
+ * Metrics arrive as numbers straight from each source (the Beeline cloud API's SI
+ * fields, a GPX track's measured geometry) and are stored as normalized numbers —
+ * `null` means the figure was never read for a ride, distinct from a real zero.
  */
-
-// Stat labels shown on the ride-detail sheet.
-export const DETAIL_STAT_LABELS = [
-  "Distance",
-  "Average speed",
-  "Max speed",
-  "Moving time",
-  "Elapsed time",
-  "Elevation gain",
-  "Elevation loss",
-] as const;
-
-const DISTANCE_RE = /^[\d.,]+\s*km$/;
-const DURATION_RE = /^(\d+:)?\d{1,2}:\d{2}$/;
-
-// Stat-value shapes that must never be mistaken for a ride title (e.g. a stat
-// value like "20,0km/h" captured when the detail heading scrolled off-screen).
-const SPEED_RE = /^[\d.,]+\s*km\/h$/i;
-const ELEVATION_RE = /^[\d.,]+\s*(m|ft|feet|metres|meters)$/i;
-const STAT_LABEL_SET = new Set<string>([...DETAIL_STAT_LABELS, "Elevation"]);
-
-/** True when `text` is a stat value/label, never a ride title. */
-export function looksLikeStat(text: string): boolean {
-  return (
-    STAT_LABEL_SET.has(text) ||
-    DISTANCE_RE.test(text) ||
-    DURATION_RE.test(text) ||
-    SPEED_RE.test(text) ||
-    ELEVATION_RE.test(text)
-  );
-}
 
 // --- ride cards ---------------------------------------------------------------
 
@@ -51,7 +19,7 @@ export interface RideCard {
    * ride). `key` remains the display datetime regardless, for sort/bucket/stats.
    */
   identity?: string;
-  /** Distance in km ("13,5km" → 13.5); null when absent. */
+  /** Distance in km; null when absent. */
   distance_km: number | null;
   /** Elapsed time in whole seconds; null when absent. */
   elapsed_sec: number | null;
@@ -67,10 +35,9 @@ export type StravaStatus = "pending" | "processing" | "uploaded" | "unknown";
 
 /**
  * Normalized numeric ride metrics — the single source of truth for every figure
- * the app computes or displays. Parsed ONCE on the ingestion path (the Beeline
- * mapper) via the canonical locale-aware parsers, so "13,5km" (comma-decimal) and
- * "13.5km" both yield 13.5. `null` means the figure was never read for this ride —
- * distinct from a real zero.
+ * the app computes or displays. Populated straight from each source's numbers (the
+ * Beeline API's SI fields, a GPX track's measured geometry). `null` means the
+ * figure was never read for this ride — distinct from a real zero.
  */
 export interface RideMetrics {
   /** Distance in kilometres. */
@@ -99,41 +66,6 @@ export function blankMetrics(): RideMetrics {
     max_speed_kmh: null,
     elevation_gain_m: null,
     elevation_loss_m: null,
-  };
-}
-
-/** Positive finite number, else null — collapses the parsers' 0-for-absent to null. */
-export function posOrNull(n: number): number | null {
-  return Number.isFinite(n) && n > 0 ? n : null;
-}
-
-/**
- * Convert a raw label→string stat map (as scraped from the detail sheet, or held
- * by a legacy persisted record) into normalized numeric metrics. The canonical
- * place localized stat strings become numbers; callers consume the numbers.
- */
-export function metricsFromStatStrings(raw: Record<string, string>): RideMetrics {
-  return {
-    distance_km: posOrNull(parseKm(raw.Distance || "")),
-    moving_sec: posOrNull(parseDurationSec(raw["Moving time"] || "")),
-    elapsed_sec: posOrNull(parseDurationSec(raw["Elapsed time"] || "")),
-    avg_speed_kmh: posOrNull(parseKmh(raw["Average speed"] || "")),
-    max_speed_kmh: posOrNull(parseKmh(raw["Max speed"] || "")),
-    elevation_gain_m: posOrNull(parseMeters(raw["Elevation gain"] || "")),
-    elevation_loss_m: posOrNull(parseMeters(raw["Elevation loss"] || "")),
-  };
-}
-
-/** Per-field merge: keep `primary`'s value where known, else fall back to `fallback`. */
-export function mergeMetrics(primary: RideMetrics, fallback: RideMetrics): RideMetrics {
-  return {
-    distance_km: primary.distance_km ?? fallback.distance_km,
-    moving_sec: primary.moving_sec ?? fallback.moving_sec,
-    elapsed_sec: primary.elapsed_sec ?? fallback.elapsed_sec,
-    avg_speed_kmh: primary.avg_speed_kmh ?? fallback.avg_speed_kmh,
-    max_speed_kmh: primary.max_speed_kmh ?? fallback.max_speed_kmh,
-    elevation_gain_m: primary.elevation_gain_m ?? fallback.elevation_gain_m,
-    elevation_loss_m: primary.elevation_loss_m ?? fallback.elevation_loss_m,
   };
 }
 
@@ -425,92 +357,6 @@ export function bucketRide(key: string, gran: Granularity): [string, string, str
   // day
   const sortKey = `${y}-${pad2(dt.getMonth() + 1)}-${pad2(dt.getDate())}`;
   return [sortKey, `${monAbbr} ${dt.getDate()}, ${y}`, `${monAbbr} ${dt.getDate()}`];
-}
-
-/**
- * Parse a number that may use either '.' or ',' as its decimal separator, with
- * the other character used for thousands grouping. Beeline localises its stats:
- * an English locale shows "20,834.6km" (comma groups, dot decimal) while many
- * European locales show "13,5km" (comma decimal). Blindly stripping commas turns
- * "13,5" into 135, so we *detect* the decimal separator instead of assuming it:
- *  - both separators present → the right-most one is the decimal, the other groups.
- *  - a single separator → it's a decimal unless it looks like a thousands group
- *    (exactly three trailing digits, e.g. "1,234"); two+ of the same separator
- *    are always grouping ("1,234,567").
- * Returns NaN when there is no number at all.
- *
- * This is the SINGLE canonical locale-aware number parser for the app — every
- * distance/speed/elevation figure ingested as a string must flow through here
- * (or its `parseKm`/`parseKmh`/`parseMeters` wrappers). Never write a second
- * `parseFloat`/`replace`-based parse elsewhere; see "Data ingestion integrity".
- */
-export function parseLocaleNumber(s: string): number {
-  const t = (s || "").replace(/[^\d.,]/g, "");
-  if (!t) return NaN;
-  const lastComma = t.lastIndexOf(",");
-  const lastDot = t.lastIndexOf(".");
-
-  let decimalSep = "";
-  if (lastComma >= 0 && lastDot >= 0) {
-    decimalSep = lastComma > lastDot ? "," : ".";
-  } else {
-    const sep = lastComma >= 0 ? "," : lastDot >= 0 ? "." : "";
-    if (sep) {
-      const count = t.split(sep).length - 1;
-      const trailing = t.length - t.lastIndexOf(sep) - 1;
-      // single separator with !=3 trailing digits → decimal; otherwise grouping.
-      if (count === 1 && trailing !== 3) decimalSep = sep;
-    }
-  }
-
-  let normalised: string;
-  if (decimalSep) {
-    const grouping = decimalSep === "," ? /\./g : /,/g;
-    normalised = t.replace(grouping, "").replace(decimalSep, ".");
-  } else {
-    normalised = t.replace(/[.,]/g, "");
-  }
-  return parseFloat(normalised);
-}
-
-/** Parse a Beeline distance string ("42.5 km") into kilometres; 0 when absent. */
-export function parseKm(s: string): number {
-  const m = (s || "").match(/([\d.,]+)\s*km/i);
-  if (!m) return 0;
-  return parseLocaleNumber(m[1]) || 0;
-}
-
-/** Parse a Beeline speed string ("20,0 km/h") into km/h; 0 when absent. */
-export function parseKmh(s: string): number {
-  const m = (s || "").match(/([\d.,]+)\s*km\/h/i);
-  if (!m) return 0;
-  return parseLocaleNumber(m[1]) || 0;
-}
-
-/**
- * Parse a Beeline elevation string into metres. Accepts metric ("1,234 m") and
- * imperial ("4,050 ft"/"feet", converted at 0.3048 m/ft). Returns 0 when there
- * is no recognisable number/unit so missing elevation contributes nothing.
- */
-export function parseMeters(s: string): number {
-  const m = (s || "").match(/([\d.,]+)\s*(m|metres|meters|ft|feet)?/i);
-  if (!m) return 0;
-  const value = parseLocaleNumber(m[1]);
-  if (!Number.isFinite(value)) return 0;
-  const unit = (m[2] || "m").toLowerCase();
-  const isFeet = unit === "ft" || unit === "feet";
-  return isFeet ? value * 0.3048 : value;
-}
-
-/**
- * Parse a Beeline duration string ("H:MM:SS" or "MM:SS") into whole seconds.
- * Returns 0 for empty/garbage input so callers can treat "no data" as zero time.
- */
-export function parseDurationSec(s: string): number {
-  if (!DURATION_RE.test((s || "").trim())) return 0;
-  const parts = s.trim().split(":").map(Number);
-  if (parts.some((n) => !Number.isFinite(n))) return 0;
-  return parts.reduce((acc, n) => acc * 60 + n, 0);
 }
 
 /**

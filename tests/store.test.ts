@@ -97,24 +97,6 @@ describe("Store", () => {
     expect(Number.isNaN(Date.parse(stamped))).toBe(false);
   });
 
-  it("scrubs known bad titles on load", async () => {
-    map.set(STORAGE_KEY, blob({ "beeline::k": { key: "k", title: "Heatmap" } }));
-    expect(byKey(await Store.load(backend), "k")!.title).toBe("");
-  });
-
-  it("scrubs stat-shaped titles persisted by an earlier parsing bug", async () => {
-    // The old detail parser could store a stat value as the title when the heading
-    // scrolled off-screen during a Check (e.g. "20,0km/h"). Loading must clear it
-    // so a re-scan/check reseeds a real title.
-    map.set(
-      STORAGE_KEY,
-      blob({ "beeline::k": { key: "k", title: "20,0km/h", title_base: "209m" } }),
-    );
-    const rec = byKey(await Store.load(backend), "k")!;
-    expect(rec.title).toBe("");
-    expect(rec.title_base).toBe("");
-  });
-
   it("round-trips the source identity (device_model)", async () => {
     const s = await Store.load(backend);
     s.upsert("k", { device_model: "Beeline (rider@example.com)" });
@@ -147,11 +129,6 @@ describe("Store", () => {
     // A later scan must not clobber the fuller checked title.
     s.upsert("k", { title_base: "Morning ride" });
     expect(byKey(s, "k")!.title).toBe("Morning ride, Amstelveen");
-  });
-
-  it("scrubs known bad title_base on load", async () => {
-    map.set(STORAGE_KEY, blob({ "beeline::k": { key: "k", title_base: "Journeys" } }));
-    expect(byKey(await Store.load(backend), "k")!.title_base).toBe("");
   });
 
   it("export shape carries the schema version + updated_at + rides map", async () => {

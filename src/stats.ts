@@ -13,10 +13,6 @@
 
 import { bucketRide } from "./parsing";
 
-// Re-export the canonical locale-aware parsers (defined once in ./parsing) so
-// existing stats-focused tests and callers can keep importing them from here.
-export { parseKm, parseLocaleNumber, parseMeters } from "./parsing";
-
 /** The slice of a ride record this module needs (a structural subset of RideView). */
 export interface StatsRide {
   key: string;

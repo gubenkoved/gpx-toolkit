@@ -5,7 +5,6 @@ import {
   bucketRide,
   compareRideKeysDesc,
   compareRidesByDateDesc,
-  parseDurationSec,
   rideLabel,
   rideMonth,
   sinceFromPreset,
@@ -17,15 +16,6 @@ describe("date helpers", () => {
     expect(rideMonth("Sat Jun 13 2026 at 14:22")).toEqual(["2026-06", "June 2026"]);
     expect(rideMonth("Tue Jun 9 2026 at 18:29")).toEqual(["2026-06", "June 2026"]);
     expect(rideMonth("garbage")).toEqual(["0000-00", "Unknown"]);
-  });
-
-  it("parseDurationSec handles H:MM:SS, MM:SS and garbage", () => {
-    expect(parseDurationSec("1:07:42")).toBe(4062);
-    expect(parseDurationSec("59:30")).toBe(3570);
-    expect(parseDurationSec("0:00")).toBe(0);
-    expect(parseDurationSec("")).toBe(0);
-    expect(parseDurationSec("garbage")).toBe(0);
-    expect(parseDurationSec("12.5km")).toBe(0);
   });
 
   it("bucketRide groups by day/week/month/year", () => {

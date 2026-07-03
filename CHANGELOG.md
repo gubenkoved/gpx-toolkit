@@ -17,7 +17,23 @@ humans and the assistant can read this file as a compressed history of decisions
 
 ---
 
-## ride-local timezones: show & name each ride in the zone it happened in
+## remove ADB screen-scraping rudiments (locale-string parsers + title scrub)
+- **What:** deleted the last dead code from the retired ADB screen-scraping source: the
+  localized-string numeric parsers (`parseLocaleNumber`/`parseKm`/`parseKmh`/`parseMeters`/
+  `parseDurationSec`), the `metricsFromStatStrings`/`mergeMetrics`/`posOrNull` helpers, and the
+  `looksLikeStat` stat-shape detector with its regexes/labels — none had a production caller.
+  Also dropped the store's `BAD_TITLES` set + on-load title-scrub block (which cleared UI-chrome
+  and stat-shaped titles), the unused `stats.ts` re-export, and the tests exercising the removed
+  symbols. Rewrote the *Data ingestion integrity* instructions section to describe structured-only
+  ingestion.
+- **Why:** both live sources hand us structured numbers — the Beeline cloud API returns SI fields
+  (`mapBeelineRide`) and GPX derives metrics from track geometry — so a title can never be UI
+  chrome or a mis-captured stat value, and no metric ever arrives as a localized string. The
+  parsing/scrub machinery only defended against the ADB screen-scraper, gone since v0.3.0; keeping
+  it was dead weight documented as a live "core value". Numbers-matter ethos is preserved, retargeted
+  at the numeric source mappers (normalize once, `null`≠`0`, explicit unit conversions).
+
+---
 - **What:** rides now carry their start INSTANT (`start_epoch`) + resolved IANA zone
   (`tz`), and the displayed datetime + default time-of-day name ("Morning ride") are
   rendered in the ride's OWN timezone — resolved once at ingest from the ride's start

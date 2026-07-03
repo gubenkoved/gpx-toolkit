@@ -92,7 +92,7 @@ out when a request pushes against them (see *Review & challenge the request*).
 - **Reuse before you write.** Before adding code, look for an existing function, type, CSS class,
   or pattern that already does the job and use (or lift) it. One canonical implementation per
   concern — when the same logic would live in two places, extract a shared, rendering-agnostic
-  helper and have both call it (e.g. the `parseLocaleNumber` parser, the `AreaSelect` gesture
+  helper and have both call it (e.g. the `bucketRide` date bucketer, the `AreaSelect` gesture
   controller shared by the Map and heatmap, `renderMatchedCards()` shared by both ride lists).
   Two copies means two behaviours means a bug; duplication is a smell, not a shortcut.
 - **One unified design language.** The app should look and behave like one product, not a pile of
@@ -156,29 +156,32 @@ out when a request pushes against them (see *Review & challenge the request*).
 ## Data ingestion integrity (read this first)
 
 **This is the foundation — if numbers come in wrong, nothing else matters.** Every total,
-filter, chart, record, and rollup in this app is downstream of one thing: turning any external
-strings we ingest into correct numbers. A single mis-parsed value silently corrupts every
-aggregate that touches it, and the user has no way to tell. We already shipped this exact bug
-once: a comma-decimal locale renders `13,5km`, a blind `replace(/,/g,"")` turned that into
-`135` km, and every distance/speed stat from that source was inflated 10×. Treat ingestion
-correctness as non-negotiable, not a nicety.
+filter, chart, record, and rollup in this app is downstream of one thing: turning each source's
+raw figures into correct normalized numbers. A single mis-read value silently corrupts every
+aggregate that touches it, and the user has no way to tell. Treat ingestion correctness as
+non-negotiable, not a nicety.
+
+Both sources hand us **structured numbers**, never localized display strings: the Beeline cloud
+API returns SI fields (`totalDistance` in metres, `averageSpeed`/`topSpeed` in m/s, `movingTime`/
+`duration` in ms — see [`mapBeelineRide`](../src/beeline-api.ts)), and a GPX ride derives its
+metrics from the recorded track geometry. (An earlier build screen-scraped the Beeline app and
+had to parse localized strings like `13,5km`; that source and its locale-aware string parsers are
+gone — don't reintroduce string-to-number parsing on the ingestion path.)
 
 Hard rules:
 
-- **One canonical parser, no copies.** Locale-aware numeric parsing lives in exactly one place
-  ([src/parsing.ts](../src/parsing.ts)) — `parseLocaleNumber` and its `parseKm`/`parseMeters`/`parseKmh`
-  wrappers. Never write a second `parseFloat`/`replace`-based number parse anywhere else; import
-  the canonical one. Two parsers means two behaviours means a bug.
-- **Never blind-strip separators.** `,` and `.` are locale-dependent: one locale's decimal point
-  is another's thousands group. Detect the decimal separator (`parseLocaleNumber` already does);
-  never assume, never `replace(/,/g, "")`.
-- **Normalize once, at the boundary.** Parse external strings into numbers as they enter app
-  state (the `RideView` numeric fields), then compute and display from those numbers. Downstream
-  code must consume normalized numbers, not re-parse raw strings ad hoc.
-- **Every numeric path is tested in both locales.** Any change touching parsing/aggregation must
-  keep both comma-decimal (`13,5km`, `20,0km/h`) and period-decimal (`13.5km`, `20.0km/h`)
-  coverage green.
-  A parsing change without a both-separators test is incomplete.
+- **Normalize once, at the boundary.** Convert a source's raw figure into the app's canonical
+  unit (`RideMetrics`: km, seconds, km/h, metres) exactly where the ride enters app state (the
+  source mapper), then compute and display from those numbers. Downstream code consumes the
+  normalized numbers — it must never re-derive a metric from a raw source field ad hoc.
+- **`null` means unknown, not zero.** A metric that a source didn't report stays `null`
+  (`blankMetrics`), distinct from a real `0`; only overwrite a stored metric when the incoming
+  figure is actually known, so a partial update never clears a richer value.
+- **Convert units explicitly at the mapper.** Every unit conversion (m→km, m/s→km/h, ms→s) lives
+  in the source mapper, spelled out, so the constant and direction are auditable in one place.
+- **Test the mapper, both present and absent.** Any change touching a source mapper or aggregation
+  must keep coverage green for both a fully-populated ride and one missing fields (so `null`
+  propagates, never a spurious `0`).
 
 ## Tech stack & commands
 
@@ -279,7 +282,7 @@ none. The table is grouped by concern; keep new modules in the group they belong
 
 | File | Responsibility | Key symbols |
 |------|----------------|-------------|
-| [src/parsing.ts](../src/parsing.ts) | Normalized metrics + ride-key/date + uid helpers + canonical locale number parser | `parseLocaleNumber()`, `metricsFromStatStrings()`, `rideDatetime()`, `beelineRideKey()`, `rideUid()`/`splitUid()`, `bucketRide()` |
+| [src/parsing.ts](../src/parsing.ts) | Normalized metrics + ride-key/date + uid helpers | `blankMetrics()`, `rideDatetime()`, `beelineRideKey()`, `rideUid()`/`splitUid()`, `bucketRide()` |
 | [src/stats.ts](../src/stats.ts) | Lifetime aggregation: totals, per-period records, biggest rides | `computeStats()`, `RideStats`, `PeriodRecord`, `StatsRide` |
 | [src/filter.ts](../src/filter.ts) | Explore-list filters (incl. `source` + `tags` OR dimension) | `matchesFilters()`, `emptyFilters()`, `Filters` |
 | [src/tags.ts](../src/tags.ts) | Canonical ride-tag normalization + case-insensitive comparison key + catalog | `normalizeTag()`, `tagKey()`, `collectTags()`, `addTag()`/`removeTag()`, `hasTag()` |

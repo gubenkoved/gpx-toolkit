@@ -1,12 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  computeStats,
-  parseKm,
-  parseLocaleNumber,
-  parseMeters,
-  type StatsRide,
-} from "../src/stats";
+import { computeStats, type StatsRide } from "../src/stats";
 
 /** Build a StatsRide with sane defaults so each test only sets what it cares about. */
 function ride(partial: Partial<StatsRide> & { key: string }): StatsRide {
@@ -19,58 +13,6 @@ function ride(partial: Partial<StatsRide> & { key: string }): StatsRide {
     ...partial,
   };
 }
-
-describe("parseKm", () => {
-  it("parses plain and thousands-separated kilometre strings", () => {
-    expect(parseKm("42.5 km")).toBeCloseTo(42.5);
-    expect(parseKm("1,234.5 km")).toBeCloseTo(1234.5);
-  });
-  it("parses comma-decimal (European) kilometre strings", () => {
-    // Real strings captured from a device whose locale uses ',' as the decimal sep.
-    expect(parseKm("13,5km")).toBeCloseTo(13.5);
-    expect(parseKm("37,8km")).toBeCloseTo(37.8);
-    expect(parseKm("100,7km")).toBeCloseTo(100.7);
-    // Comma grouping must still survive when a dot decimal is also present.
-    expect(parseKm("20,834.6km")).toBeCloseTo(20834.6);
-    // European grouping + decimal: "1.234,5km" → 1234.5
-    expect(parseKm("1.234,5km")).toBeCloseTo(1234.5);
-  });
-  it("returns 0 for missing or unrecognised input", () => {
-    expect(parseKm("")).toBe(0);
-    expect(parseKm("no distance")).toBe(0);
-  });
-});
-
-describe("parseLocaleNumber", () => {
-  it("detects the decimal separator instead of assuming it", () => {
-    expect(parseLocaleNumber("13,5")).toBeCloseTo(13.5);
-    expect(parseLocaleNumber("13.5")).toBeCloseTo(13.5);
-    expect(parseLocaleNumber("1,234")).toBeCloseTo(1234); // 3 trailing digits → grouping
-    expect(parseLocaleNumber("1,234,567")).toBeCloseTo(1234567);
-    expect(parseLocaleNumber("20,834.6")).toBeCloseTo(20834.6);
-    expect(parseLocaleNumber("1.234,5")).toBeCloseTo(1234.5);
-    expect(parseLocaleNumber("100,7")).toBeCloseTo(100.7);
-  });
-  it("returns NaN when there is no number", () => {
-    expect(Number.isNaN(parseLocaleNumber(""))).toBe(true);
-    expect(Number.isNaN(parseLocaleNumber("abc"))).toBe(true);
-  });
-});
-
-describe("parseMeters", () => {
-  it("parses metric elevation", () => {
-    expect(parseMeters("1,234 m")).toBeCloseTo(1234);
-    expect(parseMeters("250 m")).toBeCloseTo(250);
-  });
-  it("converts feet to metres", () => {
-    expect(parseMeters("1000 ft")).toBeCloseTo(304.8);
-    expect(parseMeters("500 feet")).toBeCloseTo(152.4);
-  });
-  it("assumes metres when no unit is given, and 0 when nothing parses", () => {
-    expect(parseMeters("80")).toBeCloseTo(80);
-    expect(parseMeters("")).toBe(0);
-  });
-});
 
 describe("computeStats totals", () => {
   it("sums distance, moving time and elevation across rides", () => {

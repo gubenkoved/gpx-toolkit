@@ -19,7 +19,6 @@
 
 import type { KeyValueStore } from "./kv";
 import {
-  looksLikeStat,
   type RideMetrics,
   rideDatetime,
   rideMonth,
@@ -166,9 +165,6 @@ function defaultSettings(): Settings {
   return s as Settings;
 }
 
-// UI chrome labels that must never be stored as a ride title.
-const BAD_TITLES = new Set(["Heatmap", "Journeys", "Settings", "Ride"]);
-
 /**
  * How long save() waits before writing, coalescing a burst of mutations (a slider
  * drag, a page of freshly-scanned rides) into a single durable write. Kept small
@@ -192,7 +188,7 @@ function nowIso(): string {
  */
 export interface RideRecord extends RideMetrics {
   key: string;
-  /** Richest title seen (the detail-sheet heading, e.g. "Morning ride, Amstelveen"). */
+  /** Fullest title, incl. any location suffix (e.g. "Morning ride, Amstelveen"). */
   title: string;
   /** Short list-card name (e.g. "Morning ride"); the prefix of the fuller `title`. */
   title_base: string;
@@ -527,12 +523,6 @@ export class Store {
         source: source as RideSource,
       };
       Object.assign(rec, metricsFromRecord(raw));
-      // Scrub stale mis-parsed titles: UI chrome (Heatmap/Journeys/…) and stat
-      // values/labels (e.g. "20,0km/h" captured when the detail heading scrolled
-      // off-screen during a Check). Clearing lets the next scan/check reseed a
-      // correct title instead of persisting the bad one forever.
-      if (BAD_TITLES.has(rec.title) || looksLikeStat(rec.title)) rec.title = "";
-      if (BAD_TITLES.has(rec.title_base) || looksLikeStat(rec.title_base)) rec.title_base = "";
       if (typeof rec.track !== "string") rec.track = "";
       rec.track_src_points = Number(rec.track_src_points) || 0;
       rec.track_points = Number(rec.track_points) || 0;
