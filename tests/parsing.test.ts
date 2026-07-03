@@ -9,6 +9,7 @@ import {
   rideLabel,
   rideMonth,
   sinceFromPreset,
+  timeOfDayNameFromHour,
 } from "../src/parsing";
 
 describe("date helpers", () => {
@@ -125,5 +126,31 @@ describe("date helpers", () => {
     const sorted = [...rides].sort(compareRidesByDateDesc).map((r) => r.title);
     // Newest reference date first; within the shared 14:22 minute, names sort A→Z.
     expect(sorted).toEqual(["alpha", "Bravo", "Charlie", "Earlybird"]);
+  });
+
+  it("compareRidesByDateDesc sorts by the true INSTANT across timezones", () => {
+    // Two rides whose wall-clocks would mis-order them: an 23:00 ride in Tokyo
+    // (14:00 UTC) actually PRECEDES a 20:00 ride in Amsterdam (18:00 UTC). Sorting by
+    // the datetime string alone would put 23:00 first; the epoch fixes it.
+    const tokyo = {
+      date_key: "Sat Jun 13 2026 at 23:00",
+      title: "Tokyo",
+      start_epoch: Date.parse("2026-06-13T14:00:00Z"),
+    };
+    const amsterdam = {
+      date_key: "Sat Jun 13 2026 at 20:00",
+      title: "Amsterdam",
+      start_epoch: Date.parse("2026-06-13T18:00:00Z"),
+    };
+    const sorted = [tokyo, amsterdam].sort(compareRidesByDateDesc).map((r) => r.title);
+    expect(sorted).toEqual(["Amsterdam", "Tokyo"]); // later instant first
+  });
+
+  it("timeOfDayNameFromHour maps an hour to a Strava-style name", () => {
+    expect(timeOfDayNameFromHour(3)).toBe("Night ride");
+    expect(timeOfDayNameFromHour(8)).toBe("Morning ride");
+    expect(timeOfDayNameFromHour(14)).toBe("Afternoon ride");
+    expect(timeOfDayNameFromHour(19)).toBe("Evening ride");
+    expect(timeOfDayNameFromHour(23)).toBe("Night ride");
   });
 });

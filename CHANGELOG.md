@@ -17,6 +17,26 @@ humans and the assistant can read this file as a compressed history of decisions
 
 ---
 
+## ride-local timezones: show & name each ride in the zone it happened in
+- **What:** rides now carry their start INSTANT (`start_epoch`) + resolved IANA zone
+  (`tz`), and the displayed datetime + default time-of-day name ("Morning ride") are
+  rendered in the ride's OWN timezone — resolved once at ingest from the ride's start
+  coordinate (Beeline polyline / GPX first point) via a lazily-loaded, code-split
+  `tz-lookup` (DST computed by the browser's current `Intl`, so only rare 2019 border
+  data is stale). New `src/tz.ts` centralises zone lookup + instant→wall-clock. Lists
+  sort by the true instant across zones (`compareRidesByDateDesc` prefers
+  `start_epoch`). Time is shown UNAMBIGUOUSLY: a compact zone tag "UTC+2 · Amsterdam"
+  appears on a ride only when its offset differs from the viewer's; the detail sheet
+  labels every reading (Ride time / Your time / UTC); a `title` tooltip carries the
+  full breakdown. Store schema → v3 (additive; Beeline rides gain real values on next
+  sync). Fallback = the viewer's browser zone when a ride has no location.
+- **Why:** the user moved timezones and every ride's clock shifted with them — a ride
+  done at 8am abroad should read (and be named) as an 8am local ride forever, not
+  re-cast into wherever you happen to be now. Anchoring on the fixed instant + the
+  ride's own zone makes ride times stable and correct; the explicit tags/labels make
+  it impossible to misread WHICH time is shown. Builds on the Phase 1 push-id
+  identity, which decoupled a ride's identity from its (now purely cosmetic) clock.
+
 ## beeline: key rides by push-id, not the local-time datetime (fixes tz-move duplication)
 - **What:** a Beeline ride's storage identity is now its stable backend push-id
   (`beeline::<pushId>`) instead of its start datetime (`beeline::<Wed Jun 3 … 19:04>`).

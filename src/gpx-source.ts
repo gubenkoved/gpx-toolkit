@@ -30,6 +30,7 @@ import {
   type RideDetail,
   rideUid,
   timeOfDayName,
+  timeOfDayNameFromHour,
 } from "./parsing";
 import type {
   CatalogResult,
@@ -41,6 +42,7 @@ import type {
 } from "./source";
 import { gpxDownloadName, gpxFilename } from "./source";
 import { extractFullTrack, fullTrackSummary, gpxToRoughTrack } from "./track";
+import { loadTz, localTime, zoneForPoint } from "./tz";
 import { crc32, unzip } from "./zip";
 
 const decoder = new TextDecoder();
@@ -126,6 +128,8 @@ export class GpxRideSource implements RideSource {
     }
 
     let done = 0;
+    // Warm the lazy tz-lookup table once so per-file zone resolution is synchronous.
+    if (gpx.length) await loadTz();
     for (const g of gpx) {
       if (await progress?.(`importing ${g.filename} (${++done}/${gpx.length})…`)) break;
       try {
@@ -152,8 +156,16 @@ export class GpxRideSource implements RideSource {
     // it stable across idempotent re-imports of the same bytes.
     const firstTime = ft.times.find((t): t is number => t != null) ?? null;
     const fromName = parseGpxFilename(g.filename);
+    const hasRealTime = firstTime != null;
     const startMs = firstTime ?? fromName.startMs ?? Date.now();
-    const dateKey = beelineRideKey(startMs);
+    // Ride-local time: only when we have a REAL recorded instant to place — resolve
+    // the timezone from the track's first point and render the wall-clock there, so a
+    // ride abroad reads (and is named) in its own zone. A filename/now fallback has no
+    // meaningful local time, so it keeps the browser-local datetime (stamped once).
+    const first = ft.points[0];
+    const iana = hasRealTime && first ? zoneForPoint(first[0], first[1]) : "";
+    const local = hasRealTime ? localTime(startMs, iana) : null;
+    const dateKey = local ? local.key : beelineRideKey(startMs);
     if (!dateKey) return null;
 
     // Content-addressed identity: distinct files become distinct rides regardless of
@@ -163,8 +175,12 @@ export class GpxRideSource implements RideSource {
     // `key` for all sort/bucket/stats; identity is purely the storage handle.
     const identity = await contentId(g.bytes);
 
-    // Title: GPX's own name/desc → a name parsed from the filename → time-of-day.
-    const base = extractGpxName(xml) || fromName.name || timeOfDayName(startMs);
+    // Title: GPX's own name/desc → a name parsed from the filename → time-of-day (in
+    // the ride's local zone when known, so an 8am Tokyo ride is a "Morning ride").
+    const base =
+      extractGpxName(xml) ||
+      fromName.name ||
+      (local ? timeOfDayNameFromHour(local.hour) : timeOfDayName(startMs));
     const place = fromName.place;
     const fullTitle = place ? `${base}, ${place}` : base;
 
@@ -190,6 +206,11 @@ export class GpxRideSource implements RideSource {
         key: dateKey,
         source: this.kind,
         source_id: identity,
+        // The recorded instant is authoritative (drives sort + ride-local render);
+        // a timeless GPX omits it so its display date stays stamped-once. `tz` is the
+        // resolved ride zone ("" when unknown → falls back to the viewer's zone).
+        ...(hasRealTime ? { start_epoch: startMs } : {}),
+        ...(iana ? { tz: iana } : {}),
         title: fullTitle,
         title_base: base,
         distance_km,

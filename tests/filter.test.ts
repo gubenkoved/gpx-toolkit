@@ -23,6 +23,8 @@ function ride(over: Partial<RideView> = {}): RideView {
   return {
     key: "beeline::Sat Jun 13 2026 at 14:22",
     date_key: "Sat Jun 13 2026 at 14:22",
+    start_epoch: 0,
+    tz: "",
     title: "Morning ride",
     location: "",
     status: "pending",

@@ -188,7 +188,17 @@ export function uidDateKey(uid: string): string {
  * activities so titles read naturally.
  */
 export function timeOfDayName(startMs: number): string {
-  const h = new Date(startMs).getHours();
+  return timeOfDayNameFromHour(new Date(startMs).getHours());
+}
+
+/**
+ * The time-of-day ride name for a given hour-of-day (0..23). Split out from
+ * `timeOfDayName` so callers can pass the ride's LOCAL hour (from its own timezone)
+ * rather than the browser's — a ride done at 8am in Tokyo is a "Morning ride" even
+ * when viewed from Amsterdam. Keeping one generator keeps naming consistent.
+ */
+export function timeOfDayNameFromHour(hour: number): string {
+  const h = ((hour % 24) + 24) % 24;
   if (h < 5) return "Night ride";
   if (h < 12) return "Morning ride";
   if (h < 17) return "Afternoon ride";
@@ -317,9 +327,16 @@ export function compareRideKeysDesc(a: string, b: string): number {
  * never the uid; an absent name sorts as "".
  */
 export function compareRidesByDateDesc(
-  a: { date_key: string; title?: string },
-  b: { date_key: string; title?: string },
+  a: { date_key: string; title?: string; start_epoch?: number },
+  b: { date_key: string; title?: string; start_epoch?: number },
 ): number {
+  // Prefer the true INSTANT (start epoch) when both rides carry one: comparing
+  // wall-clock strings across timezones is not chronological (a 23:00 ride in Tokyo
+  // actually precedes a 20:00 ride in Amsterdam). Fall back to the datetime key when
+  // an epoch is missing (legacy records, or a timeless imported GPX).
+  const ea = a.start_epoch;
+  const eb = b.start_epoch;
+  if (ea && eb && ea !== eb) return eb - ea;
   const byDate = compareRideKeysDesc(a.date_key, b.date_key);
   if (byDate !== 0) return byDate;
   return (a.title ?? "").localeCompare(b.title ?? "", undefined, { sensitivity: "base" });

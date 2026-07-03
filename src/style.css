@@ -2635,6 +2635,42 @@ body.ridemap-open {
   color: var(--text);
 }
 
+/* -- ride time breakdown (detail sheet) ----------------------------------- */
+/* A ride's time shown unambiguously: a labeled row per reading (ride-local /
+   your local / UTC) so it's never a bare, source-ambiguous "19:04". The zone tag
+   (e.g. "UTC+2 · Amsterdam") is the muted, monospace anchor on the right. */
+.rwhen {
+  margin: 8px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.rwhen-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 12px;
+}
+.rwhen-lbl {
+  flex: 0 0 auto;
+  min-width: 68px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 10px;
+}
+.rwhen-t {
+  font-family: var(--mono);
+  color: var(--text);
+}
+.rwhen-z {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
 /* -- view tabs (Explore / Map / Stats) ------------------------------------ */
 /* A real tab bar, not a row of loose buttons: the tabs sit on one shared
    underline rail and the active view is marked by an accent underline that

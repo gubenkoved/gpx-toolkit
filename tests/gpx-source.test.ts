@@ -6,6 +6,7 @@ import { GpxCache } from "../src/gpxcache";
 import { memoryBackend } from "../src/kv";
 import { beelineRideKey, type RideCard, rideDatetime } from "../src/parsing";
 import { Store } from "../src/store";
+import { localTime } from "../src/tz";
 import { buildZip } from "../src/zip";
 
 /** A tiny GPX with two timed, elevated points and an optional <name>. */
@@ -58,7 +59,14 @@ describe("GpxRideSource", () => {
     expect(skipped).toEqual([]);
     expect(cards).toHaveLength(1);
     const card = cards[0];
-    expect(card.key).toBe(beelineRideKey(Date.parse("2026-06-13T14:22:00Z")));
+    // The display key is the ride-LOCAL wall-clock of the first <time> instant,
+    // rendered in the timezone resolved from the track's first point (not the
+    // browser's). `start_epoch` carries the authoritative UTC instant.
+    const instant = Date.parse("2026-06-13T14:22:00Z");
+    const tz = card.fields?.tz as string;
+    expect(tz).toBeTruthy();
+    expect(card.key).toBe(localTime(instant, tz).key);
+    expect(card.fields?.start_epoch).toBe(instant);
     expect(card.title).toBe("Morning loop");
     expect(card.distance_km).toBeGreaterThan(0);
     expect(card.elapsed_sec).toBe(600); // 10 minutes between the two points

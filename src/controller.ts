@@ -147,6 +147,11 @@ export interface RideView extends RideMetrics {
   /** The bare datetime portion of `key` (for date/month labels). `key` is the
    *  cross-source uid `${source}::${datetime}`; this is the parseable datetime. */
   date_key: string;
+  /** Ride start as an epoch-ms INSTANT (0 when unknown). Authoritative for
+   *  chronological sort and for rendering the ride-local wall-clock. */
+  start_epoch: number;
+  /** IANA timezone the ride happened in ("" when unknown → viewer's browser zone). */
+  tz: string;
   title: string;
   /** Extra location suffix gathered at check time (e.g. ", Amstelveen"); "" when none. */
   location: string;
@@ -1065,6 +1070,8 @@ export class Controller {
       return {
         key: uid,
         date_key: r.key,
+        start_epoch: r.start_epoch,
+        tz: r.tz,
         title: hasSuffix ? base : full,
         location: hasSuffix ? full.slice(base.length) : "",
         status: r.strava_status,

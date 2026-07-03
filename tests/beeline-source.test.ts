@@ -9,7 +9,7 @@ import { BeelineRideSource } from "../src/beeline-source";
 import { Controller } from "../src/controller";
 import { GpxCache } from "../src/gpxcache";
 import { memoryBackend, memoryBlobBackend } from "../src/kv";
-import { beelineRideKey as rawRideKey, rideUid } from "../src/parsing";
+import { beelineRideKey as rawRideKey, rideDatetime, rideUid } from "../src/parsing";
 import type { Sleep } from "../src/source";
 import { Store } from "../src/store";
 
@@ -167,9 +167,11 @@ describe("Controller + BeelineRideSource (no network)", () => {
       expect(c.store.rides.has(rideUid("beeline", pushId))).toBe(true);
     }
     const uploaded = c.store.rides.get(rideUid("beeline", UPLOADED))!;
-    // The datetime survives as a display field, but is NEVER the map key.
-    expect(uploaded.key).toBe(rawRideKey(FIXTURE[UPLOADED].start as number));
+    // Its display datetime is a real, parseable wall-clock, but is NEVER the map key.
+    expect(rideDatetime(uploaded.key)).not.toBeNull();
     expect(c.store.rides.has(rideUid("beeline", uploaded.key))).toBe(false);
+    // The authoritative start instant is recorded (drives ride-local render + sort).
+    expect(uploaded.start_epoch).toBe(FIXTURE[UPLOADED].start);
 
     // A second scan of the same history adds no duplicates and deletes nothing.
     c.scan("all", null);

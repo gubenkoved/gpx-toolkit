@@ -34,7 +34,7 @@
 
 import { gunzip } from "./gzip";
 import type { StravaStatus } from "./parsing";
-import { beelineRideKey, timeOfDayName } from "./parsing";
+import { beelineRideKey, timeOfDayName, timeOfDayNameFromHour } from "./parsing";
 import type { RideSource, UpsertFields } from "./store";
 import { decodePolyline, trackLengthKm } from "./track";
 
@@ -598,14 +598,25 @@ export interface MappedBeelineRide {
 }
 
 /**
+ * A resolved ride-local time for a Beeline ride: the wall-clock `key` + hour in the
+ * ride's OWN timezone, plus that IANA zone. Computed by the source (async, needs the
+ * lazily-loaded tz table) and threaded in so mapping stays a pure function.
+ */
+export interface RideZone {
+  key: string;
+  hour: number;
+  iana: string;
+}
+
+/**
  * Map one raw Beeline ride (and its push-id) into a store key + UpsertFields.
  *
- * The key is derived from `start` in the "Wed Jun 3 2026 at 19:04" shape all the
- * month/stats/filter machinery expects. The inline polyline is kept in FULL as the
- * `track` (no simplification): the Beeline polyline is already compact and is the
- * only route data we get, so there's nothing to gain by thinning it. `source`/
- * `source_id` mark the ride as Beeline-sourced and carry the push-id needed to
- * upload it later.
+ * When a resolved `zone` is supplied the display key + default time-of-day name are
+ * in the ride's OWN timezone (stable regardless of where the viewer is), and the
+ * ride's `start_epoch` + `tz` are recorded. Without one (e.g. the per-ride detail
+ * rebuild) it falls back to the browser-local datetime. The inline polyline is kept
+ * in FULL as the `track` (already compact; the only route data we get). `source` /
+ * `source_id` mark the ride Beeline-sourced and carry the push-id for later upload.
  *
  * Returns null when the ride has no parseable start time (no usable key).
  */
@@ -613,9 +624,10 @@ export function mapBeelineRide(
   pushId: string,
   raw: RawBeelineRide,
   sourceLabel: string,
+  zone?: RideZone,
 ): MappedBeelineRide | null {
   if (!raw.start || !Number.isFinite(raw.start)) return null;
-  const key = beelineRideKey(raw.start);
+  const key = zone?.key || beelineRideKey(raw.start);
   if (!key) return null;
 
   const fields: UpsertFields = {
@@ -623,7 +635,11 @@ export function mapBeelineRide(
     source_id: pushId,
     device_model: sourceLabel,
     strava_status: stravaStatusOf(raw),
+    // The start is a fixed UTC instant — authoritative for sort + ride-local render.
+    start_epoch: raw.start,
+    key,
   };
+  if (zone?.iana) fields.tz = zone.iana;
   if (typeof raw.strava_activity?.id === "number") {
     fields.strava_activity_id = raw.strava_activity.id;
   }
@@ -658,7 +674,7 @@ export function mapBeelineRide(
   // reverse-geocoded destination is appended so the controller can render it as a
   // muted location suffix ("Let's go sailing, Strand IJburg").
   const userName = typeof raw.name === "string" ? raw.name.trim() : "";
-  const base = userName || timeOfDayName(raw.start);
+  const base = userName || (zone ? timeOfDayNameFromHour(zone.hour) : timeOfDayName(raw.start));
   const place = destinationPlace(raw);
   fields.title_base = base;
   fields.title = place ? `${base}, ${place}` : base;

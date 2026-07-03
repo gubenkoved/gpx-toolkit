@@ -37,8 +37,10 @@ export const STORAGE_KEY = "gpx-toolkit-state";
  * matching `migrate()` case. v1 is the first explicitly-versioned format; earlier,
  * unversioned blobs are intentionally discarded (clean slate) rather than guessed.
  * v2 re-keys Beeline rides by their stable push-id (was: local-time datetime).
+ * v3 adds per-ride `start_epoch` + `tz` (ride-local time); the fields default via
+ * `blankRecord`, so the upgrade is a version bump only.
  */
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
 /** Where a ride's data originated: the Beeline cloud account, or imported GPX files. */
 export type RideSource = "beeline" | "gpx";
@@ -214,6 +216,14 @@ export interface RideRecord extends RideMetrics {
   source: RideSource;
   /** Source-native id: the Beeline push-id, or an imported GPX's content hash. */
   source_id: string;
+  /** Ride start as an epoch-ms INSTANT (UTC). Authoritative for chronological sort
+   *  and for rendering the ride-local wall-clock in the ride's own zone. 0 when
+   *  unknown (legacy records, or a timeless imported GPX). */
+  start_epoch: number;
+  /** IANA timezone the ride happened in (e.g. "Europe/Amsterdam"), resolved once at
+   *  ingest from the ride's start coordinate. "" when unknown → display falls back to
+   *  the viewer's current browser zone. */
+  tz: string;
   last_seen: string;
   /** ISO-8601 time the ride first entered the local library. Set once on the very
    *  first upsert and never overwritten by later syncs/checks. Empty for legacy
@@ -269,6 +279,8 @@ function blankRecord(uid: string): RideRecord {
     device_model: "",
     source: source as RideSource,
     source_id: "",
+    start_epoch: 0,
+    tz: "",
     last_seen: "",
     ingested_at: "",
     uploaded_at: "",
@@ -335,8 +347,19 @@ function migrate(data: unknown): Persisted | null {
   if (schema === SCHEMA_VERSION) return data as Persisted;
   // Older versions upgrade step-by-step, re-entering migrate() until current.
   if (schema === 1) return migrate(upgradeV1toV2(data as Persisted));
+  if (schema === 2) return migrate(upgradeV2toV3(data as Persisted));
   // missing / newer / unknown → discard.
   return null;
+}
+
+/**
+ * v2 → v3: introduce per-ride `start_epoch` + `tz` (ride-local time). Both are purely
+ * additive with safe defaults (`0` / `""`) supplied by `blankRecord` during ingest,
+ * so existing records simply gain the fields; Beeline rides get their real values on
+ * the next sync (from `raw.start` + location). This is a version bump only.
+ */
+function upgradeV2toV3(data: Persisted): Persisted {
+  return { ...data, schema: SCHEMA_VERSION };
 }
 
 /**
@@ -366,7 +389,8 @@ function upgradeV1toV2(data: Persisted): Persisted {
     const existing = next[newUid];
     next[newUid] = existing ? mergeDuplicateRecords(existing, rec) : rec;
   }
-  return { ...data, schema: SCHEMA_VERSION, rides: next };
+  // Return a v2 blob; migrate() re-enters and runs the v2 → v3 step next.
+  return { ...data, schema: 2, rides: next };
 }
 
 /**
@@ -404,6 +428,11 @@ export interface UpsertFields extends Partial<RideMetrics> {
   device_model?: string;
   source?: RideSource;
   source_id?: string;
+  /** Ride start instant (epoch ms). Authoritative — when present it lets `upsert`
+   *  refresh the display `key` (see below), unlike a set-once GPX upload instant. */
+  start_epoch?: number;
+  /** Resolved IANA timezone for the ride's location. */
+  tz?: string;
   /** Resolved wind summary (JSON `RideWind`); set together with `weather_fetched_at`. */
   weather_blob?: string;
   weather_fetched_at?: string;
@@ -511,6 +540,8 @@ export class Store {
       rec.track_bytes = Number(rec.track_bytes) || 0;
       if (typeof rec.device_model !== "string") rec.device_model = "";
       if (typeof rec.source_id !== "string") rec.source_id = "";
+      rec.start_epoch = Number(rec.start_epoch) || 0;
+      if (typeof rec.tz !== "string") rec.tz = "";
       rec.deleted = rec.deleted === true; // coerce missing/odd values to a real boolean
       // Rollout backfill: legacy records predate ingestion-date tracking and have an
       // empty `ingested_at`. The true moment is unknowable, so stamp "now" once on
@@ -595,7 +626,14 @@ export class Store {
     // idempotent re-import (same bytes → same uid) — like `ingested_at` — so a
     // timeless GPX whose date initialized to the upload instant stays stable.
     // Beeline omits `key` (its uid suffix already is the datetime).
-    if (fields.key && !existed) rec.key = fields.key;
+    //
+    // EXCEPTION: a caller that supplies an authoritative `start_epoch` (Beeline's
+    // real start, or a GPX's recorded `<time>`) MAY refresh the display key even for
+    // an existing record — the ride-local wall-clock is a deterministic function of
+    // that fixed instant + location, so recomputing it is safe and lets a re-sync
+    // repair a legacy browser-timezone key. A timeless GPX omits `start_epoch`, so it
+    // still stamps once.
+    if (fields.key && (!existed || fields.start_epoch)) rec.key = fields.key;
     if (fields.title) rec.title = fields.title;    if (fields.title_base) {
       rec.title_base = fields.title_base;
       // Seed the display title from the scan name until a fuller one is checked.
@@ -619,6 +657,10 @@ export class Store {
     if (fields.device_model) rec.device_model = fields.device_model;
     if (fields.source) rec.source = fields.source;
     if (fields.source_id) rec.source_id = fields.source_id;
+    // The start instant is authoritative and stable — always take a provided value.
+    if (fields.start_epoch) rec.start_epoch = fields.start_epoch;
+    // A resolved zone updates the record; an empty string never clears a known one.
+    if (fields.tz) rec.tz = fields.tz;
     // Wind summary is set as a unit; an empty string explicitly clears a stale one
     // (e.g. a forced refresh), so use `!== undefined` rather than a truthy check.
     if (fields.weather_blob !== undefined) {

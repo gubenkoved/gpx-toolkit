@@ -57,7 +57,7 @@ describe("Controller backup/restore (ZIP)", () => {
     const stateJson = new TextDecoder().decode(stateEntry!.bytes);
     const state = JSON.parse(stateJson);
 
-    expect(state.schema).toBe(2);
+    expect(state.schema).toBe(3);
     expect(state.app).toEqual({ version: "0.1.0" });
     expect(Object.keys(state.rides).length).toBeGreaterThan(0);
   });

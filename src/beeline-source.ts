@@ -28,6 +28,7 @@ import {
   type RawBeelineRide,
   refreshSession,
   renameRide,
+  type RideZone,
   signIn,
   stravaStatusOf,
   uploadRideToStrava,
@@ -54,7 +55,8 @@ import {
   type Sleep,
 } from "./source";
 import type { UpsertFields } from "./store";
-import { encodedTrackToGpx, extractFullTrack, type FullTrack } from "./track";
+import { decodePolyline, encodedTrackToGpx, extractFullTrack, type FullTrack } from "./track";
+import { loadTz, localTime, zoneForPoint } from "./tz";
 
 /** The backend surface the source depends on — injectable so tests use a fake. */
 export interface BeelineApi {
@@ -205,10 +207,13 @@ export class BeelineRideSource implements RideSource {
   /** Fetch the whole history and rebuild the key→record index. Returns the cards. */
   private async refresh(since: Date | null): Promise<RideCard[]> {
     const rides = await this.withFreshSession((s) => this.api.fetchRides(s));
+    // Warm the lazy tz-lookup table once for the whole sweep, so per-ride zone
+    // resolution below is a cheap synchronous call.
+    await loadTz();
     this.byKey.clear();
     const cards: RideCard[] = [];
     for (const [pushId, raw] of Object.entries(rides)) {
-      const mapped = mapBeelineRide(pushId, raw, this.label());
+      const mapped = mapBeelineRide(pushId, raw, this.label(), resolveRideZone(raw));
       if (!mapped) continue;
       // Index by the stable push-id, and surface it as the card's `identity` so the
       // Controller keys storage by `beeline::<pushId>` (not the local-time datetime).
@@ -519,6 +524,21 @@ async function runPool<T>(
   };
   const workers = Array.from({ length: Math.min(size, items.length) }, runner);
   await Promise.all(workers);
+}
+
+/**
+ * Resolve a Beeline ride's LOCAL timezone from its start coordinate (the first point
+ * of its inline polyline) and render the ride-local wall-clock for its start instant.
+ * Falls back to the browser zone (inside `localTime`) when the ride has no route to
+ * place it. Returns undefined only when there's no usable start instant.
+ * `loadTz()` must have resolved first (the source warms it before the sweep).
+ */
+function resolveRideZone(raw: RawBeelineRide): RideZone | undefined {
+  if (!raw.start || !Number.isFinite(raw.start)) return undefined;
+  const first = raw.polyline ? decodePolyline(raw.polyline)[0] : undefined;
+  const iana = first ? zoneForPoint(first[0], first[1]) : "";
+  const lt = localTime(raw.start, iana);
+  return { key: lt.key, hour: lt.hour, iana };
 }
 
 /**

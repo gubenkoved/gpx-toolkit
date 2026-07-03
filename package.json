@@ -1,7 +1,7 @@
 {
   "name": "gpx-toolkit",
   "private": true,
-  "version": "0.32.1",
+  "version": "0.33.0",
   "type": "module",
   "description": "GPX Toolkit — backend-free, in-browser ride toolkit; import GPX files, explore/map/analyze your rides, and upload Beeline-account rides to Strava.",
   "scripts": {
@@ -20,7 +20,8 @@
   },
   "dependencies": {
     "leaflet": "^1.9.4",
-    "leaflet.heat": "^0.2.0"
+    "leaflet.heat": "^0.2.0",
+    "tz-lookup": "6.1.25"
   },
   "devDependencies": {
     "@aws-sdk/client-dynamodb": "3.1073.0",
@@ -28,6 +29,7 @@
     "@types/leaflet": "^1.9.12",
     "@types/leaflet.heat": "^0.2.5",
     "@types/node": "^22.10.0",
+    "@types/tz-lookup": "6.1.2",
     "jsdom": "^25.0.1",
     "sharp": "^0.35.1",
     "typescript": "^5.6.3",
