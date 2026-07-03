@@ -50,10 +50,12 @@ describe("beeline demo", () => {
 
     c.scan("all", null);
     await vi.waitFor(() => expect(c.state().jobs.busy).toBe(false), { timeout: 5000 });
-    const pendingBefore = store.pending().length;
-    expect(pendingBefore).toBeGreaterThan(0);
+    // Upload dispatches on cross-source uids (the Store map keys), not a record's
+    // display datetime — read them from the controller's view.
+    const pendingUids = c.state().rides.filter((r) => r.status === "pending").map((r) => r.key);
+    expect(pendingUids.length).toBeGreaterThan(0);
 
-    c.upload(store.pending().map((r) => r.key));
+    c.upload(pendingUids);
     await vi.waitFor(() => expect(c.state().jobs.busy).toBe(false), { timeout: 5000 });
 
     expect(store.pending().length).toBe(0);

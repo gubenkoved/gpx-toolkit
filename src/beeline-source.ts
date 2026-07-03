@@ -33,12 +33,14 @@ import {
   uploadRideToStrava,
 } from "./beeline-api";
 import {
+  beelineRideKey,
   blankMetrics,
   type RideCard,
   type RideDetail,
   type RideMetrics,
   rideDatetime,
   rideShortLabel,
+  rideUid,
 } from "./parsing";
 import {
   type CatalogResult,
@@ -114,7 +116,14 @@ export class BeelineRideSource implements RideSource {
    *  the cloud account, not imported from local files. */
   readonly capabilities = { upload: true, import: false };
 
-  /** Last fetched rides, keyed by ride key → {pushId, raw record}. */
+  /**
+   * Last fetched rides, keyed by the Beeline PUSH-ID → {pushId, raw record}.
+   *
+   * The push-id is the ride's stable backend identity. We deliberately do NOT key
+   * by the start datetime: that string is rendered in the browser's LOCAL timezone,
+   * so it changes when the user travels — which would silently re-key every ride and
+   * spawn duplicates. The datetime is a DISPLAY concern only (see `displayKeyOf`).
+   */
   private byKey = new Map<string, { pushId: string; raw: RawBeelineRide }>();
 
   private constructor(
@@ -201,13 +210,16 @@ export class BeelineRideSource implements RideSource {
     for (const [pushId, raw] of Object.entries(rides)) {
       const mapped = mapBeelineRide(pushId, raw, this.label());
       if (!mapped) continue;
-      this.byKey.set(mapped.key, { pushId, raw });
+      // Index by the stable push-id, and surface it as the card's `identity` so the
+      // Controller keys storage by `beeline::<pushId>` (not the local-time datetime).
+      this.byKey.set(pushId, { pushId, raw });
       if (since) {
         const dt = rideDatetime(mapped.key);
         if (!dt || dt < since) continue; // outside the requested window
       }
       cards.push({
         key: mapped.key,
+        identity: pushId,
         title: mapped.fields.title_base ?? "",
         distance_km: mapped.fields.distance_km ?? null,
         elapsed_sec: mapped.fields.elapsed_sec ?? null,
@@ -286,7 +298,7 @@ export class BeelineRideSource implements RideSource {
     const handle = async (key: string): Promise<void> => {
       const entry = this.byKey.get(key);
       if (!entry) return;
-      const name = rideShortLabel(key) || key;
+      const name = rideShortLabel(displayKeyOf(entry.raw)) || key;
       try {
         let raw = entry.raw;
         if (stravaStatusOf(raw) === "pending") {
@@ -370,7 +382,7 @@ export class BeelineRideSource implements RideSource {
         const key = found[i];
         const entry = this.byKey.get(key);
         if (!entry) continue;
-        const name = rideShortLabel(key) || key;
+        const name = rideShortLabel(displayKeyOf(entry.raw)) || key;
         const detail = this.detailFor(key, entry.raw);
         onDetail(detail);
         if (await rep(`downloading full GPX: ${name}…`)) break;
@@ -379,10 +391,13 @@ export class BeelineRideSource implements RideSource {
           const bytes = await this.withFreshSession((s) =>
             this.api.exportRideGpx(s, entry.pushId),
           );
+          // File identity stays the push-id (the Controller maps it to the storage
+          // uid); the human filename is built from the display datetime.
+          const displayUid = rideUid("beeline", displayKeyOf(entry.raw));
           const file: GpxFile = {
             key,
-            filename: gpxFilename(key),
-            downloadName: gpxDownloadName(key, detail.title),
+            filename: gpxFilename(displayUid),
+            downloadName: gpxDownloadName(displayUid, detail.title),
             bytes,
           };
           results.push(file);
@@ -409,7 +424,7 @@ export class BeelineRideSource implements RideSource {
     for (const key of found) {
       const entry = this.byKey.get(key);
       if (!entry) continue;
-      const name = rideShortLabel(key) || key;
+      const name = rideShortLabel(displayKeyOf(entry.raw)) || key;
       if (await rep(`building GPX: ${name}…`)) break;
       const detail = this.detailFor(key, entry.raw);
       onDetail(detail);
@@ -428,7 +443,7 @@ export class BeelineRideSource implements RideSource {
     key: string,
     progress: Progress = () => false,
   ): Promise<{ track: FullTrack; bytes: Uint8Array }> {
-    const name = rideShortLabel(key) || key;
+    const name = rideShortLabel(displayKeyOf(this.byKey.get(key)?.raw)) || key;
     await progress(`downloading full track: ${name}…`);
     const pushId = await this.resolvePushId(key);
     const bytes = await this.withFreshSession((s) => this.api.exportRideGpx(s, pushId));
@@ -457,7 +472,7 @@ export class BeelineRideSource implements RideSource {
     newTitle: string,
     progress: Progress = () => false,
   ): Promise<RideDetail> {
-    const name = rideShortLabel(key) || key;
+    const name = rideShortLabel(displayKeyOf(this.byKey.get(key)?.raw)) || key;
     await progress(`renaming ${name}…`);
     const pushId = await this.resolvePushId(key);
     await this.withFreshSession((s) => this.api.renameRide(s, pushId, newTitle));
@@ -472,7 +487,7 @@ export class BeelineRideSource implements RideSource {
   }
 
   async deleteRide(key: string, progress: Progress = () => false): Promise<void> {
-    const name = rideShortLabel(key) || key;
+    const name = rideShortLabel(displayKeyOf(this.byKey.get(key)?.raw)) || key;
     await progress(`deleting ${name}…`);
     const pushId = await this.resolvePushId(key);
     await this.withFreshSession((s) => this.api.deleteRide(s, pushId));
@@ -507,19 +522,32 @@ async function runPool<T>(
 }
 
 /**
+ * The DISPLAY datetime key for a raw ride ("Wed Jun 3 2026 at 19:04"), rendered in
+ * the browser's local timezone. Used ONLY for human progress labels and export
+ * filenames — a ride's stable identity is its push-id, never this shifting string.
+ * Returns "" for a missing/unparseable start (callers fall back to the push-id).
+ */
+function displayKeyOf(raw: RawBeelineRide | undefined): string {
+  return beelineRideKey(raw?.start ?? Number.NaN);
+}
+
+/**
  * Build a minimal GPX file from a Beeline ride's inline polyline. Uses the FULL
  * decoded track (not the simplified preview) so a saved file keeps the route's real
- * shape. Returns null when the ride has no usable polyline.
+ * shape. Returns null when the ride has no usable polyline. `pushId` is the ride's
+ * identity (becomes `GpxFile.key`); the filename is built from the display datetime.
  */
-function synthesizeGpx(key: string, raw: RawBeelineRide, title: string): GpxFile | null {
+function synthesizeGpx(pushId: string, raw: RawBeelineRide, title: string): GpxFile | null {
   if (!raw.polyline) return null;
-  const name = title || rideShortLabel(key) || key;
+  const dateKey = displayKeyOf(raw);
+  const name = title || rideShortLabel(dateKey) || pushId;
   const xml = encodedTrackToGpx(raw.polyline, name);
   if (!xml) return null;
+  const displayUid = rideUid("beeline", dateKey);
   return {
-    key,
-    filename: gpxFilename(key),
-    downloadName: gpxDownloadName(key, title),
+    key: pushId,
+    filename: gpxFilename(displayUid),
+    downloadName: gpxDownloadName(displayUid, title),
     bytes: new TextEncoder().encode(xml),
   };
 }

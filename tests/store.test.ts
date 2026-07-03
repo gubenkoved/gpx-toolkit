@@ -220,6 +220,72 @@ describe("Store", () => {
     expect(s.rides.size).toBe(0);
   });
 
+  it("v1→v2 migrates Beeline rides to push-id uids and collapses tz-move duplicates", async () => {
+    // A v1 blob: the same real ride appears TWICE — the tombstoned original (old
+    // timezone) and the live duplicate a timezone move produced — plus a GPX ride
+    // and a push-id-less legacy Beeline ride that must pass through untouched.
+    map.set(
+      STORAGE_KEY,
+      JSON.stringify({
+        schema: 1,
+        updated_at: "x",
+        rides: {
+          "beeline::Wed Jun 3 2026 at 19:04": {
+            key: "Wed Jun 3 2026 at 19:04",
+            source: "beeline",
+            source_id: "demo-uploaded-0001",
+            title: "Evening ride",
+            track: "old-track",
+            deleted: true,
+            deleted_at: "2026-07-01T00:00:00.000Z",
+            last_seen: "2026-06-30T00:00:00.000Z",
+          },
+          "beeline::Thu Jun 4 2026 at 00:04": {
+            key: "Thu Jun 4 2026 at 00:04",
+            source: "beeline",
+            source_id: "demo-uploaded-0001",
+            title: "Evening ride",
+            track: "live-track",
+            deleted: false,
+            last_seen: "2026-07-02T00:00:00.000Z",
+          },
+          "gpx::sha256:deadbeef": {
+            key: "Mon Jun 1 2026 at 08:05",
+            source: "gpx",
+            source_id: "sha256:deadbeef",
+            title: "Loop",
+          },
+          "beeline::Fri Jun 5 2026 at 09:00": {
+            key: "Fri Jun 5 2026 at 09:00",
+            source: "beeline",
+            source_id: "",
+            title: "Legacy",
+          },
+        },
+      }),
+    );
+    const s = await Store.load(backend);
+
+    // The pair collapsed onto ONE push-id uid, resurrected LIVE, keeping the richer
+    // (live) record's data + display datetime.
+    const merged = s.rides.get(rideUid("beeline", "demo-uploaded-0001"));
+    expect(merged).toBeDefined();
+    expect(merged!.deleted).toBe(false);
+    expect(merged!.track).toBe("live-track");
+    expect(merged!.key).toBe("Thu Jun 4 2026 at 00:04");
+    // The old datetime-keyed uids are gone.
+    expect(s.rides.has("beeline::Wed Jun 3 2026 at 19:04")).toBe(false);
+    expect(s.rides.has("beeline::Thu Jun 4 2026 at 00:04")).toBe(false);
+
+    // GPX (content-addressed) + push-id-less Beeline records are untouched.
+    expect(s.rides.get(rideUid("gpx", "sha256:deadbeef"))!.title).toBe("Loop");
+    expect(s.rides.get(rideUid("beeline", "Fri Jun 5 2026 at 09:00"))!.title).toBe("Legacy");
+
+    // Persisted at the current schema so the migration runs only once.
+    await s.flush();
+    expect(JSON.parse(map.get(STORAGE_KEY)!).schema).toBe(SCHEMA_VERSION);
+  });
+
   it("defaults, clamps, and round-trips the track-detail setting", async () => {
     const s = await Store.load(backend);
     expect(s.settings.trackPointsPerKm).toBe(DEFAULT_TRACK_POINTS_PER_KM);

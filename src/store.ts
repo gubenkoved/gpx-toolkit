@@ -36,8 +36,9 @@ export const STORAGE_KEY = "gpx-toolkit-state";
  * Format version of the persisted blob. Bump on any BREAKING shape change, and add a
  * matching `migrate()` case. v1 is the first explicitly-versioned format; earlier,
  * unversioned blobs are intentionally discarded (clean slate) rather than guessed.
+ * v2 re-keys Beeline rides by their stable push-id (was: local-time datetime).
  */
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 
 /** Where a ride's data originated: the Beeline cloud account, or imported GPX files. */
 export type RideSource = "beeline" | "gpx";
@@ -323,8 +324,8 @@ interface Persisted {
  * Bring a parsed persisted blob up to the CURRENT schema, or return null to discard
  * it (start fresh). The single place that knows about old shapes:
  *  - current version → use as-is.
- *  - an older version → add a `case` that upgrades it step-by-step (none yet — v1 is
- *    the first versioned format).
+ *  - an older version → a `case` upgrades it step-by-step, re-entering migrate() until
+ *    it reaches the current shape (e.g. v1 → v2 re-keys Beeline rides by push-id).
  *  - missing / newer / unknown → discard. An unversioned legacy blob, or one written
  *    by a newer build we can't safely read, is dropped rather than guessed at.
  */
@@ -332,9 +333,57 @@ function migrate(data: unknown): Persisted | null {
   if (!data || typeof data !== "object") return null;
   const schema = (data as { schema?: unknown }).schema;
   if (schema === SCHEMA_VERSION) return data as Persisted;
-  // Future migrations slot in here, e.g.:
-  //   if (schema === 1) return migrate(upgradeV1toV2(data));
+  // Older versions upgrade step-by-step, re-entering migrate() until current.
+  if (schema === 1) return migrate(upgradeV1toV2(data as Persisted));
+  // missing / newer / unknown → discard.
   return null;
+}
+
+/**
+ * v1 → v2: re-key Beeline rides by their stable backend push-id (stored as
+ * `source_id`) instead of their local-time start datetime.
+ *
+ * v1 identified a Beeline ride by `beeline::<datetime>`, but that datetime is
+ * rendered in the browser's LOCAL timezone — so moving timezones re-keyed every
+ * ride, tombstoning the originals and re-fetching duplicates. v2 keys by the
+ * push-id (timezone-invariant). Here we migrate existing data: every Beeline
+ * record that carries a push-id moves from `beeline::<datetime>` to
+ * `beeline::<pushId>`, COLLAPSING the tombstoned-old + live-duplicate pair a tz
+ * move may have created into a single ride. Each record's display datetime lives
+ * on in its `key`. GPX rides (content-addressed) and any Beeline record lacking a
+ * push-id are left untouched.
+ */
+function upgradeV1toV2(data: Persisted): Persisted {
+  const oldRides = (data.rides ?? {}) as unknown as Record<string, RideRecord>;
+  const next: Record<string, RideRecord> = {};
+  for (const [uid, rec] of Object.entries(oldRides)) {
+    const { source, dateKey } = splitUid(uid);
+    const pushId = typeof rec.source_id === "string" ? rec.source_id : "";
+    // Only re-key Beeline rides that (a) carry a push-id and (b) are still keyed by a
+    // datetime (the v1 shape). Everything else passes through unchanged.
+    const rekey = source === "beeline" && pushId !== "" && rideDatetime(dateKey) != null;
+    const newUid = rekey ? rideUid("beeline", pushId) : uid;
+    const existing = next[newUid];
+    next[newUid] = existing ? mergeDuplicateRecords(existing, rec) : rec;
+  }
+  return { ...data, schema: SCHEMA_VERSION, rides: next };
+}
+
+/**
+ * Pick the survivor when two v1 records collapse onto one push-id (the tombstoned
+ * original + its post-tz-move duplicate). Prefer a live record over a deleted one,
+ * then the richer one (has a route track), then the more recently seen. The result
+ * stays deleted only when BOTH inputs were deleted — otherwise the ride genuinely
+ * still exists and is resurrected as live.
+ */
+function mergeDuplicateRecords(a: RideRecord, b: RideRecord): RideRecord {
+  const score = (r: RideRecord): number =>
+    (r.deleted ? 0 : 4) + (r.track ? 2 : 0) + (r.last_seen ? 1 : 0);
+  const sa = score(a);
+  const sb = score(b);
+  const winner = sb !== sa ? (sb > sa ? b : a) : (b.last_seen ?? "") > (a.last_seen ?? "") ? b : a;
+  const bothDeleted = a.deleted === true && b.deleted === true;
+  return { ...winner, deleted: bothDeleted, deleted_at: bothDeleted ? winner.deleted_at : "" };
 }
 
 export interface UpsertFields extends Partial<RideMetrics> {

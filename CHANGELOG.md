@@ -17,6 +17,22 @@ humans and the assistant can read this file as a compressed history of decisions
 
 ---
 
+## beeline: key rides by push-id, not the local-time datetime (fixes tz-move duplication)
+- **What:** a Beeline ride's storage identity is now its stable backend push-id
+  (`beeline::<pushId>`) instead of its start datetime (`beeline::<Wed Jun 3 … 19:04>`).
+  The source addresses rides by push-id (`byKey`, `RideCard.identity`, `RideDetail.key`,
+  filenames/labels derive the datetime from `raw.start`); the controller builds the scan
+  uid from `card.identity` and reconciles deletions against the REAL store uid, never a
+  uid reconstructed from the datetime. A schema **v1→v2** migration re-keys existing
+  Beeline records by their `source_id` and COLLAPSES the tombstoned-original +
+  live-duplicate pair a tz move created into one live ride. The datetime lives on as the
+  display `key` only.
+- **Why:** the datetime was rendered in the browser's LOCAL timezone, so moving timezones
+  re-keyed every ride — tombstoning all originals and re-fetching them as exact
+  duplicates. The push-id is the ride's true, timezone-invariant identity (as the user
+  put it: "we have IDs from Beeline that we should use"). This mirrors how GPX rides
+  already use a content-hash identity, keeping the store uniformly identity-keyed.
+
 ## wind/speed: Length becomes a live min/max band filter (moved out of segment extraction)
 - **What:** the "Min length" slider (which lived under *Segment extraction*) is replaced
   by a **Length** min/max band in the *Segment filters* row, alongside grade/speed/wind.

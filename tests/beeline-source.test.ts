@@ -13,11 +13,6 @@ import { beelineRideKey as rawRideKey, rideUid } from "../src/parsing";
 import type { Sleep } from "../src/source";
 import { Store } from "../src/store";
 
-// In these tests a ride "key" is the cross-source uid the Store, GPX cache and
-// Controller all work in (`beeline::<datetime>`). `beelineRideKey` is shadowed to
-// return that uid so every lookup + dispatch uses the canonical identity.
-const beelineRideKey = (startMs: number): string => rideUid("beeline", rawRideKey(startMs));
-
 const FIXTURE = JSON.parse(
   readFileSync(
     resolve(
@@ -29,6 +24,17 @@ const FIXTURE = JSON.parse(
     "utf-8",
   ),
 ) as Record<string, RawBeelineRide>;
+
+// In these tests a ride "key" is the cross-source uid the Store, GPX cache and
+// Controller all work in. A Beeline ride's identity is its stable PUSH-ID, so the
+// uid is `beeline::<pushId>` (NOT the local-time datetime — that shifts with the
+// browser timezone). Call sites still pass a ride's `start` for convenience, so we
+// resolve it back to the push-id via the fixture and build the canonical uid.
+const START_TO_PUSHID = new Map<number, string>(
+  Object.entries(FIXTURE).map(([pushId, raw]) => [raw.start as number, pushId]),
+);
+const beelineRideKey = (startMs: number): string =>
+  rideUid("beeline", START_TO_PUSHID.get(startMs) ?? rawRideKey(startMs));
 
 const UPLOADED = "demo-uploaded-0001";
 const PENDING = "demo-pending-0002";
@@ -146,6 +152,30 @@ describe("Controller + BeelineRideSource (no network)", () => {
     const pending = c.store.rides.get(beelineRideKey(FIXTURE[PENDING].start as number))!;
     expect(pending.strava_status).toBe("pending");
     expect(pending.source_id).toBe(PENDING);
+  });
+
+  it("keys rides by the stable Beeline push-id, not the local-time datetime (tz-invariant)", async () => {
+    const c = makeController(new FakeBeelineApi(structuredClone(FIXTURE)));
+    await c.connect();
+    c.scan("all", null);
+    await vi.waitFor(() => expect(c.state().jobs.busy).toBe(false), { timeout: 5000 });
+
+    // Every ride is stored under `beeline::<pushId>` — its identity is the backend
+    // id, so a timezone change (which only alters the DISPLAY datetime) can never
+    // re-key a ride into a duplicate or tombstone the original.
+    for (const pushId of Object.keys(FIXTURE)) {
+      expect(c.store.rides.has(rideUid("beeline", pushId))).toBe(true);
+    }
+    const uploaded = c.store.rides.get(rideUid("beeline", UPLOADED))!;
+    // The datetime survives as a display field, but is NEVER the map key.
+    expect(uploaded.key).toBe(rawRideKey(FIXTURE[UPLOADED].start as number));
+    expect(c.store.rides.has(rideUid("beeline", uploaded.key))).toBe(false);
+
+    // A second scan of the same history adds no duplicates and deletes nothing.
+    c.scan("all", null);
+    await vi.waitFor(() => expect(c.state().jobs.busy).toBe(false), { timeout: 5000 });
+    expect(c.store.rides.size).toBe(Object.keys(FIXTURE).length);
+    expect([...c.store.rides.values()].some((r) => r.deleted)).toBe(false);
   });
 
   it("uploads a pending ride via the cloud function and reflects the new status", async () => {

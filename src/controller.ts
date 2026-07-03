@@ -1143,10 +1143,15 @@ export class Controller {
     const { cards, complete } = await source.enumerateCatalog(rep, since, (fresh) => {
       // Persist and surface each page of rides the moment they are found.
       for (const c of fresh) {
-        const uid = rideUid(kind, c.key);
+        // A ride's storage identity is the source's stable id (Beeline push-id) when
+        // it provides one, NOT its local-time datetime — so a timezone change never
+        // re-keys a ride into a duplicate. `key` carries the display datetime for the
+        // non-datetime uid (stamped once, like an imported GPX).
+        const uid = rideUid(kind, c.identity ?? c.key);
         seen.add(uid);
         this.store.upsert(uid, {
           ...this.deviceFieldsFor(kind),
+          key: c.key,
           title_base: c.title,
           distance_km: c.distance_km,
           elapsed_sec: c.elapsed_sec,
@@ -1167,9 +1172,11 @@ export class Controller {
     // scan must never tombstone an imported GPX ride.
     let removed = 0;
     if (!cancelled && complete) {
-      for (const r of this.store.rides.values()) {
+      for (const [uid, r] of this.store.rides.entries()) {
         if (r.source !== kind) continue;
-        const uid = rideUid(r.source, r.key);
+        // Match against the REAL store uid (identity), never a uid reconstructed from
+        // the display datetime — that reconstruction breaks the moment a ride's
+        // local-time key differs from its stored identity (e.g. after a tz change).
         if (r.deleted || seen.has(uid)) continue;
         const dt = rideDatetime(r.key);
         if (dt === null) continue; // can't place it in the window — leave it be
