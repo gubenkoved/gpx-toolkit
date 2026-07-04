@@ -1185,9 +1185,9 @@ function rideWhen(r: RideView, short = false): string {
   return tag ? `${when} (${tag})` : when;
 }
 
-/** Plain-text, fully-labeled breakdown of a ride's time (ride-local / your local /
- *  UTC) for a compact time's `title` tooltip. Empty unless the ride is in a different
- *  zone than the viewer (a same-zone time needs no breakdown). */
+/** Plain-text breakdown of a ride's time (ride-local + your local time) for a
+ *  compact time's `title` tooltip. Empty unless the ride is in a different zone than
+ *  the viewer (a same-zone time needs no breakdown). */
 function rideTimesTitle(r: RideView): string {
   if (!r.start_epoch || !r.tz || r.tz === browserZone()) return "";
   const rideOff = offsetMinutes(r.start_epoch, r.tz);
@@ -1198,34 +1198,7 @@ function rideTimesTitle(r: RideView): string {
       `Your time: ${localTime(r.start_epoch, browserZone()).key} (${formatOffset(curOff)} · current)`,
     );
   }
-  lines.push(`UTC: ${localTime(r.start_epoch, "UTC").key}`);
   return lines.join("\n");
-}
-
-/**
- * Extra time readings for the expanded detail sheet. The compact meta line already
- * shows the ride-local time (plus its "UTC+2 · Amsterdam" tag when it's in a different
- * zone than the viewer), so this adds value ONLY for a cross-zone ride — and then
- * shows just the conversions the compact line lacks (your local time when it actually
- * differs, and UTC), never repeating the ride-local line sitting right above it.
- * Same-zone (or undated) rides render nothing, so there's no duplicated date.
- */
-function rideTimesBlock(r: RideView): string {
-  if (!r.start_epoch || !r.tz || r.tz === browserZone()) return "";
-  const rideOff = offsetMinutes(r.start_epoch, r.tz);
-  const curOff = offsetMinutes(r.start_epoch, browserZone());
-  const row = (lbl: string, when: string, tag: string): string =>
-    `<div class="rwhen-row"><span class="rwhen-lbl">${escHtml(lbl)}</span>` +
-    `<span class="rwhen-t">${escHtml(when)}</span>` +
-    `<span class="rwhen-z">${escHtml(tag)}</span></div>`;
-  const rows: string[] = [];
-  if (rideOff !== curOff) {
-    rows.push(
-      row("Your time", localTime(r.start_epoch, browserZone()).key, `${formatOffset(curOff)} · current`),
-    );
-  }
-  rows.push(row("UTC", localTime(r.start_epoch, "UTC").key, "UTC"));
-  return `<div class="rwhen">${rows.join("")}</div>`;
 }
 
 /**
@@ -1246,10 +1219,9 @@ function detailsBlock(r: RideView): string {
     const msg = checking
       ? `Loading this ride's stats and route…`
       : `No stats for this ride yet — it may still be in progress. Stats and route appear once the ride finishes and syncs (re-sync to refresh).`;
-    return rideTimesBlock(r) + `<div class="rdetailhint">${msg}</div>`;
+    return `<div class="rdetailhint">${msg}</div>`;
   }
   return (
-    rideTimesBlock(r) +
     `<div class="stats open" id="st-${esc(r.key)}">${fmtStats(r)}</div>` +
     trackBlock(r.key, r.track)
   );
