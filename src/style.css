@@ -1975,15 +1975,6 @@ span.caret.open::before {
 .splitmenu button.danger:hover:not(:disabled) {
   background: #2a1413;
 }
-/* The one primary action that lives inside the consolidated ⋯ menu (Push all to
-   Strava): tint it accent so it reads as the menu's CTA, not just another row. */
-.splitmenu button.menu-accent {
-  color: #ff7a33;
-  font-weight: 600;
-}
-.splitmenu button.menu-accent:hover:not(:disabled) {
-  background: #221308;
-}
 /* Section caption inside the consolidated ⋯ menu ("Selected", "App data"): a small
    muted uppercase label that groups the rows beneath it without heavy divider lines. */
 .splitmenu .menu-section {

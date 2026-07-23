@@ -17,6 +17,15 @@ humans and the assistant can read this file as a compressed history of decisions
 
 ---
 
+## drop "Push all to Strava" — one push route via the selection
+- **What:** removed the `Push all to Strava` item from the ⋯ state menu (markup, its
+  Beeline-only visibility gating, its confirm-and-upload handler, and the now-orphaned
+  `.menu-accent` CSS). Pushing to Strava now goes through `Push selected to Strava` only.
+- **Why:** two routes to the same outcome (push to Strava) is redundant — the accented
+  "all" variant duplicated what selecting rides + "Push selected" already does, and the
+  more explicit selection-scoped action is the safer single entry point. The Strava-status
+  filter gating (`fStatus`) is untouched.
+
 ## full-GPX badges appear immediately after a backup import
 - **What:** `Controller.importAllZip` now fires a final `notify()` after the restored
   GPX/wind blobs are written and the cache indexes are rebuilt. Previously the only

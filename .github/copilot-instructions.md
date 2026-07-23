@@ -190,12 +190,15 @@ Hard rules:
 - `npm run dev` — Vite dev server (boots straight into the library; a first-launch welcome explains sources, and the Beeline source has a demo).
 - `npm run build` — `tsc --noEmit` type-check **then** `vite build`. Always type-check before considering a change done.
 - `npm test` / `npm run test:watch` — Vitest.
-- **Never hand-edit `package-lock.json`.** It's a generated artifact (name, version, dependency
-  tree and integrity hashes must stay mutually consistent). Whenever it needs to change — after a
-  `package.json` `name`/`version` bump or any dependency change — regenerate it with npm:
-  `npm install` (or `npm install --package-lock-only` to refresh the lockfile without touching
-  `node_modules`), then review the diff. A manual edit risks a partial/inconsistent lockfile that
-  `npm ci` will reject.
+- **Never hand-edit `package-lock.json` — but NEVER leave it stale either.** It's a generated
+  artifact (name, version, dependency tree and integrity hashes must stay mutually consistent).
+  **Any** change to `package.json` — including the routine `version` bump that accompanies almost
+  every logical change, a `name` change, or any dependency add/remove/upgrade — makes the lockfile
+  stale and MUST be regenerated **in the same change**, never in a follow-up. Regenerate with npm
+  (never by hand): `npm install --package-lock-only` (refreshes the lockfile without touching
+  `node_modules`) or `npm install`, then review the diff and confirm the lockfile's `version`
+  matches `package.json`. A manual edit — or a forgotten regen — risks a partial/inconsistent
+  lockfile that `npm ci` will reject.
 
 ## Changelog
 
@@ -225,6 +228,10 @@ the same change, so the build hash shown in the UI tracks a real version.
 - **Minor** (`0.11.1` → `0.12.0`): a new feature or user-visible capability.
 - **Major**: reserved for breaking reworks — confirm with the user first.
 - One bump per logical change, committed alongside the code + CHANGELOG entry.
+- **Regenerate `package-lock.json` in the SAME change as the version bump.** The lockfile carries
+  the `version` too, so bumping `package.json` without regenerating leaves it stale. Run
+  `npm install --package-lock-only` and stage the lockfile alongside `package.json` (see
+  *Tech stack & commands* → the lockfile rule). Don't defer this to a follow-up.
 
   (e.g. `compact state & selection actions into menus`, `more resilient error handling`).
 - **One commit per logical change.** Stage the related files and commit; don't bundle

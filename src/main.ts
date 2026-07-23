@@ -2795,10 +2795,8 @@ function render(): void {
     dropAllBtn.style.display = delAll ? "" : "none";
     dropAllBtn.textContent = `Drop ${delAll} deleted`;
   }
-  // The whole "Push all to Strava" menu item + the Strava-status filter are
-  // Beeline-only; hide them when no ride can be pushed (a pure-GPX library).
-  const uploadAllBtn = document.getElementById("btnUploadPending") as HTMLButtonElement | null;
-  if (uploadAllBtn) uploadAllBtn.style.display = hasUploadable ? "" : "none";
+  // The Strava-status filter is Beeline-only; hide it when no ride can be pushed
+  // (a pure-GPX library).
   document.getElementById("fStatus")?.classList.toggle("hidden", !hasUploadable);
   // The selected-ride section only makes sense with a selection — hide the whole
   // group (label + actions) when nothing is selected, and stamp its label with the
@@ -4050,26 +4048,6 @@ document.addEventListener("click", (e) => {
     if (!keys.length) return toast("All selected rides are already uploaded to Strava.");
     trackEvent("strava-upload");
     return withBeelineAccess(() => run(() => controller.upload(keys)));
-  }
-  if (t.id === "btnUploadPending") {
-    const keys = STATE.rides
-      .filter((r) => r.status === "pending" && !r.deleted)
-      .map((r) => r.key);
-    if (!keys.length) return toast("No known pending rides.");
-    void (async () => {
-      const ok = await confirmDialog({
-        title: "Push all to Strava?",
-        body: `This will push ${keys.length} pending ride${
-          keys.length === 1 ? "" : "s"
-        } to Strava. Already-uploaded rides are skipped.`,
-        confirmLabel: "Push all",
-      });
-      if (ok) {
-        trackEvent("strava-upload");
-        withBeelineAccess(() => run(() => controller.upload(keys)));
-      }
-    })();
-    return;
   }
   if (t.id === "btnDeleteSel") {
     openMenu = null;
