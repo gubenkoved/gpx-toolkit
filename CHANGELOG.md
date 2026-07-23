@@ -17,6 +17,22 @@ humans and the assistant can read this file as a compressed history of decisions
 
 ---
 
+## selection actions hint their real applicable count
+- **What:** every ⋯-menu "Selected" action that acts on only a *subset* of the selection
+  now stamps that subset's count into its label and hides when the subset is empty —
+  "Push N rides to Strava" (upload-capable & not-yet-uploaded), "Fetch full GPX for N
+  rides" (not cached yet), "Resolve wind for N rides" (has a track & unresolved),
+  "Delete N rides" (live, non-tombstoned). Push previously gated on merely `can_upload`,
+  so it showed for an all-uploaded Beeline selection and then toasted "already uploaded";
+  Fetch/Resolve previously always showed and toasted a no-op. Actions that always act on
+  all N (Save route/full GPX, Tags…) stay label-only. The per-action subsets are derived
+  once from a single `selRides` array via cheap ride-view flags (`can_upload`/`status`,
+  `gpx_cached`, `hasResolvedWind`, `deleted`).
+- **Why:** a control that's visible but a no-op is a bug per *show only what applies*, and
+  the count makes each action self-explanatory against the "Selected (N)" header (the
+  skipped rides become self-evident) without adding redundant chrome — applied
+  consistently across the whole selection group so no action is the odd one out.
+
 ## drop "Push all to Strava" — one push route via the selection
 - **What:** removed the `Push all to Strava` item from the ⋯ state menu (markup, its
   Beeline-only visibility gating, its confirm-and-upload handler, and the now-orphaned

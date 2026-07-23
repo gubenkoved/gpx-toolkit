@@ -2763,30 +2763,54 @@ function render(): void {
       ? ` · <button class="selchip" id="selClear" title="Clear selection">${nSel} selected <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>`
       : "");
 
-  // Batch actions apply to the current selection — they live in the consolidated
-  // ⋯ menu's "Selected" group, which is shown only when something is selected, so
-  // the buttons inside are always actionable (no per-item disabled/count needed).
-  // "Push selected to Strava" only applies to upload-capable (Beeline) rides; hide it
-  // when the selection has none (e.g. a GPX-only pick), so the menu never offers an
-  // action that would silently skip everything chosen.
-  const selUploadBtn = document.getElementById("btnUploadSel") as HTMLButtonElement | null;
-  if (selUploadBtn) {
-    const selHasUploadable = [...selected].some(
-      (k) => allRides.find((r) => r.key === k)?.can_upload,
-    );
-    selUploadBtn.style.display = selHasUploadable ? "" : "none";
-  }
-  // "Delete selected" deletes the live (non-deleted) rides in the selection — show it
-  // only when the selection actually contains a deletable ride (already-deleted rides
-  // are handled by the per-ride "Drop from library" and the global "Drop deleted").
-  const delSelBtn = document.getElementById("btnDeleteSel") as HTMLButtonElement | null;
-  if (delSelBtn) {
-    const selHasLive = [...selected].some((k) => {
-      const r = allRides.find((x) => x.key === k);
-      return r && !r.deleted;
-    });
-    delSelBtn.style.display = selHasLive ? "" : "none";
-  }
+  // -- Selection actions: honest about the subset each will act on -----------------
+  // Every batch action lives in the ⋯ menu's "Selected (N)" group. An action that can
+  // act on only a *subset* of the selection stamps that subset's count into its label
+  // and hides when the subset is empty — the same "show only what applies" rule the
+  // per-ride actions follow, so a control is never a visible no-op. Actions that always
+  // act on all N (Save route/full GPX, Tags…) stay label-only: the group header already
+  // says N, and a redundant "(N)" would just duplicate it. Build the selected rides
+  // once and derive every subset from it (cheap flags already on the ride view).
+  const selRides = [...selected]
+    .map((k) => allRides.find((r) => r.key === k))
+    .filter((r): r is RideView => !!r);
+  const setSelAction = (id: string, count: number, label: string) => {
+    const btn = document.getElementById(id) as HTMLButtonElement | null;
+    if (!btn) return;
+    btn.style.display = count ? "" : "none";
+    btn.textContent = label;
+  };
+  // Push: only rides that are upload-capable (Beeline) AND not already on Strava — a
+  // selection whose Beeline rides are all uploaded (or that holds only GPX rides) has
+  // nothing to push. "Push 3 rides to Strava" under "Selected (5)" makes the 2 skipped
+  // (already-uploaded / non-Beeline) rides self-evident.
+  const pushable = selRides.filter((r) => r.can_upload && r.status !== "uploaded").length;
+  setSelAction(
+    "btnUploadSel",
+    pushable,
+    pushable === 1 ? "Push 1 ride to Strava" : `Push ${pushable} rides to Strava`,
+  );
+  // Fetch full GPX: a cloud fetch that only helps rides whose full recorded GPX isn't
+  // cached yet (GPX-source rides already hold theirs locally, so they're always cached).
+  const toFetch = selRides.filter((r) => !r.gpx_cached).length;
+  setSelAction(
+    "btnGpxFetchSel",
+    toFetch,
+    toFetch === 1 ? "Fetch full GPX for 1 ride" : `Fetch full GPX for ${toFetch} rides`,
+  );
+  // Resolve wind: only rides that have a track and haven't had wind resolved yet
+  // (mirrors controller.resolveWind's own skip rules, so the count matches what runs).
+  const toWind = selRides.filter((r) => r.track && !controller.hasResolvedWind(r.key)).length;
+  setSelAction(
+    "btnResolveWindSel",
+    toWind,
+    toWind === 1 ? "Resolve wind for 1 ride" : `Resolve wind for ${toWind} rides`,
+  );
+  // Delete: only the live (non-deleted) rides — already-deleted rides are handled by the
+  // per-ride "Drop from library" and the global "Drop deleted". A partly-tombstoned
+  // selection is honest about how many it will actually delete.
+  const live = selRides.filter((r) => !r.deleted).length;
+  setSelAction("btnDeleteSel", live, live === 1 ? "Delete 1 ride" : `Delete ${live} rides`);
   // The global "Drop deleted" purges every tombstone — show it only when at least one
   // deleted ride exists anywhere, and stamp the count into its label.
   const dropAllBtn = document.getElementById("btnDropDeleted") as HTMLButtonElement | null;
