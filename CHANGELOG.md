@@ -17,6 +17,23 @@ humans and the assistant can read this file as a compressed history of decisions
 
 ---
 
+## rename ⋯-menu selection action "Tags…" → "Manage tags"
+- **What:** the selection-group action that opens the bulk tag editor is now labelled
+  "Manage tags" instead of "Tags…".
+- **Why:** "Manage tags" states the action plainly (add/remove tags for the selection),
+  reading as a verb-led command consistent with its sibling actions rather than a bare noun.
+
+## hairline between the ⋯-menu selection actions and the rest
+- **What:** the consolidated ⋯ (state) menu now draws a single subtle hairline
+  (`var(--line)`) above the "App data" caption, dividing the "Selected" ride-action group
+  from the app-data/storage/settings rows. It appears ONLY when a selection exists (via
+  `.menu-group:not(.hidden) ~ .menu-section`), since separating the selection actions from
+  the rest is its whole purpose. A rare visible "Drop deleted" sits above the line, grouped
+  with the ride actions.
+- **Why:** with a red "Delete selected" sitting flush above "APP DATA", the caption alone
+  read as too soft a boundary; a hairline (matching the storage breakdown's existing
+  `border-bottom`) gives a clean, scannable break without heavy divider lines.
+
 ## selection actions hint their real applicable count
 - **What:** every ⋯-menu "Selected" action that acts on only a *subset* of the selection
   now stamps that subset's count into its label and hides when the subset is empty —

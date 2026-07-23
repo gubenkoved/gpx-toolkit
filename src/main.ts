@@ -2768,7 +2768,7 @@ function render(): void {
   // act on only a *subset* of the selection stamps that subset's count into its label
   // and hides when the subset is empty — the same "show only what applies" rule the
   // per-ride actions follow, so a control is never a visible no-op. Actions that always
-  // act on all N (Save route/full GPX, Tags…) stay label-only: the group header already
+  // act on all N (Save route/full GPX, Manage tags) stay label-only: the group header already
   // says N, and a redundant "(N)" would just duplicate it. Build the selected rides
   // once and derive every subset from it (cheap flags already on the ride view).
   const selRides = [...selected]

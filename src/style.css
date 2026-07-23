@@ -1987,6 +1987,16 @@ span.caret.open::before {
   text-transform: uppercase;
   color: var(--muted);
 }
+/* A single hairline dividing the "Selected" ride-action group from the rest of the
+   menu — present ONLY when the selection group is (its whole purpose is to separate
+   the selection actions from everything else). Only the "App data" caption follows the
+   group, so this targets exactly one row; a rare visible "Drop deleted" sits above it,
+   grouped with the ride actions. Matches the storage-breakdown border, no heavy lines. */
+.menu-group:not(.hidden) ~ .menu-section {
+  border-top: 1px solid var(--line);
+  margin-top: 6px;
+  padding-top: 7px;
+}
 /* The selected-ride section is shown only when something is selected. */
 .menu-group {
   display: contents;
