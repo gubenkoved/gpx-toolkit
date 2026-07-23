@@ -234,8 +234,14 @@ the same change, so the build hash shown in the UI tracks a real version.
   Only deviate for things that are inherently cased — proper nouns, acronyms, identifiers,
   filenames or code (`Strava`, `GPX`, `IndexedDB`, `RideSource`, `.uslider`). When the agent
   makes a commit, match this style.
-- **Commit, don't push.** Pushing is a shared/irreversible action — leave `git push` to the
-  user unless they explicitly ask.
+- **Never push unless explicitly asked.** Pushing is a shared/irreversible action — always
+  leave `git push` to the user unless they explicitly request it.
+- **Don't commit unless explicitly asked.** Committing (and amending) is the user's call, not
+  the agent's. Make the edits, run the gates (`npm run build` + `npm test`), then STOP and
+  summarize — let the user review and decide. Only run `git commit`/`--amend` when the user
+  explicitly asks ("commit this", "make a commit"). The guidance above about *how* to commit
+  (one per logical change, lower-case message, version + CHANGELOG alongside) applies **when**
+  the user has asked for a commit — it is not a licence to commit unprompted.
 
 ## Architecture / module map
 

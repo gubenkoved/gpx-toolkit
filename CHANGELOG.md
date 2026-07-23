@@ -17,6 +17,17 @@ humans and the assistant can read this file as a compressed history of decisions
 
 ---
 
+## borderless per-ride stats grid
+- **What:** dropped the dark boxed background/border/radius on the expanded ride card's
+  stats grid (`.stats`) and replaced it with a single hairline `border-top` divider plus a
+  little breathing room; kept the compact stacked label-above-value cells and shrank the
+  auto-fill track min (112px → 92px) so the full set of stats fits on one row at the capped
+  desktop width while still wrapping gracefully on narrow viewports.
+- **Why:** the panel filled with `var(--bg)` (the page background, darker than the card's
+  `--panel` surface), so it read as a recessed black hole that fought the design language. A
+  borderless grid on the card's own surface, separated only by a divider, is quieter and more
+  consistent with the rest of the app.
+
 ## remove ADB screen-scraping rudiments (locale-string parsers + title scrub)
 - **What:** deleted the last dead code from the retired ADB screen-scraping source: the
   localized-string numeric parsers (`parseLocaleNumber`/`parseKm`/`parseKmh`/`parseMeters`/
