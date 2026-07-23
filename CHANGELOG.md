@@ -17,6 +17,20 @@ humans and the assistant can read this file as a compressed history of decisions
 
 ---
 
+## compact the mobile/tablet header with progressive disclosure
+- **What:** the header now strips its widest, least-essential chrome step-by-step as the
+  viewport narrows so it always stays on ONE line: the descriptive connection pill
+  (`Beeline: offline — not signed in`, ~190px) + build version collapse first (≤1039px —
+  pill becomes a colour-only status dot, meaning kept in `title`/`aria-label`), then the
+  Pull/Sources/Filters text labels collapse to icons (≤819px), then the `GPX Toolkit`
+  wordmark drops to logo-only (≤579px). Thresholds are tuned so a single line survives even
+  with the offline pill + the `N selected` chip present.
+- **Why:** the previous single 560px flip restored the full pill + all three labels + version
+  at once, but the expanded header needs ~1000px, so it wrapped onto two/three lines across
+  the whole 561–900px tablet range. Progressive disclosure — reveal an element only when
+  there's room — keeps the bar a clean single line at every width. The dot + Sources button
+  still convey connection state, so nothing is lost (consolidate, not amputate).
+
 ## drop the OSM credit link from the app header
 - **What:** removed the tiny `.osm-credit` "© OpenStreetMap contributors" link (and its
   CSS) from the page header.

@@ -5274,6 +5274,54 @@ body.job-active .toast {
 /* buttons and tighten gaps so the info + actions clusters pack into far      */
 /* fewer rows before the narrow-viewport rules take over below 768px.        */
 /* ------------------------------------------------------------------------ */
+/* ------------------------------------------------------------------------ */
+/* Responsive header — progressive disclosure.                               */
+/* The header packs a lot (brand, version, totals, connection state, Pull,   */
+/* Sources, Filters, ⋯). Fully expanded it needs ~1000px, so a single flip   */
+/* wrapped it onto 2–3 lines across the whole tablet range. Instead we strip  */
+/* the widest, least-essential element at each step so the bar always stays   */
+/* on ONE line: pill+version (≤1039) → button labels (≤819) → wordmark        */
+/* (≤579). Thresholds are tuned to still fit with the "N selected" chip.       */
+/* ------------------------------------------------------------------------ */
+@media (max-width: 1039px) {
+  /* The descriptive connection pill ("Beeline: offline — not signed in", ~190px)
+     and the build-hash version are the widest, least-essential chrome — first to
+     go. The pill collapses to a colour-only status dot (meaning kept in title +
+     aria-label, set in renderConn; the .on/.demo/.err classes tint it), freeing
+     ~180px so the text button labels can survive far lower. */
+  #connState.cstate {
+    width: 10px;
+    height: 10px;
+    padding: 0;
+    border-radius: 50%;
+    overflow: hidden;
+    color: transparent;
+    font-size: 0;
+    line-height: 0;
+    white-space: nowrap;
+    background: var(--muted);
+    border: 0;
+    flex: 0 0 auto;
+    align-self: center;
+  }
+  #connState.cstate.on {
+    background: var(--green);
+  }
+  #connState.cstate.demo {
+    background: var(--blue);
+  }
+  #connState.cstate.err {
+    background: #ff6a6a;
+  }
+  .brand .ver {
+    display: none; /* build hash is wide-desktop-only chrome */
+  }
+  /* …except in the source picker, where the version is worth keeping. */
+  .srcpick-head .brand .ver {
+    display: inline;
+  }
+}
+
 @media (max-width: 1024px) {
   .row {
     gap: 8px;
@@ -5288,6 +5336,42 @@ body.job-active .toast {
   }
   header button.small {
     padding: 4px 9px;
+  }
+}
+
+@media (max-width: 819px) {
+  /* Not enough room for the text button labels — collapse Pull / Sources / Filters
+     (and the ⋯ menu) to their icons. Flatten .conn (display:contents) so its buttons
+     become direct flex items and the strip reads as one aligned set of equal 32px
+     icon squares with centred 17px glyphs. */
+  .hdr-actions button .btn-label,
+  .conn #btnScan .scan-label {
+    display: none;
+  }
+  .hdr-actions button .mi {
+    display: block;
+  }
+  .conn {
+    display: contents;
+  }
+  .hdr-actions .conn #btnScan,
+  .hdr-actions #btnSource,
+  .hdr-actions .filterwrap > .ffilters-toggle,
+  .hdr-actions .split > .iconmenu {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: var(--tap-min);
+    height: var(--tap-min);
+    padding: 0;
+  }
+  .hdr-actions .conn #btnScan svg,
+  .hdr-actions #btnSource .mi,
+  .hdr-actions .filterwrap > .ffilters-toggle .mi,
+  .hdr-actions .split > .iconmenu .ki {
+    flex: 0 0 auto;
+    width: 17px;
+    height: 17px;
   }
 }
 
@@ -5346,29 +5430,12 @@ body.job-active .toast {
   .hdr-actions {
     gap: 6px;
   }
-  /* Flatten the connection cluster into the header's own wrapping flow: with
-     `display: contents` its buttons (Re-sync / Change source / …) become direct
-     flex items of `.hdr-actions`, so they wrap continuously with Data / Upload
-     instead of forming a rigid block that forces the next button onto a fresh
-     row. This lets "Data" tuck up beside the connection buttons when there's room
-     rather than always starting its own line. */
-  .conn {
-    display: contents;
-  }
   .brand h1 {
     font-size: 14.5px;
   }
   .brand-logo {
     width: 19px;
     height: 19px;
-  }
-  .brand .ver {
-    display: none; /* build hash is desktop-only chrome */
-  }
-  /* …except in the source picker, where the version is worth keeping even on
-     narrow screens. */
-  .srcpick-head .brand .ver {
-    display: inline;
   }
   .totals {
     font-size: 11.5px;
@@ -5600,39 +5667,16 @@ body.job-active .toast {
 /* onto one row. A wider cut-off than the 480px chrome tweaks so large phones   */
 /* (and split-screen windows) don't get stuck with the bloated multi-row bar.   */
 /* ------------------------------------------------------------------------ */
-@media (max-width: 560px) {
-  .hdr-actions button .btn-label,
-  .conn #btnScan .scan-label {
+@media (max-width: 579px) {
+  /* Last to go: drop the wordmark to the logo alone. #totals still supplies the
+     "N rides · N selected" context, so identity is preserved. Scoped to the header
+     so the source picker's onboarding keeps the full "GPX Toolkit" name. */
+  header .brand h1 {
     display: none;
   }
-  .hdr-actions button .mi {
-    display: block;
-  }
-  /* Collapse the three header action buttons (Pull from Beeline · Sources · the
-     ⋯ menu) into ONE cohesive set of equal icon squares. They used to render
-     ragged — #btnSource was 30px tall (6px padding + 16px icon) while #btnScan
-     and the ⋯ menu were 28px, with mismatched widths — so the orange Pull button
-     sat a hair off-row from its neighbours. Now all three are identical 32px
-     squares with centred 17px icons, reading as one aligned cluster. */
-  .hdr-actions .conn #btnScan,
-  .hdr-actions #btnSource,
-  .hdr-actions .filterwrap > .ffilters-toggle,
-  .hdr-actions .split > .iconmenu {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: var(--tap-min);
-    height: var(--tap-min);
-    padding: 0;
-  }
-  .hdr-actions .conn #btnScan svg,
-  .hdr-actions #btnSource .mi,
-  .hdr-actions .filterwrap > .ffilters-toggle .mi,
-  .hdr-actions .split > .iconmenu .ki {
-    flex: 0 0 auto;
-    width: 17px;
-    height: 17px;
-  }
+}
+
+@media (max-width: 560px) {
   /* "Open day" collapses to an icon-only calendar square on phones — the most
      frugal form; the title tooltip keeps the accessible name. */
   .tl-jump {

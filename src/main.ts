@@ -2669,6 +2669,12 @@ function renderConn(): void {
     el.style.display = "none";
   }
 
+  // On narrow screens the state collapses to a colour-only dot (its text is hidden
+  // by CSS to reclaim the row); mirror the visible text into title + aria-label so
+  // the meaning survives for hover and assistive tech.
+  el.title = el.textContent || "";
+  el.setAttribute("aria-label", el.textContent || "");
+
   // The whole-history "Re-sync" pull is a Beeline-account action; hide it entirely
   // for non-Beeline users (GPX rides come from import, not a sync).
   if (scanBtn) scanBtn.style.display = usesBeeline ? "" : "none";
