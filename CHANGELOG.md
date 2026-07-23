@@ -17,6 +17,13 @@ humans and the assistant can read this file as a compressed history of decisions
 
 ---
 
+## drop the OSM credit link from the app header
+- **What:** removed the tiny `.osm-credit` "© OpenStreetMap contributors" link (and its
+  CSS) from the page header.
+- **Why:** requested clean-up of the header chrome. The big interactive maps (Map, Stats
+  heatmap, Timeline, Wind-rose) still carry their own Leaflet attribution control; only the
+  Explore mini-maps (which set `attributionControl: false`) now lack a visible OSM credit.
+
 ## rename ⋯-menu selection action "Tags…" → "Manage tags"
 - **What:** the selection-group action that opens the bulk tag editor is now labelled
   "Manage tags" instead of "Tags…".
