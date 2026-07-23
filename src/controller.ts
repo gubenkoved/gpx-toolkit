@@ -2052,6 +2052,13 @@ export class Controller {
       this.windCache.reload(),
     ]);
 
+    // Re-render now that the restored GPX blobs are live in the cache index. The
+    // earlier notify() (right after the ride records landed) ran BEFORE these blobs
+    // were written, so the first render showed every ride as un-cached — a stale
+    // view that only corrected itself on a manual reload. Notifying again here makes
+    // the full-GPX badges + offline tracks appear immediately after import.
+    this.notify();
+
     return { ridesImported, gpxCacheImported, gpxDataImported, windImported };
   }
 

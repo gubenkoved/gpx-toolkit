@@ -17,6 +17,20 @@ humans and the assistant can read this file as a compressed history of decisions
 
 ---
 
+## full-GPX badges appear immediately after a backup import
+- **What:** `Controller.importAllZip` now fires a final `notify()` after the restored
+  GPX/wind blobs are written and the cache indexes are rebuilt. Previously the only
+  post-import render happened right after the ride records landed but BEFORE the blobs
+  were restored, so every ride rendered as un-cached (no full-GPX badge, "fetch full
+  GPX" offered again) until a manual page reload corrected it. Added a populated-blob
+  round-trip test that asserts the FINAL notify already sees the restored blob (the old
+  tests only exercised an empty cache, so this regression was invisible).
+- **Why:** importing a full backup appeared to "lose" the full GPX tracks fetched from
+  Beeline — they were actually restored correctly (verified against a real 2231-entry
+  backup: all 11 blobs round-tripped and matched their ride uids), but the stale first
+  render made them look gone. The fix is a one-line re-render at the right moment, not a
+  data change.
+
 ## borderless per-ride stats grid
 - **What:** dropped the dark boxed background/border/radius on the expanded ride card's
   stats grid (`.stats`) and replaced it with a single hairline `border-top` divider plus a

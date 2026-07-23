@@ -153,6 +153,61 @@ describe("Controller backup/restore (ZIP)", () => {
     expect(result.ridesImported).toBeGreaterThanOrEqual(0);
   });
 
+  it("round-trips a populated GPX blob and reflects gpx_cached in the final notify", async () => {
+    // Build a source controller with a real cached full-GPX blob for a Beeline ride.
+    const srcCache = GpxCache.memory();
+    const srcStore = await Store.load(memoryBackend());
+    const factory = async () => {
+      throw new Error("factory not used in backup tests");
+    };
+    const src = new Controller(factory, srcStore, srcCache, GpxCache.memory(), WindCache.memory());
+    const uid = "beeline::ride-abc";
+    srcStore.upsert(uid, {
+      title: "Cached ride",
+      source: "beeline",
+      source_id: "ride-abc",
+      track_bytes: 128,
+    });
+    await srcStore.flush();
+    const gpxXml = new TextEncoder().encode(
+      '<?xml version="1.0" encoding="UTF-8"?><gpx version="1.1"><trk><trkseg>' +
+        '<trkpt lat="50.1" lon="3.1"><ele>10</ele><time>2026-06-13T14:22:00Z</time></trkpt>' +
+        '<trkpt lat="50.2" lon="3.2"><ele>12</ele><time>2026-06-13T14:22:10Z</time></trkpt>' +
+        "</trkseg></trk></gpx>",
+    );
+    await srcCache.put(uid, gpxXml);
+
+    const zipBytes = await src.exportAllZip();
+
+    // Import into a fresh controller, capturing the ride's cached-count on EVERY
+    // change notification so we can assert the LAST one already sees the blob.
+    const freshStore = await Store.load(memoryBackend());
+    const fresh = new Controller(
+      factory,
+      freshStore,
+      GpxCache.memory(),
+      GpxCache.memory(),
+      WindCache.memory(),
+    );
+    let lastNotifyCachedCount = -1;
+    const unsub = fresh.onChange(() => {
+      lastNotifyCachedCount = fresh.state().rides.filter((r) => r.gpx_cached).length;
+    });
+    const result = await fresh.importAllZip(zipBytes);
+    unsub();
+
+    expect(result.gpxCacheImported).toBe(1);
+    // The restored blob is live in the state immediately after import…
+    const view = fresh.state().rides.find((r) => r.key === uid);
+    expect(view?.gpx_cached).toBe(true);
+    // …and — the regression guard — the FINAL notify during import already reflected
+    // it, rather than a stale un-cached view that only a manual reload would repair.
+    expect(lastNotifyCachedCount).toBe(1);
+    // The bytes are genuinely recoverable (offline full track).
+    const ft = await fresh.loadCachedFullTrack(uid);
+    expect(ft).not.toBeNull();
+  });
+
   it("rejects malformed ZIP on import", async () => {
     const badZip = new Uint8Array([1, 2, 3, 4]);
     await expect(controller.importAllZip(badZip)).rejects.toThrow();
