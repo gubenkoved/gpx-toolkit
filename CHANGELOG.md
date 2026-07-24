@@ -17,6 +17,20 @@ humans and the assistant can read this file as a compressed history of decisions
 
 ---
 
+---
+
+## cleanup: extract the date-range slider into range-view.ts
+- **What:** Moved the whole dual-thumb date-range slider (the Map/Stats/Wind-Speed
+  windows — already parameterized by `RangeView`) out of `main.ts` into a new
+  `range-view.ts` leaf: bounds/selection state, reconcile-on-refresh, the slider markup
+  + label/fill sync, and the handle/window-drag/reset/preset handlers. It reads rides
+  via an injected `getRides`, re-mounts the affected view via `remount`, and persists the
+  Wind/Speed window via `onAnalyticsChange`. `main`'s `saveAnalyticsPrefs`/`statsFilteredFlag`
+  now go through the exported `rangeOf` / `rangeWindowLabel` instead of touching internals.
+- **Why:** The range slider is the largest genuinely self-contained chunk of `main.ts`;
+  pulling it behind the same Deps seam the map/stats views use keeps day-index math in one
+  testable place and continues shrinking the entry module.
+
 ## cleanup: unify chip/range/backdrop logic & carve views out of main.ts
 - **What:** Added a generic `cycleThrough(order, current)` helper to `ui.ts` and routed
   the Strava/source/tri-state filter chips and the tag-modal chips through it (dropping
