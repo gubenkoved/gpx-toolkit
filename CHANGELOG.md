@@ -21,6 +21,16 @@ humans and the assistant can read this file as a compressed history of decisions
 
 ---
 
+---
+
+## cleanup: extract shared ride-card rendering into explore-view.ts
+- **What:** Moved the shared "Selected rides" card list (`renderMatchedCards`, consumed
+  by the Map side panel + Stats heatmap via their `renderSelectedCards` dep) and its
+  ride-display helpers (`rideWhen`, `rideTimesTitle`, the internal zone-tag / km / speed
+  formatters) out of `main.ts` into a new `explore-view.ts` leaf behind a `getRides` seam.
+- **Why:** These are pure `(ride) => string` builders shared across surfaces; giving them
+  their own module removes another self-contained cluster from the entry file.
+
 ## cleanup: extract the filter model + filter bar into filter-state.ts
 - **What:** Moved the whole Explore filter concern out of `main.ts` into a new
   `filter-state.ts`: the live `filters` singleton + its persistence (load/save/sanitize),

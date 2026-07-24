@@ -62,6 +62,12 @@ import {
   toggleQueue,
 } from "./jobs-view";
 import {
+  initExploreView,
+  renderMatchedCards,
+  rideTimesTitle,
+  rideWhen,
+} from "./explore-view";
+import {
   addTagModalTag,
   closeTagModal,
   cycleTagChip,
@@ -168,7 +174,6 @@ import {
   resetTimelineData,
 } from "./timeline-view";
 import { decodePolyline } from "./track";
-import { browserZone, formatOffset, localTime, offsetMinutes, zoneCity } from "./tz";
 import { escHtml } from "./ui";
 import { WindCache } from "./windcache";
 import {
@@ -855,44 +860,6 @@ function trackBlock(key: string, track: string): string {
 }
 
 /**
- * The zone tag for a ride's compact time — "UTC+2 · Amsterdam" — shown whenever the
- * ride happened in a DIFFERENT timezone than the viewer's own. The check compares the
- * IANA zones, not just the offset: a ride sharing your current offset but in another
- * zone (Paris vs Amsterdam in summer), or your own zone across a DST boundary, is
- * still named so a time is never silently read as "wherever I am now". A ride in your
- * actual zone stays bare (unambiguous = your local time); an undated/zone-less ride
- * has nothing to disambiguate.
- */
-function rideZoneTag(r: RideView): string {
-  if (!r.start_epoch || !r.tz || r.tz === browserZone()) return "";
-  return `${formatOffset(offsetMinutes(r.start_epoch, r.tz))} · ${zoneCity(r.tz)}`;
-}
-
-/** A ride's compact "when": the datetime, plus its zone tag in parens when the ride
- *  is in a different zone than the viewer. `short` picks the abbreviated date. */
-function rideWhen(r: RideView, short = false): string {
-  const when = short ? rideShortLabel(r.date_key) : r.date_key;
-  const tag = rideZoneTag(r);
-  return tag ? `${when} (${tag})` : when;
-}
-
-/** Plain-text breakdown of a ride's time (ride-local + your local time) for a
- *  compact time's `title` tooltip. Empty unless the ride is in a different zone than
- *  the viewer (a same-zone time needs no breakdown). */
-function rideTimesTitle(r: RideView): string {
-  if (!r.start_epoch || !r.tz || r.tz === browserZone()) return "";
-  const rideOff = offsetMinutes(r.start_epoch, r.tz);
-  const curOff = offsetMinutes(r.start_epoch, browserZone());
-  const lines = [`Ride time: ${r.date_key} (${formatOffset(rideOff)} · ${zoneCity(r.tz)})`];
-  if (rideOff !== curOff) {
-    lines.push(
-      `Your time: ${localTime(r.start_epoch, browserZone()).key} (${formatOffset(curOff)} · current)`,
-    );
-  }
-  return lines.join("\n");
-}
-
-/**
  * Expanded-details body for an open ride. A ride with no stats has none recorded
  * yet — almost always because it's still in progress (the device hasn't finished
  * and synced the ride), so instead of an empty grid we say so.
@@ -1245,55 +1212,6 @@ function flashRowIntoView(key: string): void {
     if (delay === 0) requestAnimationFrame(run);
     else setTimeout(run, delay);
   });
-}
-
-/** Compact distance label for a ride: prefer the measured route length, fall back to the normalized summary. */
-function rideKmText(r: RideView): string {
-  if (r.track_km > 0) return fmtKm(r.track_km);
-  const d = r.distance_km ?? 0;
-  return d > 0 ? fmtKm(d) : "—";
-}
-
-/** Average-speed label for a ride, formatted canonically (em dash when unknown). */
-function rideSpeedText(r: RideView): string {
-  const v = r.avg_speed_kmh ?? 0;
-  return v > 0 ? fmtSpeed(v) : "—";
-}
-
-/**
- * The "Selected" block: rides chosen by a click or an area-drag, each with quick
- * stats (date · distance · avg speed). Shared by the Map view's side panel and the
- * Stats view's heatmap; clicking an entry opens it in the Explore view.
- */
-function renderMatchedCards(keys: string[]): string {
-  const matched = keys
-    .map((k) => STATE.rides.find((r) => r.key === k && !r.deleted))
-    .filter((r): r is RideView => !!r)
-    .sort(compareRidesByDateDesc);
-  if (!matched.length) return "";
-  const cards = matched
-    .map((r) => {
-      const when = escHtml(rideWhen(r, true));
-      const name = escHtml((r.title || "Ride") + (r.location || ""));
-      const km = escHtml(rideKmText(r));
-      const spd = escHtml(rideSpeedText(r));
-      return (
-        `<div class="ms-item matched" data-key="${escHtml(r.key)}" title="${name}">` +
-        `<div class="ms-name">${name}</div>` +
-        `<div class="ms-meta"><span class="ms-when" title="${escHtml(rideTimesTitle(r))}">${when}</span>` +
-        `<span class="ms-figs"><span class="ms-km">${km}</span><span class="ms-spd">${spd}</span></span></div>` +
-        `</div>`
-      );
-    })
-    .join("");
-  const noun = matched.length === 1 ? "ride" : "rides";
-  return (
-    `<div class="ms-matched">` +
-    `<div class="ms-mhead"><h3>Selected · ${matched.length} ${noun}</h3>` +
-    `<button class="ms-clear" title="Clear the selection">Clear</button></div>` +
-    `<div class="ms-mhint">Click a ride below to open it in Explore.</div>` +
-    `<div class="ms-list">${cards}</div></div>`
-  );
 }
 
 /** Reflect the active view in the DOM (visibility, tab state, scan bar). */
@@ -3279,6 +3197,7 @@ initRangeView({
 
 initJobsView({ getJobs: () => STATE.jobs, toast });
 initFilterState({ getRides: () => STATE.rides, onChange: applyState });
+initExploreView({ getRides: () => STATE.rides });
 initTagModal({
   getRides: () => STATE.rides,
   setRideTags: (uids, tagsFor) => controller.setRideTags(uids, tagsFor),
