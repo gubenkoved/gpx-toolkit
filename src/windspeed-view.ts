@@ -362,37 +362,51 @@ export function syncColorByGating(): void {
 }
 
 /** The confirm-to-run gate: a centred card stating exactly how many rides the current
- *  window will analyse (it live-updates as the slider moves) plus the "Analyse" button
- *  that arms the sweep. When some rides in range still need wind resolved or full GPX
- *  fetched, those actions live here too — right where the user is already looking — so
- *  there's no separate button row cluttering the view. Shown until the user opts in. */
-function renderAnalyticsGate(rideCount: number, unresolved: number, needGpx: number): void {
+ *  window can actually analyse (only rides with resolved wind AND full GPX qualify — it
+ *  live-updates as the slider moves) plus the "Analyse" button that arms the sweep. When
+ *  some rides in range still need wind resolved or full GPX fetched, those actions live
+ *  here too — right where the user is already looking — so there's no separate button row
+ *  cluttering the view. Shown until the user opts in. */
+function renderAnalyticsGate(
+  analyzable: number,
+  windowCount: number,
+  unresolved: number,
+  needGpx: number,
+): void {
   const el = document.getElementById("analyticsChartMsg");
   if (!el) return;
-  const ridesWord = rideCount === 1 ? "ride" : "rides";
+  const ridesWord = analyzable === 1 ? "ride" : "rides";
   // Prep actions appear only when they can act on rides in range, with the affected
   // count in the label. They reuse the delegated #analyticsResolve / #analyticsFetchGpx
   // handlers (no per-render wiring), so the IDs must stay stable.
   const actions: string[] = [];
   if (unresolved) {
     actions.push(
-      `<button type="button" class="ghost small" id="analyticsResolve">` +
+      `<button type="button" class="accent small" id="analyticsResolve">` +
         `Resolve wind for ${unresolved} ${unresolved === 1 ? "ride" : "rides"}</button>`,
     );
   }
   if (needGpx) {
     actions.push(
-      `<button type="button" class="ghost small" id="analyticsFetchGpx">` +
+      `<button type="button" class="accent small" id="analyticsFetchGpx">` +
         `Fetch full GPX for ${needGpx} ${needGpx === 1 ? "ride" : "rides"}</button>`,
     );
   }
+  // The detail line makes the analysable subset explicit so the counter never reads as
+  // "all N rides will be analysed" when most lack the GPX needed to chart them.
+  const detail =
+    analyzable === windowCount
+      ? `<b>${windowCount}</b> ${windowCount === 1 ? "ride" : "rides"} in the selected date window`
+      : `<b>${analyzable}</b> of ${windowCount} rides in the window ${
+          analyzable === 1 ? "is" : "are"
+        } ready to analyse`;
   el.innerHTML =
     `<span class="cm-card cm-gate">` +
     `<b class="cm-head">Analyse wind vs speed</b>` +
-    `<span class="cm-detail"><b>${rideCount}</b> ${ridesWord} in the selected date window</span>` +
+    `<span class="cm-detail">${detail}</span>` +
     `<button type="button" class="primary small cm-go" id="analyticsRun"${
-      rideCount === 0 ? " disabled" : ""
-    }>Analyse ${rideCount} ${ridesWord}</button>` +
+      analyzable === 0 ? " disabled" : ""
+    }>Analyse ${analyzable} ${ridesWord}</button>` +
     (actions.length
       ? `<span class="cm-detail cm-or">or first prepare the data:</span>` +
         `<span class="cm-actions">${actions.join("")}</span>`
@@ -491,7 +505,11 @@ async function runAnalyticsView(my: number, _opts: { fit?: boolean } = {}): Prom
   if (!analyticsArmed) {
     const unresolved = inRange.filter((r) => !r.wind_resolved && !!r.track).length;
     const needGpx = inRange.filter((r) => r.source !== "gpx" && !r.gpx_cached).length;
-    renderAnalyticsGate(resolved.length, unresolved, needGpx);
+    // Only rides with BOTH resolved wind AND full GPX (real timestamps) can actually be
+    // charted — a resolved-but-GPX-less ride is left out of the sweep. So the "Analyse"
+    // counter must reflect the analysable subset, not every ride in the window.
+    const analyzable = resolved.filter((r) => r.source === "gpx" || r.gpx_cached).length;
+    renderAnalyticsGate(analyzable, inRange.length, unresolved, needGpx);
     clearChart();
     setAnalyticsCardsPlaceholder();
     const noteEl = document.getElementById("analyticsNote");

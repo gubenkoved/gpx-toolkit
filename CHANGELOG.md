@@ -17,6 +17,16 @@ humans and the assistant can read this file as a compressed history of decisions
 
 ---
 
+## wind/speed gate counter reflects only analysable rides
+- **What:** the confirm-to-run card's "Analyse N rides" button now counts only rides that can
+  actually be charted — resolved wind AND full GPX (real timestamps) — instead of every
+  wind-resolved ride in the window. The detail line reads "<b>X</b> of N rides in the window
+  are ready to analyse" whenever the analysable subset is smaller, and the button disables at 0.
+- **Why:** with mostly GPX-less rides in range the gate promised "Analyse 156 rides" while only
+  a handful had the timestamps needed to sweep — misleading, since the rest are silently left
+  out. The counter now matches what the sweep will really process, and the "Fetch full GPX"
+  prep action explains the gap.
+
 ## compact the mobile/tablet header with progressive disclosure
 - **What:** the header now strips its widest, least-essential chrome step-by-step as the
   viewport narrows so it always stays on ONE line: the descriptive connection pill

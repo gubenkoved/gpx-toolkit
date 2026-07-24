@@ -4484,6 +4484,14 @@ body.climate-expanded .cl-ctl input[type="range"] {
 .cm-gate .cm-go {
   margin-top: 4px;
 }
+/* The gate's detail line is a full sentence, not a one-line ride label — let it wrap
+   and centre rather than ellipsize (which turned "…is ready to analyse" into "is read…"). */
+.cm-gate .cm-detail {
+  white-space: normal;
+  overflow: visible;
+  text-align: center;
+  text-wrap: balance;
+}
 /* A quiet "or first prepare the data" separator above the optional prep actions. */
 .cm-gate .cm-or {
   margin-top: 4px;
