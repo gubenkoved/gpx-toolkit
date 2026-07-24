@@ -2343,6 +2343,57 @@ async function flushWindCache(): Promise<void> {
 // --------------------------------------------------------------------------- //
 // Events
 // --------------------------------------------------------------------------- //
+
+// Simple `id → action` click routes, split into the two ordering regions of the
+// dispatcher: `early` runs BEFORE the menu / filter-panel outside-click guards
+// (modal + ride-map controls, which should ignore those guards), `late` runs AFTER
+// them (so e.g. opening the map full-screen still closes a stray open menu first).
+// Only pure, single-`return` id cases live here — anything with `data-*`/`closest`
+// matching, fall-through, `preventDefault`, or async confirm stays in the chain.
+const earlyClickActions: Record<string, () => void> = {
+  btnDemoBeeline: () => {
+    hideSources();
+    void goDemoBeeline();
+  },
+  btnBeelinePull: () => pullFromBeeline(),
+  btnBeelineDisconnect: () => void controller.disconnect(),
+  btnGpxSource: () => goGpx(),
+  btnPickClose: () => hideSources(),
+  btnRideMapFull: () => fetchRideMapFull(),
+  btnRideMapWind: () => toggleRideMapWind(),
+  btnRideMapProfileStops: () => toggleRideMapProfileStops(),
+  btnRideMapProfile: () => toggleRideMapProfile(),
+  btnRideMapClose: () => closeRideMap(),
+};
+const lateClickActions: Record<string, () => void> = {
+  btnMapExpand: () => setMapExpanded(!document.body.classList.contains("map-expanded")),
+  btnHeatExpand: () => setHeatExpanded(!document.body.classList.contains("heat-expanded")),
+  btnMapSelect: () => mapAreaSelect.setMode(!mapAreaSelect.isArmed()),
+  btnHeatSelect: () => heatAreaSelect.setMode(!heatAreaSelect.isArmed()),
+  btnMapLocate: () => mapLocate.setActive(!mapLocate.isActive()),
+  btnHeatLocate: () => heatLocate.setActive(!heatLocate.isActive()),
+  fToggle: () => setFilterPanel(!isFilterPanelOpen()),
+  fClose: () => setFilterPanel(false),
+  fTags: () => toggleTagsFilter(),
+  btnSource: () => showSources(),
+  btnSettings: () => showSettings(),
+  btnSettingsClose: () => hideSettings(),
+  btnImport: () => void ($("#importFile") as HTMLInputElement).click(),
+  btnExport: () => exportRides(),
+  btnExportAll: () => void exportAll(),
+  btnReset: () => void resetEverything(),
+  btnScan: () => pullFromBeeline(),
+  btnCancel: () => run(() => controller.cancel(null)),
+  btnClear: () => run(() => controller.clear()),
+  btnQueueToggle: () => toggleQueue(),
+  btnJobHide: () => hideJob(),
+  jobHandle: () => showJob(),
+  selClear: () => {
+    selected.clear();
+    render();
+  },
+};
+
 document.addEventListener("click", (e) => {
   const target = e.target as HTMLElement;
   if (target && target.tagName === "INPUT") return; // checkboxes handled on 'change'
@@ -2354,24 +2405,9 @@ document.addEventListener("click", (e) => {
   // handled by the toggle/apply branches instead.
   if (!target.closest(".rf-presets")) closeRangePresets();
 
-  // Sources dialog actions (modal): handle before anything else.
-  if (t.id === "btnDemoBeeline") {
-    hideSources();
-    return void goDemoBeeline();
-  }
-  if (t.id === "btnBeelinePull") {
-    return pullFromBeeline();
-  }
-  if (t.id === "btnBeelineDisconnect") {
-    return void controller.disconnect();
-  }
-  if (t.id === "btnGpxSource") {
-    return goGpx();
-  }
-  if (t.id === "btnPickClose") {
-    hideSources();
-    return;
-  }
+  // Simple modal / ride-map controls that must ignore the menu/panel guards below.
+  const early = earlyClickActions[t.id];
+  if (early) return early();
 
   // Analytics view: resolve historical wind for every ride in the current date
   // range, so the wind-vs-speed scatter has points to plot.
@@ -2418,12 +2454,6 @@ document.addEventListener("click", (e) => {
   if (t.dataset?.expand) {
     return openRideMap(t.dataset.expand);
   }
-  if (t.id === "btnRideMapFull") {
-    return fetchRideMapFull();
-  }
-  if (t.id === "btnRideMapWind") {
-    return toggleRideMapWind();
-  }
   if (t.dataset?.color && t.closest("#rideMapColor")) {
     // Wind is the seg's 4th pillar — selecting it resolves/enables wind colouring;
     // any other mode turns wind colouring off and hides its summary line.
@@ -2436,15 +2466,6 @@ document.addEventListener("click", (e) => {
   }
   if (t.dataset?.axis && t.closest("#rideMapProfileAxis")) {
     return setRideMapProfileAxis(t.dataset.axis as "distance" | "time");
-  }
-  if (t.id === "btnRideMapProfileStops") {
-    return toggleRideMapProfileStops();
-  }
-  if (t.id === "btnRideMapProfile") {
-    return toggleRideMapProfile();
-  }
-  if (t.id === "btnRideMapClose") {
-    return closeRideMap();
   }
 
   // Split-button: toggle its dropdown. Any click outside an open menu closes it.
@@ -2479,32 +2500,13 @@ document.addEventListener("click", (e) => {
     setFilterPanel(false);
   }
 
+  // Simple id-keyed routes that run after the guards (so a stray open menu / panel
+  // is dismissed first). Structural (`data-*`/`closest`) cases stay in the chain below.
+  const late = lateClickActions[t.id];
+  if (late) return late();
+
   if (t.dataset?.view) {
     setView(t.dataset.view as ViewName);
-    return;
-  }
-  if (t.id === "btnMapExpand") {
-    setMapExpanded(!document.body.classList.contains("map-expanded"));
-    return;
-  }
-  if (t.id === "btnHeatExpand") {
-    setHeatExpanded(!document.body.classList.contains("heat-expanded"));
-    return;
-  }
-  if (t.id === "btnMapSelect") {
-    mapAreaSelect.setMode(!mapAreaSelect.isArmed());
-    return;
-  }
-  if (t.id === "btnHeatSelect") {
-    heatAreaSelect.setMode(!heatAreaSelect.isArmed());
-    return;
-  }
-  if (t.id === "btnMapLocate") {
-    mapLocate.setActive(!mapLocate.isActive());
-    return;
-  }
-  if (t.id === "btnHeatLocate") {
-    heatLocate.setActive(!heatLocate.isActive());
     return;
   }
   if (t.dataset?.rangereset) {
@@ -2533,26 +2535,15 @@ document.addEventListener("click", (e) => {
   }
   // The header "Filters" button summons the global ride-filter panel (a desktop
   // dropdown / mobile bottom sheet). It floats over content, so no view re-render is
-  // needed — flip the panel directly (syncFilterBar keeps its chips in step).
-  if (t.id === "fToggle") {
-    setFilterPanel(!isFilterPanelOpen());
-    return;
-  }
-  // The panel's own close (×) button — and the mobile sheet's scrim, which the
-  // outside-click guard below already handles — dismiss the panel.
-  if (t.id === "fClose") {
-    setFilterPanel(false);
-    return;
-  }
+  // needed — flip the panel directly (syncFilterBar keeps its chips in step). It +
+  // its close button live in `lateClickActions`. The date-range triggers open the
+  // shared styled date-picker constrained so the two bounds can't cross.
   if (t.dataset?.fchip) {
     cycleChip(t.dataset.fchip);
     saveFilters();
     applyState();
     return;
   }
-  // Added (ingestion-date) range: each trigger opens the shared styled date-picker
-  // constrained so the two bounds can't cross. The picker itself persists + re-renders
-  // on pick, so there's nothing to do here but open it.
   const ingTrigger = t.closest<HTMLElement>("#fIngFrom, #fIngTo");
   if (ingTrigger) {
     openIngestionPicker(ingTrigger.id === "fIngFrom" ? "from" : "to", ingTrigger);
@@ -2564,13 +2555,9 @@ document.addEventListener("click", (e) => {
     openRidePicker(rideTrigger.id === "fRideFrom" ? "from" : "to", rideTrigger);
     return;
   }
-  // Tags filter: the chip toggles its in-panel multi-select section; each tag chip ORs
-  // that tag in/out of the filter; the Clear row empties the selection. The section
-  // stays open through tag toggles so several can be picked in one go.
-  if (t.id === "fTags") {
-    toggleTagsFilter();
-    return;
-  }
+  // The Tags chip (`fTags`, in `lateClickActions`) toggles its in-panel multi-select
+  // section; each tag chip ORs that tag in/out of the filter; the Clear row empties it.
+  // The section stays open through tag toggles so several can be picked in one go.
   const ftagOpt = t.closest<HTMLElement>(".ftag-opt");
   if (ftagOpt?.dataset.ftagUntagged) {
     filters.untagged = !filters.untagged;
@@ -2634,31 +2621,9 @@ document.addEventListener("click", (e) => {
     render();
     return;
   }
-  if (t.id === "btnSource") return showSources();
-  if (t.id === "btnSettings") return showSettings();
-  if (t.id === "btnSettingsClose") return hideSettings();
-  if (t.id === "btnImport") return void ($("#importFile") as HTMLInputElement).click();
-  if (t.id === "btnExport") return exportRides();
-  if (t.id === "btnExportAll") return void exportAll();
   if (t.dataset?.clear === "gpx") return void flushGpxCache();
   if (t.dataset?.clear === "wind") return void flushWindCache();
   if (t.dataset?.clear === "location") return void dropLocationHistory();
-  if (t.id === "btnReset") return void resetEverything();
-  if (t.id === "btnScan") return pullFromBeeline();
-  if (t.id === "btnCancel") return run(() => controller.cancel(null));
-  if (t.id === "btnClear") return run(() => controller.clear());
-  if (t.id === "btnQueueToggle") {
-    toggleQueue();
-    return;
-  }
-  if (t.id === "btnJobHide") {
-    hideJob();
-    return;
-  }
-  if (t.id === "jobHandle") {
-    showJob();
-    return;
-  }
   if (t.dataset?.cancel) {
     return run(() => controller.cancel(parseInt(t.dataset.cancel!, 10)));
   }
@@ -2670,11 +2635,6 @@ document.addEventListener("click", (e) => {
   if (t.dataset && "errDetails" in t.dataset) {
     const card = t.closest(".errcard") as HTMLElement | null;
     if (card?.dataset.id) toggleErrorDetails(card.dataset.id);
-    return;
-  }
-  if (t.id === "selClear") {
-    selected.clear();
-    render();
     return;
   }
   if (t.id === "btnGpxSaveSel") {

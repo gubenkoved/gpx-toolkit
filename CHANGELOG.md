@@ -23,6 +23,22 @@ humans and the assistant can read this file as a compressed history of decisions
 
 ---
 
+---
+
+## cleanup: consolidate simple click routes into id → action tables
+- **What:** Folded the ~30 trivial `if (t.id === "…") return fn()` leaves of the global
+  click dispatcher into two `Record<string, () => void>` lookup tables — `earlyClickActions`
+  (routes that must run before the menu/filter-panel outside-click guards: the modal +
+  ride-map controls) and `lateClickActions` (routes that run after them: map/heat toggles,
+  filter panel, settings, export/import, job controls, clear-selection). Each is dispatched
+  at one point per region. Everything with `data-*`/`closest` matching, fall-through,
+  `preventDefault`, or an async confirm stays in the readable chain.
+- **Why:** The dispatcher's simple id leaves were pure noise repeated 30×; a keyed table
+  says each route once and shortens the chain to only the branches that genuinely need
+  ordering or structural matching — without the awkwardness of forcing the structural
+  cases into a table too. Behaviour is preserved exactly (the two regions keep the guard
+  ordering intact).
+
 ## cleanup: extract shared ride-card rendering into explore-view.ts
 - **What:** Moved the shared "Selected rides" card list (`renderMatchedCards`, consumed
   by the Map side panel + Stats heatmap via their `renderSelectedCards` dep) and its
