@@ -13,6 +13,18 @@
  * snapshot tests in `tests/ui.test.ts`.
  */
 
+/**
+ * Advance `current` to the next value in a fixed cyclic order, wrapping past the
+ * end. When `current` isn't in `order` (shouldn't happen) it lands on the first
+ * entry. One canonical "click cycles through these states" helper so the several
+ * tri-/n-state chips (Strava status, source, the yes/no/any presence filters, the
+ * on/off/mixed tag chips) never re-implement the modulo dance.
+ */
+export function cycleThrough<T>(order: readonly T[], current: T): T {
+  const i = order.indexOf(current);
+  return order[(i + 1) % order.length];
+}
+
 /** Escape text / attribute values for safe interpolation into innerHTML. */
 export function escHtml(s: string): string {
   return (s || "")

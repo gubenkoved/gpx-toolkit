@@ -17,6 +17,21 @@ humans and the assistant can read this file as a compressed history of decisions
 
 ---
 
+## cleanup: unify chip/range/backdrop logic & carve views out of main.ts
+- **What:** Added a generic `cycleThrough(order, current)` helper to `ui.ts` and routed
+  the Strava/source/tri-state filter chips and the tag-modal chips through it (dropping
+  four hand-rolled modulo/ternary cyclers). Collapsed the six parallel `*Range`/`*RangeBounds`
+  module vars in `main.ts` into one `ranges` record keyed by view. Added a `dismissOnBackdrop`
+  helper and wired all four modals through it, removing the scattered `target.id === "…"`
+  backdrop checks from the global click dispatcher. Dropped the now-internal `export` on
+  `windchart.ts`'s `ChartReg`. Then extracted three self-contained UI surfaces out of the
+  ~4600-line `main.ts` into their own Deps-seam modules: `jobs-view.ts` (job ticker + error
+  stack), `tag-modal.ts` (bulk tag assignment) and `sources-view.ts` (Sources/Settings dialogs).
+- **Why:** First pass of a cleanup sweep — say each cycling/range/dismiss concern once so the
+  logic can't drift, and start shrinking the `main.ts` kitchen sink by moving cohesive surfaces
+  behind the same injected-Deps pattern the map/stats/climate views already use. Each module is
+  independently testable and can't reach into app globals.
+
 ## date-range sliders gain a quick-ranges dropdown
 - **What:** Fused a caret onto every date-range slider's "All" reset — the Timeline
   bar and the Map / Stats / Wind·Speed basemap filters alike — dropping a menu of

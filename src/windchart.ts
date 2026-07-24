@@ -1,7 +1,7 @@
 import type { WindSeg } from "./windspeed";
 
-/** The fitted line + quality, as produced by `linearRegression`. */
-export interface ChartReg {
+/** The fitted line + quality, as produced by `linearRegression` (internal to this module). */
+interface ChartReg {
   slope: number;
   intercept: number;
   r2: number;

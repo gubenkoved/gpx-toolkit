@@ -46,6 +46,33 @@ import {
 } from "./map-view";
 import { type DateRange, dateRange, filterRidesByRange } from "./mapview";
 import {
+  dismissError,
+  hideJob,
+  initJobsView,
+  pushError,
+  renderJob,
+  showJob,
+  toggleErrorDetails,
+  toggleQueue,
+} from "./jobs-view";
+import {
+  addTagModalTag,
+  closeTagModal,
+  cycleTagChip,
+  initTagModal,
+  openTagModal,
+  saveTagModal,
+} from "./tag-modal";
+import {
+  hideSettings,
+  hideSources,
+  initSourcesView,
+  renderSources,
+  setBeelineError,
+  showSettings,
+  showSources,
+} from "./sources-view";
+import {
   autoGranularity,
   bucketRide,
   compareRidesByDateDesc,
@@ -111,7 +138,7 @@ import {
 } from "./ridemap";
 import type { SourceFactory } from "./source";
 import { type RideSource, STORAGE_KEY, Store } from "./store";
-import { addTag, collectTags, hasTag, normalizeTag, removeTag, tagKey } from "./tags";
+import { collectTags, tagKey } from "./tags";
 import {
   closeTimelineHelp,
   collapseTimeline,
@@ -124,7 +151,7 @@ import {
 } from "./timeline-view";
 import { decodePolyline } from "./track";
 import { browserZone, formatOffset, localTime, offsetMinutes, zoneCity } from "./tz";
-import { escHtml } from "./ui";
+import { cycleThrough, escHtml } from "./ui";
 import { WindCache } from "./windcache";
 import {
   initWindSpeedView,
@@ -255,94 +282,11 @@ function activate(next: Controller, demo: boolean): void {
 
 // A cloud action deferred until the user (re)authenticates to Beeline. Set when a
 // signed-out Beeline session triggers something needing the account (Re-sync,
-// upload); run once sign-in succeeds, then cleared.
+// upload); run once sign-in succeeds, then cleared. The Sources/Settings dialogs
+// themselves live in ./sources-view; on dismissal they call back to clear this.
 let afterBeelineSignIn: (() => void) | null = null;
 
 /**
- * Show the Sources dialog (connect/manage data sources), prefilling the remembered
- * Beeline email if any. In `reauth` mode it focuses the Beeline sign-in (the user
- * already has a profile and just needs to re-enter the password — which a password
- * manager can inject). In `welcome` mode it leads with the onboarding intro.
- */
-function showSources(opts: { reauth?: boolean; welcome?: boolean } = {}): void {
-  const picker = document.getElementById("srcPick");
-  if (!picker) return;
-  const reauth = opts.reauth === true;
-  picker.classList.toggle("reauth", reauth);
-  picker.classList.toggle("welcome", opts.welcome === true);
-
-  const email = rememberedEmail();
-  const emailInput = document.getElementById("beelineEmail") as HTMLInputElement | null;
-  if (email && emailInput && !emailInput.value) emailInput.value = email;
-
-  const sub = picker.querySelector(".srcpick-sub");
-  if (sub) {
-    sub.textContent = reauth
-      ? "Sign in to your Beeline account to sync."
-      : "Connect the sources your rides come from. They all live together in one library.";
-  }
-  renderSources();
-
-  setBeelineError("");
-  picker.classList.remove("hidden");
-  if (reauth) {
-    const pass = document.getElementById("beelinePass") as HTMLInputElement | null;
-    pass?.focus();
-  }
-}
-
-function hideSources(): void {
-  const picker = document.getElementById("srcPick");
-  picker?.classList.add("hidden");
-  picker?.classList.remove("reauth", "welcome");
-  // Dismissing the prompt abandons any action that was waiting on sign-in.
-  afterBeelineSignIn = null;
-}
-
-/** Open the Settings dialog, syncing each control to the persisted setting. */
-function showSettings(): void {
-  const modal = document.getElementById("settingsModal");
-  if (!modal) return;
-  const thresh = STATE.settings.movingThresholdKmh;
-  const slider = document.getElementById("setMovingThresh") as HTMLInputElement | null;
-  if (slider) slider.value = String(thresh);
-  if (slider) setSliderFill(slider);
-  const out = document.getElementById("setMovingThreshOut") as HTMLOutputElement | null;
-  if (out) out.value = `${thresh} km/h`;
-  const suggestTags = document.getElementById("setSuggestTags") as HTMLInputElement | null;
-  if (suggestTags) suggestTags.checked = STATE.settings.suggestTagsAfterImport;
-  modal.classList.remove("hidden");
-}
-
-function hideSettings(): void {
-  document.getElementById("settingsModal")?.classList.add("hidden");
-}
-
-function setBeelineError(message: string): void {
-  const el = document.getElementById("beelineErr");
-  if (el) el.textContent = message;
-}
-
-/**
- * Populate the Beeline card in the Sources dialog from the live connection state:
- * when connected (or demo) it shows "Connected as …" + the per-source actions
- * (Pull from Beeline / Disconnect); otherwise the sign-in form. Driven by the
- * Controller's state, so it stays correct as the connection changes while open.
- */
-function renderSources(): void {
-  const card = document.getElementById("srcBeeline");
-  if (!card) return;
-  const connected = STATE.connected || isDemo;
-  card.classList.toggle("connected", connected);
-  const status = document.getElementById("beelineStatus");
-  if (status) {
-    status.textContent = connected
-      ? isDemo
-        ? "Connected — demo account"
-        : `Connected — ${STATE.device || "Beeline account"}`
-      : "";
-  }
-}
 
 /**
  * Run an action that needs a live Beeline connection. When signed out (the offline,
@@ -1081,14 +1025,6 @@ let tagsFilterOpen = false;
 // bottom sheet) is open. Module-scope so it survives re-renders; stays open while
 // toggling chips, closes on outside click / Esc.
 let filterPanelOpen = false;
-// Whether the queue panel's "Up next" list is expanded. Module-scope so it
-// survives the frequent re-renders the job ticker triggers; starts open so the
-// pending work is visible by default.
-let queueExpanded = true;
-// Whether the user has minimized the live job pill to its small handle. Module-
-// scope so it survives the job ticker's re-renders; auto-resets when work ends so
-// the next batch shows itself rather than staying hidden silently.
-let jobHidden = false;
 // Stats granularity + metric toggles as signals: an effect keeps each segmented
 // control's `.active` highlight in sync (one place, replacing the active-class
 // loops that were otherwise duplicated in renderStats and the click handler).
@@ -1106,24 +1042,6 @@ effect(() => {
     b.classList.toggle("active", b.dataset.metric === m);
   }
 });
-// Persistent error stack. Every error — failed jobs AND standalone connection/
-// import/storage errors — is shown as its own card and only disappears when the
-// user dismisses it (or, for a job, when that job is re-run and succeeds). We track
-// dismissed/already-flashed ids by string so the two error sources share one model.
-const dismissedErrIds = new Set<string>();
-const shownErrIds = new Set<string>();
-// Error cards the user has expanded ("Details"). Kept at module scope so the
-// expansion survives the frequent re-renders the job ticker triggers — otherwise
-// renderError() rebuilds the stack from scratch and the open panel collapses.
-const expandedErrIds = new Set<string>();
-interface PushedError {
-  id: string;
-  title: string;
-  full: string;
-  ts: number;
-}
-const pushedErrors: PushedError[] = [];
-let errSeq = 0;
 let lastSig = "";
 /** Tracks the per-ride wind-resolved state applied to the DOM, so a weather-only
  *  change can be detected and patched in place (see applyState/applyWeatherUpdate). */
@@ -1328,12 +1246,16 @@ const DAY_MS = 86_400_000;
 // Selection is stored as day-start timestamps (local 00:00) for both edges; the
 // slider works in whole-day INDICES (0…N) so stepping is exact and DST-safe, and
 // the "to" edge always covers its whole day when filtering (see ridesInRange).
-let mapRange: DateRange | null = null;
-let mapRangeBounds: DateRange | null = null;
-let statsRange: DateRange | null = null;
-let statsRangeBounds: DateRange | null = null;
-let analyticsRange: DateRange | null = null;
-let analyticsRangeBounds: DateRange | null = null;
+// Per-view range state: the current selection (`sel`) and the last-seen bounds
+// of the whole library (`bounds`), used to reconcile the selection when rides are
+// added/removed. One record keyed by view instead of six parallel `*Range` /
+// `*RangeBounds` module vars, so the accessors below are a single lookup.
+type RangeState = { sel: DateRange | null; bounds: DateRange | null };
+const ranges: Record<RangeView, RangeState> = {
+  map: { sel: null, bounds: null },
+  stats: { sel: null, bounds: null },
+  analytics: { sel: null, bounds: null },
+};
 
 // Persisted Wind/Speed preferences (see ANALYTICS_PREFS_KEY). The date window is
 // stored as raw edge timestamps and re-applied (clamped to the live bounds) on the
@@ -1442,8 +1364,8 @@ function saveAnalyticsPrefs(): void {
         attr
       ];
     const prefs: AnalyticsPrefs = {
-      rangeMin: analyticsRange?.minMs ?? null,
-      rangeMax: analyticsRange?.maxMs ?? null,
+      rangeMin: ranges.analytics.sel?.minMs ?? null,
+      rangeMax: ranges.analytics.sel?.maxMs ?? null,
       gMin: readNum("gMin"),
       gMax: readNum("gMax"),
       sMin: readNum("sMin"),
@@ -1600,25 +1522,17 @@ function reconcileRange(
 /** Recompute a view's bounds from the current rides and reconcile its selection. */
 function refreshRange(which: RangeView): void {
   const bounds = dateRange(STATE.rides);
-  if (which === "map") {
-    mapRange = bounds ? reconcileRange(mapRange, mapRangeBounds, bounds) : null;
-    mapRangeBounds = bounds;
-  } else if (which === "stats") {
-    statsRange = bounds ? reconcileRange(statsRange, statsRangeBounds, bounds) : null;
-    statsRangeBounds = bounds;
-  } else if (analyticsRange === null && savedAnalyticsRange && bounds) {
+  const st = ranges[which];
+  if (which === "analytics" && st.sel === null && savedAnalyticsRange && bounds) {
     // First computation after load: adopt the remembered window, clamped into the
     // live bounds (not via reconcileRange, which would discard a selection when there
     // were no prior bounds). One-shot — clear it so later refreshes reconcile.
-    analyticsRange = clampRangeToBounds(savedAnalyticsRange, bounds);
-    analyticsRangeBounds = bounds;
+    st.sel = clampRangeToBounds(savedAnalyticsRange, bounds);
     savedAnalyticsRange = null;
   } else {
-    analyticsRange = bounds
-      ? reconcileRange(analyticsRange, analyticsRangeBounds, bounds)
-      : null;
-    analyticsRangeBounds = bounds;
+    st.sel = bounds ? reconcileRange(st.sel, st.bounds, bounds) : null;
   }
+  st.bounds = bounds;
 }
 
 /** Clamp a remembered selection to day-start boundaries within the live bounds. */
@@ -1634,26 +1548,17 @@ function clampRangeToBounds(sel: DateRange, bounds: DateRange): DateRange {
   return { minMs: from, maxMs: to };
 }
 
-const rangeOf = (which: RangeView): DateRange | null =>
-  which === "map" ? mapRange : which === "stats" ? statsRange : analyticsRange;
-const boundsOf = (which: RangeView): DateRange | null =>
-  which === "map"
-    ? mapRangeBounds
-    : which === "stats"
-      ? statsRangeBounds
-      : analyticsRangeBounds;
+const rangeOf = (which: RangeView): DateRange | null => ranges[which].sel;
+const boundsOf = (which: RangeView): DateRange | null => ranges[which].bounds;
 /** The DOM id of a view's range-slider host. Ids follow the `${which}Filter`
  *  convention (mapFilter / statsFilter / analyticsFilter). */
 const filterHostId = (which: RangeView): string => `${which}Filter`;
 
 /** Store a new selection for a view. */
 function assignRange(which: RangeView, next: DateRange): void {
-  if (which === "map") mapRange = next;
-  else if (which === "stats") statsRange = next;
-  else {
-    analyticsRange = next;
-    saveAnalyticsPrefs(); // Wind/Speed window is remembered across reloads.
-  }
+  ranges[which].sel = next;
+  // Wind/Speed window is remembered across reloads.
+  if (which === "analytics") saveAnalyticsPrefs();
 }
 
 /** Re-mount a view after its range changed (no re-fit during live drags). */
@@ -2434,22 +2339,18 @@ initFilterPanel();
 
 /** Advance a tri-state chip one step on click. */
 function cycleChip(which: string): void {
-  const nextTri = (s: TriState): TriState =>
-    s === "any" ? "yes" : s === "yes" ? "no" : "any";
+  const nextTri = (s: TriState): TriState => cycleThrough(["any", "yes", "no"], s);
   if (which === "status") {
-    const i = STATUS_CYCLE.indexOf(filters.status);
-    filters.status = STATUS_CYCLE[(i + 1) % STATUS_CYCLE.length];
+    filters.status = cycleThrough(STATUS_CYCLE, filters.status);
   } else if (which === "source") {
-    const i = SOURCE_CYCLE.indexOf(filters.source);
-    filters.source = SOURCE_CYCLE[(i + 1) % SOURCE_CYCLE.length];
+    filters.source = cycleThrough(SOURCE_CYCLE, filters.source);
   } else if (which === "gps") filters.gps = nextTri(filters.gps);
   else if (which === "cached") filters.cached = nextTri(filters.cached);
   else if (which === "wind") filters.wind = nextTri(filters.wind);
   else if (which === "destination") filters.destination = nextTri(filters.destination);
   else if (which === "named") filters.named = nextTri(filters.named);
   else if (which === "deleted") {
-    filters.deleted =
-      filters.deleted === "any" ? "only" : filters.deleted === "only" ? "none" : "any";
+    filters.deleted = cycleThrough(["any", "only", "none"], filters.deleted);
   }
 }
 
@@ -3051,222 +2952,6 @@ function render(): void {
   lastWeatherSig = weatherSig();
 }
 
-function renderJob(): void {
-  const jobs = STATE.jobs;
-  const cur = jobs.current;
-  const queue = jobs.queue || [];
-  // A month/year "Check" is ONE task carrying many ride keys, so counting tasks
-  // would show "1 queued" for a 12-ride batch. Count the actual rides subject to
-  // the operation instead (running + waiting, deduped via active_keys). Scans have
-  // no ride keys, so each pending/running scan counts as a single item.
-  const queuedTasks = queue.length;
-  const rideCount = new Set(jobs.active_keys || []).size;
-  const scanCount = [cur, ...queue].filter((t) => t && t.kind === "scan").length;
-  const total = rideCount + scanCount;
-  const busy = !!cur || queuedTasks > 0;
-  if (!busy) jobHidden = false; // a finished batch clears the hide so the next one reappears
-  $("#job").classList.toggle("show", busy && !jobHidden);
-  $("#jobHandle").classList.toggle("show", busy && jobHidden);
-  document.body.classList.toggle("job-active", busy);
-
-  // -- current activity: what is being done right now -----------------------
-  const titleEl = $("#jobTitle");
-  const msgEl = $("#jobMsg");
-  const bar = $("#jobBar") as HTMLElement;
-  if (cur) {
-    titleEl.textContent = taskTitle(cur);
-    msgEl.textContent = cur.message || "working\u2026";
-    const p = cur.progress;
-    if (p && p.total > 0) {
-      bar.style.display = "";
-      ($("#jobBarFill") as HTMLElement).style.width =
-        `${Math.round((p.done / p.total) * 100)}%`;
-    } else {
-      bar.style.display = "none";
-    }
-  } else if (busy) {
-    titleEl.textContent = "Starting\u2026";
-    msgEl.textContent = "waiting for the next item\u2026";
-    bar.style.display = "none";
-  } else {
-    bar.style.display = "none";
-  }
-
-  // -- queued-ride count badge ----------------------------------------------
-  const qc = $("#qcount");
-  qc.textContent = total ? `${total} ride${total === 1 ? "" : "s"} queued` : "";
-  qc.style.display = total ? "" : "none";
-
-  // Minimized handle: keep it a tiny pill, but convey the NATURE of the work and the
-  // PROGRESS, not just a bare count. Show the current verb ("Resolving wind") + a
-  // done/total when the running task reports progress, and turn the spinner into a
-  // determinate ring that fills as work completes (falls back to the indeterminate
-  // spinner when no progress is known, e.g. a scan).
-  const handleText = $("#jobHandleText");
-  const handleSpin = $("#jobHandle .spin") as HTMLElement;
-  const verb = cur ? TASK_VERB[cur.kind] || cur.kind : "Working";
-  const hp = cur?.progress;
-  if (hp && hp.total > 0) {
-    handleSpin.classList.add("det");
-    handleSpin.style.setProperty("--p", String(hp.done / hp.total));
-    handleText.textContent = `${verb} · ${hp.done}/${hp.total}`;
-  } else {
-    handleSpin.classList.remove("det");
-    handleSpin.style.removeProperty("--p");
-    handleText.textContent = total
-      ? `${verb} · ${total} ride${total === 1 ? "" : "s"}`
-      : `${verb}\u2026`;
-  }
-
-  // -- the rest of the queue: what is to be done ----------------------------
-  const toggle = $("#btnQueueToggle") as HTMLElement;
-  toggle.style.display = queuedTasks ? "" : "none";
-  toggle.textContent = `Up next (${queuedTasks})`;
-  toggle.setAttribute("aria-expanded", String(queueExpanded));
-  const list = $("#jobList");
-  const showList = queueExpanded && queuedTasks > 0;
-  list.classList.toggle("show", showList);
-  list.innerHTML = showList ? queue.map(queueItemHtml).join("") : "";
-
-  // Clear only drops not-yet-started tasks, so keep its visibility tied to the queue.
-  ($("#btnClear") as HTMLElement).style.display = queuedTasks ? "" : "none";
-  renderError(jobs);
-}
-
-// Human verb for each task kind, used in the queue panel ("Checking", "Uploading"…).
-const TASK_VERB: Record<string, string> = {
-  scan: "Scanning",
-  status: "Checking",
-  upload: "Uploading",
-  "download-gpx": "Downloading GPX",
-  "fetch-weather": "Resolving wind",
-};
-
-type JobTask = NonNullable<AppState["jobs"]["current"]>;
-
-/** One-line description of a task: verb + what it acts on (a ride count, or the
- *  scan window). The running task also shows live "done of total" progress. */
-function taskTitle(t: JobTask): string {
-  const verb = TASK_VERB[t.kind] || t.kind;
-  if (t.kind === "scan") return t.label ? `${verb} ${t.label}` : verb;
-  const p = t.progress;
-  if (p && p.total > 0)
-    return `${verb} ${p.done} of ${p.total} ride${p.total === 1 ? "" : "s"}`;
-  return `${verb} ${t.count} ride${t.count === 1 ? "" : "s"}`;
-}
-
-/** A waiting-queue row: verb + count, with a per-item remove button. */
-function queueItemHtml(t: JobTask): string {
-  const verb = TASK_VERB[t.kind] || t.kind;
-  const desc =
-    t.kind === "scan"
-      ? t.label
-        ? `${verb} ${t.label}`
-        : verb
-      : `${verb} ${t.count} ride${t.count === 1 ? "" : "s"}`;
-  return `<div class="job-item">
-    <span class="ji-dot"></span>
-    <span class="ji-text">${escHtml(desc)}</span>
-    <button class="ji-x" data-cancel="${t.id}" title="Remove from queue" aria-label="Remove from queue">\u00d7</button>
-  </div>`;
-}
-
-function shortError(text: string): string {
-  if (!text) return "";
-  const line = text.split("\n").find((l) => l.trim()) || text;
-  // The full error is "header:\n  • per-ride detail" — when we show only this first
-  // line as a summary (toast / collapsed card), the trailing colon promises detail
-  // that isn't shown here, so drop it. The full text keeps the colon + bullets.
-  return line.trim().replace(/:$/, "");
-}
-
-function renderError(jobs: AppState["jobs"]): void {
-  const stack = $("#errstack");
-
-  // Combine the two error sources into one newest-first list, dropping any the user
-  // has already dismissed. Job errors are keyed by task id; standalone errors carry
-  // their own push id. Both expose a wall-clock `ts` so they interleave by recency.
-  type ErrCard = { id: string; title: string; full: string; ts: number };
-  const cards: ErrCard[] = [];
-  const all = [...(jobs.history || [])];
-  if (jobs.current) all.push(jobs.current);
-  for (const t of all) {
-    if (t.status !== "error" || !t.error) continue;
-    cards.push({
-      id: `job-${t.id}`,
-      title: `${t.kind} failed${t.label ? ` — ${t.label}` : ""}`,
-      full: t.error,
-      ts: (t.finished_at ?? 0) * 1000,
-    });
-  }
-  for (const p of pushedErrors) {
-    cards.push({ id: p.id, title: p.title, full: p.full, ts: p.ts });
-  }
-  const visible = cards.filter((c) => !dismissedErrIds.has(c.id)).sort((a, b) => b.ts - a.ts);
-
-  // Rebuild the stack from scratch each render; building via DOM (not innerHTML)
-  // keeps user-supplied error text from being interpreted as markup.
-  stack.textContent = "";
-  for (const c of visible) {
-    const card = document.createElement("div");
-    card.className = "errcard";
-    card.dataset.id = c.id;
-
-    const bar = document.createElement("div");
-    bar.className = "errbar show";
-
-    const ico = document.createElement("span");
-    ico.className = "ico";
-    ico.textContent = "⚠";
-
-    const etext = document.createElement("div");
-    etext.className = "etext";
-    const title = document.createElement("b");
-    title.textContent = c.title;
-    const msg = document.createElement("span");
-    msg.textContent = shortError(c.full);
-    etext.append(title, msg);
-
-    const details = document.createElement("button");
-    details.className = "small ghost";
-    details.dataset.errDetails = "";
-    details.textContent = "Details";
-
-    const dismiss = document.createElement("button");
-    dismiss.className = "small ghost";
-    dismiss.dataset.errDismiss = "";
-    dismiss.textContent = "Dismiss";
-
-    bar.append(ico, etext, details, dismiss);
-
-    const full = document.createElement("pre");
-    full.className = "errfull";
-    if (expandedErrIds.has(c.id)) full.classList.add("show");
-    full.textContent = c.full;
-
-    card.append(bar, full);
-    stack.append(card);
-  }
-
-  // Flash the newest error as a toast the first time we see it, for immediacy — the
-  // persistent card is the durable record, so the flash may safely fade.
-  const newest = visible[0];
-  if (newest && !shownErrIds.has(newest.id)) {
-    shownErrIds.add(newest.id);
-    toast(shortError(newest.full), true);
-  }
-}
-
-/**
- * Record a standalone error (connection, import, storage…) that lives outside the
- * job queue, so it persists in the error stack until the user dismisses it instead
- * of vanishing with the next status toast.
- */
-function pushError(title: string, full: string): void {
-  pushedErrors.push({ id: `push-${++errSeq}`, title, full, ts: Date.now() });
-  renderError(STATE.jobs);
-}
-
 // Batch select acts only on rides that pass the active filters — the same
 // visible set the list shows and the header checkbox's checked/indeterminate
 // state is derived from. Sourcing from the full STATE.rides would silently
@@ -3307,114 +2992,6 @@ function dismissToast(): void {
 
 // Styled confirm/prompt/consent dialogs live in ./confirm (initConfirm wires their
 // own listeners; the app's global keydown still calls the imported closeConfirm).
-
-// -- tag assignment modal --------------------------------------------------
-// A tri-state checkbox per existing tag: "on" = every targeted ride has it,
-// "off" = none does, "mixed" = some do. Clicking a chip that STARTED mixed cycles
-// mixed → on → off → mixed (so "leave as-is" stays reachable); an on/off chip just
-// toggles. On Save we apply exactly what's shown — add the on tags, remove the off
-// tags, leave the mixed ones untouched — so a bulk edit is non-destructive.
-type TagTri = "on" | "off" | "mixed";
-interface TagChip {
-  name: string;
-  key: string;
-  initial: TagTri;
-  cur: TagTri;
-}
-let tagModalState: { keys: string[]; chips: TagChip[] } | null = null;
-
-/** Open the tag-assign modal for one or more ride uids. */
-function openTagModal(keys: string[]): void {
-  const rides = keys
-    .map((k) => STATE.rides.find((r) => r.key === k))
-    .filter((r): r is RideView => !!r);
-  if (!rides.length) return;
-  const chips: TagChip[] = collectTags(STATE.rides).map((name) => {
-    const n = rides.filter((r) => hasTag(r.tags, name)).length;
-    const initial: TagTri = n === 0 ? "off" : n === rides.length ? "on" : "mixed";
-    return { name, key: tagKey(name), initial, cur: initial };
-  });
-  tagModalState = { keys: rides.map((r) => r.key), chips };
-  $("#tagModalBody").textContent =
-    rides.length === 1
-      ? `Tags for ${rideShortLabel(rides[0].key) || rides[0].key}.`
-      : `Tags for ${rides.length} selected rides.`;
-  const input = $<HTMLInputElement>("#tagModalInput");
-  input.value = "";
-  renderTagModalChips();
-  document.getElementById("tagModal")?.classList.remove("hidden");
-  input.focus();
-}
-
-/** Repaint the modal's tag chips from the working state. */
-function renderTagModalChips(): void {
-  const wrap = document.getElementById("tagModalChips");
-  if (!wrap || !tagModalState) return;
-  wrap.innerHTML = tagModalState.chips
-    .map((c, i) => {
-      const cls = c.cur === "on" ? " on" : c.cur === "mixed" ? " mixed" : "";
-      const hint =
-        c.cur === "on"
-          ? "will be on every ride"
-          : c.cur === "mixed"
-            ? "left unchanged (on some rides)"
-            : "will be removed from every ride";
-      return `<button type="button" class="tagmodal-chip${cls}" data-tagidx="${i}" title="${escHtml(
-        `${c.name} — ${hint}`,
-      )}">${escHtml(c.name)}</button>`;
-    })
-    .join("");
-}
-
-/** Advance a chip's tri-state on click (mixed chips cycle through three states). */
-function cycleTagChip(i: number): void {
-  const c = tagModalState?.chips[i];
-  if (!c) return;
-  if (c.initial === "mixed") {
-    c.cur = c.cur === "mixed" ? "on" : c.cur === "on" ? "off" : "mixed";
-  } else {
-    c.cur = c.cur === "on" ? "off" : "on";
-  }
-  renderTagModalChips();
-}
-
-/** Add a typed tag to the modal (creating its chip), or re-arm an existing one. */
-function addTagModalTag(): void {
-  if (!tagModalState) return;
-  const input = $<HTMLInputElement>("#tagModalInput");
-  const disp = normalizeTag(input.value);
-  input.value = "";
-  input.focus();
-  if (!disp) return;
-  const key = tagKey(disp);
-  const existing = tagModalState.chips.find((c) => c.key === key);
-  if (existing) existing.cur = "on";
-  else tagModalState.chips.push({ name: disp, key, initial: "off", cur: "on" });
-  renderTagModalChips();
-}
-
-/** Apply the modal's choices to every targeted ride and close it. */
-function saveTagModal(): void {
-  const st = tagModalState;
-  document.getElementById("tagModal")?.classList.add("hidden");
-  tagModalState = null;
-  if (!st) return;
-  const adds = st.chips.filter((c) => c.cur === "on");
-  const removes = st.chips.filter((c) => c.cur === "off");
-  controller.setRideTags(st.keys, (uid) => {
-    const ride = STATE.rides.find((r) => r.key === uid);
-    let next = ride ? [...ride.tags] : [];
-    for (const c of removes) next = removeTag(next, c.name);
-    for (const c of adds) next = addTag(next, c.name);
-    return next;
-  });
-}
-
-/** Dismiss the tag modal without applying anything. */
-function closeTagModal(): void {
-  document.getElementById("tagModal")?.classList.add("hidden");
-  tagModalState = null;
-}
 
 function stateSig(): string {
   // Exclude the verbose, fast-changing job fields (message/progress/history) from the
@@ -3789,11 +3366,6 @@ document.addEventListener("click", (e) => {
     hideSources();
     return;
   }
-  // Click on the dialog backdrop (outside the card) dismisses it.
-  if (target.id === "srcPick") {
-    hideSources();
-    return;
-  }
 
   // Analytics view: resolve historical wind for every ride in the current date
   // range, so the wind-vs-speed scatter has points to plot.
@@ -3865,7 +3437,7 @@ document.addEventListener("click", (e) => {
   if (t.id === "btnRideMapProfile") {
     return toggleRideMapProfile();
   }
-  if (t.id === "btnRideMapClose" || target.id === "rideMapModal") {
+  if (t.id === "btnRideMapClose") {
     return closeRideMap();
   }
 
@@ -4060,8 +3632,6 @@ document.addEventListener("click", (e) => {
   if (t.id === "btnSource") return showSources();
   if (t.id === "btnSettings") return showSettings();
   if (t.id === "btnSettingsClose") return hideSettings();
-  // Click on the Settings backdrop (outside the card) dismisses it.
-  if (target.id === "settingsModal") return hideSettings();
   if (t.id === "btnImport") return void ($("#importFile") as HTMLInputElement).click();
   if (t.id === "btnExport") return exportRides();
   if (t.id === "btnExportAll") return void exportAll();
@@ -4073,18 +3643,15 @@ document.addEventListener("click", (e) => {
   if (t.id === "btnCancel") return run(() => controller.cancel(null));
   if (t.id === "btnClear") return run(() => controller.clear());
   if (t.id === "btnQueueToggle") {
-    queueExpanded = !queueExpanded;
-    renderJob();
+    toggleQueue();
     return;
   }
   if (t.id === "btnJobHide") {
-    jobHidden = true;
-    renderJob();
+    hideJob();
     return;
   }
   if (t.id === "jobHandle") {
-    jobHidden = false;
-    renderJob();
+    showJob();
     return;
   }
   if (t.dataset?.cancel) {
@@ -4092,18 +3659,12 @@ document.addEventListener("click", (e) => {
   }
   if (t.dataset && "errDismiss" in t.dataset) {
     const card = t.closest(".errcard") as HTMLElement | null;
-    if (card?.dataset.id) dismissedErrIds.add(card.dataset.id);
-    renderError(STATE.jobs);
+    if (card?.dataset.id) dismissError(card.dataset.id);
     return;
   }
   if (t.dataset && "errDetails" in t.dataset) {
     const card = t.closest(".errcard") as HTMLElement | null;
-    const open = card?.querySelector(".errfull")?.classList.toggle("show");
-    // Remember the expand state so the next job-ticker re-render doesn't collapse it.
-    if (card?.dataset.id) {
-      if (open) expandedErrIds.add(card.dataset.id);
-      else expandedErrIds.delete(card.dataset.id);
-    }
+    if (card?.dataset.id) toggleErrorDetails(card.dataset.id);
     return;
   }
   if (t.id === "selClear") {
@@ -4402,13 +3963,24 @@ window.addEventListener("resize", () => {
 // Styled confirm/prompt/consent dialogs (./confirm) wire their own listeners.
 initConfirm();
 
-// Tag-assign modal: Save / Cancel, backdrop-click cancels, the add form creates a
-// tag chip, and clicking a chip cycles its tri-state.
+// Backdrop-click dismissal: a click that lands on a modal's own backdrop element
+// (not a child) closes it. One canonical wiring so every modal dismisses the same
+// way and the checks don't clutter the global click dispatcher — each modal keeps
+// its own teardown via the passed close callback.
+function dismissOnBackdrop(id: string, close: () => void): void {
+  document.getElementById(id)?.addEventListener("click", (e) => {
+    if (e.target === e.currentTarget) close();
+  });
+}
+dismissOnBackdrop("srcPick", hideSources);
+dismissOnBackdrop("settingsModal", hideSettings);
+dismissOnBackdrop("rideMapModal", closeRideMap);
+dismissOnBackdrop("tagModal", closeTagModal);
+
+// Tag-assign modal: Save / Cancel, the add form creates a tag chip, and clicking a
+// chip cycles its tri-state (backdrop-click cancels via dismissOnBackdrop above).
 document.getElementById("tagModalSave")?.addEventListener("click", () => saveTagModal());
 document.getElementById("tagModalCancel")?.addEventListener("click", () => closeTagModal());
-document.getElementById("tagModal")?.addEventListener("click", (e) => {
-  if (e.target === e.currentTarget) closeTagModal();
-});
 document.getElementById("tagModalAdd")?.addEventListener("submit", (e) => {
   e.preventDefault();
   addTagModalTag();
@@ -4601,6 +4173,20 @@ initRideMap({
   osmAttribution: OSM_ATTRIBUTION,
 });
 
+initJobsView({ getJobs: () => STATE.jobs, toast });
+initTagModal({
+  getRides: () => STATE.rides,
+  setRideTags: (uids, tagsFor) => controller.setRideTags(uids, tagsFor),
+});
+initSourcesView({
+  getState: () => STATE,
+  isDemo: () => isDemo,
+  rememberedEmail,
+  onDismiss: () => {
+    afterBeelineSignIn = null;
+  },
+});
+
 initTimelineView({
   getStore: () => locStore,
   ensureStore: ensureLocStore,
@@ -4623,7 +4209,7 @@ initWindSpeedView({
   getRides: () => STATE.rides,
   ridesInRange,
   applyFilters: (rides) => visibleRides(filters, rides),
-  analyticsRange: () => analyticsRange,
+  analyticsRange: () => ranges.analytics.sel,
   movingThresholdKmh: () => STATE.settings.movingThresholdKmh,
   weatherFetchedAt: (key) => controller.weatherFetchedAt(key),
   windSamples: (key) => controller.windSamples(key),
@@ -4639,7 +4225,7 @@ initMapView({
   getRides: () => STATE.rides,
   ridesInRange,
   applyFilters: (rides) => visibleRides(filters, rides),
-  mapRange: () => mapRange,
+  mapRange: () => ranges.map.sel,
   refreshRange: () => refreshRange("map"),
   syncRangeControl: () => syncRangeControl("map"),
   renderSelectedCards: (keys) => renderMatchedCards(keys),
@@ -4650,7 +4236,7 @@ initStatsView({
   getRides: () => STATE.rides,
   ridesInRange,
   applyFilters: (rides) => visibleRides(filters, rides),
-  statsRange: () => statsRange,
+  statsRange: () => ranges.stats.sel,
   refreshRange: () => refreshRange("stats"),
   syncRangeControl: () => syncRangeControl("stats"),
   filteredFlag: statsFilteredFlag,

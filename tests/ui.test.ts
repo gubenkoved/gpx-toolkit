@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { escHtml, statNum } from "../src/ui";
+import { cycleThrough, escHtml, statNum } from "../src/ui";
 
 describe("escHtml", () => {
   it("escapes the HTML-significant characters", () => {
@@ -44,5 +44,18 @@ describe("statNum", () => {
     expect(html).toContain("a &amp; b");
     expect(html).toContain("&quot;quoted&quot;");
     expect(html).toContain('title="&lt;b&gt;t&lt;/b&gt;"');
+  });
+});
+
+describe("cycleThrough", () => {
+  it("advances to the next entry and wraps past the end", () => {
+    const order = ["any", "yes", "no"] as const;
+    expect(cycleThrough(order, "any")).toBe("yes");
+    expect(cycleThrough(order, "yes")).toBe("no");
+    expect(cycleThrough(order, "no")).toBe("any");
+  });
+
+  it("falls back to the first entry when the current value isn't in the order", () => {
+    expect(cycleThrough(["on", "off"], "mixed" as "on" | "off")).toBe("on");
   });
 });
