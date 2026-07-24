@@ -674,7 +674,8 @@ export function mapBeelineRide(
   // reverse-geocoded destination is appended so the controller can render it as a
   // muted location suffix ("Let's go sailing, Strand IJburg").
   const userName = typeof raw.name === "string" ? raw.name.trim() : "";
-  const base = userName || (zone ? timeOfDayNameFromHour(zone.hour) : timeOfDayName(raw.start));
+  const base =
+    userName || (zone ? timeOfDayNameFromHour(zone.hour) : timeOfDayName(raw.start));
   const place = destinationPlace(raw);
   fields.title_base = base;
   fields.title = place ? `${base}, ${place}` : base;

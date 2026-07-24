@@ -401,7 +401,8 @@ function mergeDuplicateRecords(a: RideRecord, b: RideRecord): RideRecord {
     (r.deleted ? 0 : 4) + (r.track ? 2 : 0) + (r.last_seen ? 1 : 0);
   const sa = score(a);
   const sb = score(b);
-  const winner = sb !== sa ? (sb > sa ? b : a) : (b.last_seen ?? "") > (a.last_seen ?? "") ? b : a;
+  const winner =
+    sb !== sa ? (sb > sa ? b : a) : (b.last_seen ?? "") > (a.last_seen ?? "") ? b : a;
   const bothDeleted = a.deleted === true && b.deleted === true;
   return { ...winner, deleted: bothDeleted, deleted_at: bothDeleted ? winner.deleted_at : "" };
 }
@@ -624,7 +625,8 @@ export class Store {
     // repair a legacy browser-timezone key. A timeless GPX omits `start_epoch`, so it
     // still stamps once.
     if (fields.key && (!existed || fields.start_epoch)) rec.key = fields.key;
-    if (fields.title) rec.title = fields.title;    if (fields.title_base) {
+    if (fields.title) rec.title = fields.title;
+    if (fields.title_base) {
       rec.title_base = fields.title_base;
       // Seed the display title from the scan name until a fuller one is checked.
       if (!rec.title) rec.title = fields.title_base;

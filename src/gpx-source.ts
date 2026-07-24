@@ -349,7 +349,6 @@ async function contentId(bytes: Uint8Array): Promise<string> {
   return `crc32:${crc32(bytes).toString(16)}-${bytes.length}`;
 }
 
-
 interface FilenameMeta {
   /** Start instant parsed from a leading `YYYY-MM-DD[ HH-MM]`, else null. */
   startMs: number | null;

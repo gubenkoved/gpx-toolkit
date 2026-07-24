@@ -120,7 +120,14 @@ export function offsetMinutes(epochMs: number, iana: string): number {
   const zone = iana || browserZone();
   const p = offsetFormatter(zone).formatToParts(new Date(epochMs));
   const v = (t: string): number => Number(p.find((x) => x.type === t)?.value ?? "0");
-  const asUTC = Date.UTC(v("year"), v("month") - 1, v("day"), v("hour") % 24, v("minute"), v("second"));
+  const asUTC = Date.UTC(
+    v("year"),
+    v("month") - 1,
+    v("day"),
+    v("hour") % 24,
+    v("minute"),
+    v("second"),
+  );
   return Math.round((asUTC - epochMs) / 60000);
 }
 

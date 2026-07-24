@@ -181,9 +181,7 @@ function renderMapSide(tracks: RideTrack[], missing: number): void {
   const sub = missing
     ? `${tracks.length} on map · ${missing} without a route`
     : `${tracks.length} on map`;
-  const hiddenNote = hidden
-    ? `<div class="ms-hidden">${hidden} hidden by filters</div>`
-    : "";
+  const hiddenNote = hidden ? `<div class="ms-hidden">${hidden} hidden by filters</div>` : "";
   side.innerHTML =
     `<div class="ms-head"><h2>All rides</h2><span class="ms-count" id="msCount"></span></div>` +
     deps.renderSelectedCards(selectedKeys) +

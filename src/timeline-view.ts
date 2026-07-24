@@ -997,7 +997,6 @@ function closeRangePresets(): void {
   });
 }
 
-
 function renderOverviewSide(): void {
   const side = document.getElementById("tlSide");
   if (!side) return;

@@ -33,18 +33,19 @@ const ddbFake = vi.hoisted(() => {
 });
 
 vi.mock("@aws-sdk/client-dynamodb", () => {
-  // biome-ignore lint/suspicious/noExplicitAny: minimal stand-ins for the SDK command/client.
   class UpdateItemCommand {
     __kind = "update";
+    // biome-ignore lint/suspicious/noExplicitAny: minimal stand-ins for the SDK command/client.
     constructor(public input: any) {}
   }
-  // biome-ignore lint/suspicious/noExplicitAny: minimal stand-ins for the SDK command/client.
   class GetItemCommand {
     __kind = "get";
+    // biome-ignore lint/suspicious/noExplicitAny: minimal stand-ins for the SDK command/client.
     constructor(public input: any) {}
   }
   class DynamoDBClient {
     // biome-ignore lint/suspicious/noExplicitAny: unused client config in the fake.
+    // biome-ignore lint/complexity/noUselessConstructor: needed to accept + ignore the SDK config arg.
     constructor(_config: any) {}
     // biome-ignore lint/suspicious/noExplicitAny: command/result are untyped in the fake.
     async send(cmd: any) {
@@ -293,7 +294,9 @@ describe("gpx-relay Lambda handler", () => {
     expect((await handler(postEvent({ rideId: "-Ride1" }))).statusCode).toBe(200);
     expect(fetchFn).toHaveBeenCalledTimes(2);
     // Second is blocked globally — even from a different account/IP — before any hop.
-    const blocked = await handler(postEvent({ rideId: "-Ride1" }, { uid: "u2", ip: "9.9.9.9" }));
+    const blocked = await handler(
+      postEvent({ rideId: "-Ride1" }, { uid: "u2", ip: "9.9.9.9" }),
+    );
     expect(blocked.statusCode).toBe(429);
     expect(blocked.error ?? JSON.parse(blocked.body).error).toMatch(/monthly download limit/);
     expect(Number(blocked.headers["Retry-After"])).toBeGreaterThan(0);

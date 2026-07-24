@@ -569,7 +569,7 @@ function renderRideProfile(): void {
   for (let i = 0; i < values.length; i++) {
     const v = values[i];
     if (v == null) continue;
-    if (skipPt && skipPt[i]) continue;
+    if (skipPt?.[i]) continue;
     const x = axisX[i];
     const y = yOf(v);
     if (!started) {
@@ -977,7 +977,9 @@ function syncRideMapControls(): void {
   const profileBtn = document.getElementById("btnRideMapProfile") as HTMLButtonElement | null;
   const metricSeg = document.getElementById("rideMapProfileMetric");
   const axisSeg = document.getElementById("rideMapProfileAxis");
-  const stopsBtn = document.getElementById("btnRideMapProfileStops") as HTMLButtonElement | null;
+  const stopsBtn = document.getElementById(
+    "btnRideMapProfileStops",
+  ) as HTMLButtonElement | null;
   const est = document.getElementById("rideMapEst");
   const hasTime = (ride?.elapsed_sec || ride?.moving_sec || 0) > 0;
 

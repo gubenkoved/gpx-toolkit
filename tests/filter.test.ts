@@ -298,9 +298,9 @@ describe("matchesFilters — ingestion-date band", () => {
 
   it("includes rides ingested within an inclusive from–to day range", () => {
     const r = ride({ ingested_at: at(2026, 6, 15) });
-    expect(matchesFilters(f({ ingestedFrom: "2026-06-10", ingestedTo: "2026-06-20" }), r)).toBe(
-      true,
-    );
+    expect(
+      matchesFilters(f({ ingestedFrom: "2026-06-10", ingestedTo: "2026-06-20" }), r),
+    ).toBe(true);
     expect(matchesFilters(f({ ingestedFrom: "2026-06-16" }), r)).toBe(false);
     expect(matchesFilters(f({ ingestedTo: "2026-06-14" }), r)).toBe(false);
   });
@@ -369,7 +369,10 @@ describe("matchesFilters — ride-date band", () => {
   it("filters on the ride's own date independently of its ingestion date", () => {
     // Ridden Jun 17 but added Jun 14 — a ride-date window that excludes Jun 17 drops it
     // even though its ingestion date is inside the same window.
-    const r = ride({ date_key: "Wed Jun 17 2026 at 08:05", ingested_at: "2026-06-14T09:30:00Z" });
+    const r = ride({
+      date_key: "Wed Jun 17 2026 at 08:05",
+      ingested_at: "2026-06-14T09:30:00Z",
+    });
     expect(matchesFilters(f({ rideTo: "2026-06-15" }), r)).toBe(false);
     expect(matchesFilters(f({ ingestedTo: "2026-06-15" }), r)).toBe(true);
   });

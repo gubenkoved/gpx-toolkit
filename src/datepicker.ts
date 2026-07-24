@@ -185,7 +185,10 @@ function buildMonths(): { head: string; grid: string } {
   const maxYear = maxDay != null ? Number(maxDay.slice(0, 4)) : null;
   const prevOff = minYear != null && year <= minYear;
   const nextOff = maxYear != null && year >= maxYear;
-  const selMonth = opts.value && Number(opts.value.slice(0, 4)) === year ? Number(opts.value.slice(5, 7)) - 1 : -1;
+  const selMonth =
+    opts.value && Number(opts.value.slice(0, 4)) === year
+      ? Number(opts.value.slice(5, 7)) - 1
+      : -1;
   const now = new Date();
   const curY = now.getFullYear();
   const curM = now.getMonth();
@@ -195,7 +198,8 @@ function buildMonths(): { head: string; grid: string } {
     // A month is selectable when any of its days fall within [min,max].
     const monthStart = isoDay(year, m0, 1);
     const monthEnd = isoDay(year, m0, new Date(Date.UTC(year, m0 + 1, 0)).getUTCDate());
-    const out = (minDay != null && monthEnd < minDay) || (maxDay != null && monthStart > maxDay);
+    const out =
+      (minDay != null && monthEnd < minDay) || (maxDay != null && monthStart > maxDay);
     const label = new Date(Date.UTC(year, m0, 1)).toLocaleDateString(undefined, {
       month: "short",
       timeZone: "UTC",
@@ -274,7 +278,8 @@ function headHtml(
 function render(): void {
   if (!state) return;
   const { opts, view } = state;
-  const built = view === "days" ? buildDays() : view === "months" ? buildMonths() : buildYears();
+  const built =
+    view === "days" ? buildDays() : view === "months" ? buildMonths() : buildYears();
 
   let pop = document.getElementById("dpPop");
   if (!pop) {
@@ -311,7 +316,7 @@ function render(): void {
   const a = opts.anchor.getBoundingClientRect();
   const w = pop.offsetWidth;
   const h = pop.offsetHeight;
-  let left = Math.max(8, Math.min(a.left, window.innerWidth - w - 8));
+  const left = Math.max(8, Math.min(a.left, window.innerWidth - w - 8));
   let top = a.top - h - 8;
   if (top < 8) top = a.bottom + 8;
   pop.style.left = `${left}px`;

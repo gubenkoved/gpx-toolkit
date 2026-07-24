@@ -69,6 +69,7 @@
               <button class="fchip" id="fDeleted" data-fchip="deleted" data-state="any" title="Filter by deletion (click to cycle: any → only deleted → hide deleted)">Deleted: any</button>
               <span class="ftags-wrap hidden" id="fTagsWrap">
                 <button class="fchip" id="fTags" aria-haspopup="true" aria-expanded="false" aria-controls="fTagsPop" title="Filter by tags — a ride matches if it has ANY of the selected tags (OR)">Tags: any</button>
+                <!-- biome-ignore lint/a11y/useSemanticElements: intentional role=group — a <fieldset> would inject default borders/margins into this absolutely-positioned popover. -->
                 <div class="ftags-pop hidden" id="fTagsPop" role="group" aria-label="Filter by tags"></div>
               </span>
             </span>

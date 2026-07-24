@@ -338,7 +338,10 @@ describe("dateRange", () => {
 
   it("returns null when no ride has a parseable date", () => {
     expect(
-      dateRange([ride({ date_key: "garbage" }), ride({ date_key: "also bad", deleted: true })]),
+      dateRange([
+        ride({ date_key: "garbage" }),
+        ride({ date_key: "also bad", deleted: true }),
+      ]),
     ).toBeNull();
   });
 

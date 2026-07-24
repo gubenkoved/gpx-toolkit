@@ -197,8 +197,9 @@ describe("GpxRideSource", () => {
     const before = Date.now();
     const cards: RideCard[] = [];
     // No <time> codes, and a filename with no date → only the upload instant remains.
-    await source.importFiles([gpxFile(gpx({ name: "Timeless", times: false }), "loop.gpx")], (c) =>
-      cards.push(c),
+    await source.importFiles(
+      [gpxFile(gpx({ name: "Timeless", times: false }), "loop.gpx")],
+      (c) => cards.push(c),
     );
     const dt = rideDatetime(cards[0].key);
     expect(dt).not.toBeNull(); // a real reference date, not a content hash

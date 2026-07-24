@@ -1399,9 +1399,7 @@ export class Controller {
             bundle.push(file);
             succeeded++;
           } else {
-            failures.push(
-              `${this.uidLabel(uid)}: no route track to export`,
-            );
+            failures.push(`${this.uidLabel(uid)}: no route track to export`);
           }
           if (task.progress) task.progress.done++;
         } else {
@@ -1735,9 +1733,9 @@ export class Controller {
    * number of rides actually dropped.
    */
   async dropDeleted(keys?: string[]): Promise<number> {
-    const uids = (keys ? keys.map((k) => this.normalizeUid(k)) : [...this.store.rides.keys()]).filter(
-      (uid) => this.store.rides.get(uid)?.deleted === true,
-    );
+    const uids = (
+      keys ? keys.map((k) => this.normalizeUid(k)) : [...this.store.rides.keys()]
+    ).filter((uid) => this.store.rides.get(uid)?.deleted === true);
     let dropped = 0;
     for (const uid of uids) {
       if (!this.store.remove(uid)) continue;

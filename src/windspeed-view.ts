@@ -751,9 +751,7 @@ async function runAnalyticsView(my: number, _opts: { fit?: boolean } = {}): Prom
         dotColor,
         xValue,
         xSigned,
-        xCaption: xSigned
-          ? "← headwind        tailwind →   (km/h)"
-          : "crosswind →   (km/h)",
+        xCaption: xSigned ? "← headwind        tailwind →   (km/h)" : "crosswind →   (km/h)",
       });
       reconcileSegSelection(shown);
       applyDotHighlights();
@@ -773,9 +771,7 @@ function rideForSeg(seg: WindSeg): RideView | null {
 function segStatsText(seg: WindSeg): string {
   const along = seg.avgAlongKmh;
   const wind =
-    along >= 0
-      ? `tailwind ${along.toFixed(1)} km/h`
-      : `headwind ${(-along).toFixed(1)} km/h`;
+    along >= 0 ? `tailwind ${along.toFixed(1)} km/h` : `headwind ${(-along).toFixed(1)} km/h`;
   const cross = `cross ${Math.abs(seg.avgCrossKmh).toFixed(1)}`;
   const speed = `${fmtSpeed(seg.avgSpeedKmh)} avg`;
   const dist = fmtKmDetail(seg.distanceKm);
@@ -827,7 +823,9 @@ function renderSelectedCard(seg: WindSeg): void {
   const when = escHtml(rideShortLabel(ride.date_key));
   const name = escHtml((ride.title || "Ride") + (ride.location || ""));
   const km = escHtml(ride.track_km > 0 ? fmtKm(ride.track_km) : "—");
-  const spd = escHtml(ride.avg_speed_kmh && ride.avg_speed_kmh > 0 ? fmtSpeed(ride.avg_speed_kmh) : "—");
+  const spd = escHtml(
+    ride.avg_speed_kmh && ride.avg_speed_kmh > 0 ? fmtSpeed(ride.avg_speed_kmh) : "—",
+  );
   card.innerHTML =
     `<div class="ms-mhead"><h3>Selected segment</h3>` +
     `<button class="ms-clear" title="Clear the selection">Clear</button></div>` +
@@ -880,9 +878,16 @@ function wireChartInteraction(): void {
   if (!canvas || !card) return;
   interactionWired = true;
 
-  const at = (e: PointerEvent | MouseEvent): { x: number; y: number; w: number; h: number } => {
+  const at = (
+    e: PointerEvent | MouseEvent,
+  ): { x: number; y: number; w: number; h: number } => {
     const rect = canvas.getBoundingClientRect();
-    return { x: e.clientX - rect.left, y: e.clientY - rect.top, w: rect.width, h: rect.height };
+    return {
+      x: e.clientX - rect.left,
+      y: e.clientY - rect.top,
+      w: rect.width,
+      h: rect.height,
+    };
   };
 
   canvas.addEventListener("pointermove", (e) => {

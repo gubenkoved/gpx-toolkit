@@ -160,7 +160,13 @@ describe("Controller backup/restore (ZIP)", () => {
     const factory = async () => {
       throw new Error("factory not used in backup tests");
     };
-    const src = new Controller(factory, srcStore, srcCache, GpxCache.memory(), WindCache.memory());
+    const src = new Controller(
+      factory,
+      srcStore,
+      srcCache,
+      GpxCache.memory(),
+      WindCache.memory(),
+    );
     const uid = "beeline::ride-abc";
     srcStore.upsert(uid, {
       title: "Cached ride",

@@ -25,6 +25,17 @@ humans and the assistant can read this file as a compressed history of decisions
 
 ---
 
+## chore: apply biome across the codebase & clear all lint findings
+- **What:** Ran `biome check --write` repo-wide (format + import organization on 19 files)
+  and cleared the remaining hand-fixable findings: a leftover empty `/**` comment in
+  `main.ts` from the sources-view extraction; a merged double `./tags` import in
+  `tag-modal.ts`; an optional-chain simplification in `ridemap.ts`; correctly-placed
+  `biome-ignore` comments + a `noUselessConstructor` suppression in the gpx-relay DynamoDB
+  test fake; and an intentional `role="group"` a11y suppression on the tag-filter popover
+  (a `<fieldset>` would inject default borders/margins into the absolutely-positioned popover).
+- **Why:** `npm run verify` (tsc + biome + vitest) is now fully green ahead of a prod push —
+  no lint/format debt, including issues that pre-dated the cleanup sweep.
+
 ## cleanup: consolidate simple click routes into id → action tables
 - **What:** Folded the ~30 trivial `if (t.id === "…") return fn()` leaves of the global
   click dispatcher into two `Record<string, () => void>` lookup tables — `earlyClickActions`

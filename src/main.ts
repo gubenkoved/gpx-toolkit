@@ -13,13 +13,9 @@ import "./style.css";
 import L from "leaflet";
 
 import { activeView, setActiveView, type ViewName } from "./app-state";
-import { setSliderFill } from "./slider";
 import { type AppState, Controller, type RideView } from "./controller";
-import {
-  filterActiveCount,
-  filtersActive,
-  visibleRides,
-} from "./filter";
+import { initExploreView, renderMatchedCards, rideTimesTitle, rideWhen } from "./explore-view";
+import { filterActiveCount, filtersActive, visibleRides } from "./filter";
 import {
   clearFilters,
   cycleChip,
@@ -41,6 +37,16 @@ import {
   fmtKmDetail,
   fmtSpeed,
 } from "./format";
+import {
+  dismissError,
+  hideJob,
+  initJobsView,
+  pushError,
+  renderJob,
+  showJob,
+  toggleErrorDetails,
+  toggleQueue,
+} from "./jobs-view";
 import { OSM_ATTRIBUTION } from "./map-core";
 import {
   initMapView,
@@ -52,29 +58,28 @@ import {
   setSelected,
 } from "./map-view";
 import {
-  dismissError,
-  hideJob,
-  initJobsView,
-  pushError,
-  renderJob,
-  showJob,
-  toggleErrorDetails,
-  toggleQueue,
-} from "./jobs-view";
+  autoGranularity,
+  bucketRide,
+  compareRidesByDateDesc,
+  type Granularity,
+  rideShortLabel,
+  trimmedSpeed,
+} from "./parsing";
 import {
-  initExploreView,
-  renderMatchedCards,
-  rideTimesTitle,
-  rideWhen,
-} from "./explore-view";
-import {
-  addTagModalTag,
-  closeTagModal,
-  cycleTagChip,
-  initTagModal,
-  openTagModal,
-  saveTagModal,
-} from "./tag-modal";
+  applyRangePreset,
+  closeRangePresets,
+  initRangeView,
+  onRangeInput,
+  onWindowDrag,
+  type RangeView,
+  rangeOf,
+  rangeWindowLabel,
+  refreshRange,
+  resetRange,
+  ridesInRange,
+  syncRangeControl,
+} from "./range-view";
+import { setSliderFill } from "./slider";
 import {
   hideSettings,
   hideSources,
@@ -85,28 +90,6 @@ import {
   showSources,
 } from "./sources-view";
 import {
-  applyRangePreset,
-  closeRangePresets,
-  initRangeView,
-  onRangeInput,
-  onWindowDrag,
-  rangeOf,
-  type RangeView,
-  rangeWindowLabel,
-  refreshRange,
-  resetRange,
-  ridesInRange,
-  syncRangeControl,
-} from "./range-view";
-import {
-  autoGranularity,
-  bucketRide,
-  compareRidesByDateDesc,
-  type Granularity,
-  rideShortLabel,
-  trimmedSpeed,
-} from "./parsing";
-import {
   clearHeatHover,
   clearHeatSelection,
   heatAreaSelect,
@@ -116,7 +99,16 @@ import {
   setHeatExpanded,
   showHeatHover,
 } from "./stats-view";
+import {
+  addTagModalTag,
+  closeTagModal,
+  cycleTagChip,
+  initTagModal,
+  openTagModal,
+  saveTagModal,
+} from "./tag-modal";
 import "leaflet.heat";
+import { trackEvent, trackView } from "./analytics";
 import { BeelineError } from "./beeline-api";
 import { DEMO_BEELINE_EMAIL, demoBeelineDeps } from "./beeline-demo";
 import { BeelineRideSource, type BeelineSourceDeps } from "./beeline-source";
@@ -143,7 +135,6 @@ import {
   idbWindBlobBackend,
   memoryBackend,
 } from "./kv";
-import { trackEvent, trackView } from "./analytics";
 import { parseLocationHistory } from "./loc-parse";
 import { LocationHistoryStore } from "./loc-store";
 import { effect, signal } from "./reactive";
@@ -307,8 +298,6 @@ function activate(next: Controller, demo: boolean): void {
 // upload); run once sign-in succeeds, then cleared. The Sources/Settings dialogs
 // themselves live in ./sources-view; on dismissal they call back to clear this.
 let afterBeelineSignIn: (() => void) | null = null;
-
-/**
 
 /**
  * Run an action that needs a live Beeline connection. When signed out (the offline,
@@ -1070,9 +1059,7 @@ function saveAnalyticsPrefs(): void {
       return Number.isFinite(v) ? v : d;
     };
     const activeSeg = (id: string, attr: string): string | undefined =>
-      document.querySelector<HTMLElement>(`#${id} button.active[data-${attr}]`)?.dataset[
-        attr
-      ];
+      document.querySelector<HTMLElement>(`#${id} button.active[data-${attr}]`)?.dataset[attr];
     const prefs: AnalyticsPrefs = {
       rangeMin: rangeOf("analytics")?.minMs ?? null,
       rangeMax: rangeOf("analytics")?.maxMs ?? null,
@@ -1408,7 +1395,8 @@ function renderStats(rides: AppState["rides"]): void {
   panel.classList.remove("hidden");
 
   const g = statGran();
-  const gran: Granularity = g === "auto" ? autoGranularity(rides.map((r) => ({ key: r.date_key }))) : g;
+  const gran: Granularity =
+    g === "auto" ? autoGranularity(rides.map((r) => ({ key: r.date_key }))) : g;
 
   // Outlier-trim sliders belong to the speed view only.
   $("#spTrim").classList.toggle("hidden", statMetric() !== "speed");
@@ -2675,11 +2663,11 @@ document.addEventListener("click", (e) => {
   if (t.id === "btnDeleteSel") {
     openMenu = null;
     if (!selected.size) return toast("Select some rides first.");
-    const keys = [...selected].filter(
-      (k) => !STATE.rides.find((r) => r.key === k)?.deleted,
-    );
+    const keys = [...selected].filter((k) => !STATE.rides.find((r) => r.key === k)?.deleted);
     if (!keys.length) return toast("No live rides selected to delete.");
-    const rides = keys.map((k) => STATE.rides.find((r) => r.key === k)).filter(Boolean) as RideView[];
+    const rides = keys
+      .map((k) => STATE.rides.find((r) => r.key === k))
+      .filter(Boolean) as RideView[];
     const b = rides.filter((r) => r.source === "beeline").length;
     const g = rides.filter((r) => r.source === "gpx").length;
     const n = keys.length;

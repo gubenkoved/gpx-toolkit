@@ -52,7 +52,10 @@ describe("beeline demo", () => {
     await vi.waitFor(() => expect(c.state().jobs.busy).toBe(false), { timeout: 5000 });
     // Upload dispatches on cross-source uids (the Store map keys), not a record's
     // display datetime — read them from the controller's view.
-    const pendingUids = c.state().rides.filter((r) => r.status === "pending").map((r) => r.key);
+    const pendingUids = c
+      .state()
+      .rides.filter((r) => r.status === "pending")
+      .map((r) => r.key);
     expect(pendingUids.length).toBeGreaterThan(0);
 
     c.upload(pendingUids);

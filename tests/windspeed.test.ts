@@ -201,7 +201,14 @@ describe("segmentRide", () => {
     const along = [5, 5, -3, -3, -3];
     const eles = [0, 10, 20, 30, 40];
     const legacy = segmentRide(points, times, eles, along, { stopKmh: 1 }, "u1");
-    const explicit0 = segmentRide(points, times, eles, along, { stopKmh: 1, lookAheadM: 0 }, "u1");
+    const explicit0 = segmentRide(
+      points,
+      times,
+      eles,
+      along,
+      { stopKmh: 1, lookAheadM: 0 },
+      "u1",
+    );
     expect(explicit0).toEqual(legacy);
   });
 });

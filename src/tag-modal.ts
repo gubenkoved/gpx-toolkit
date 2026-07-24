@@ -14,8 +14,7 @@
 
 import type { RideView } from "./controller";
 import { rideShortLabel } from "./parsing";
-import { addTag, collectTags, hasTag, removeTag, tagKey } from "./tags";
-import { normalizeTag } from "./tags";
+import { addTag, collectTags, hasTag, normalizeTag, removeTag, tagKey } from "./tags";
 import { cycleThrough, escHtml } from "./ui";
 
 const $ = <T extends HTMLElement = HTMLElement>(sel: string): T =>
