@@ -261,6 +261,12 @@ export function initTimelineView(d: TimelineDeps): void {
       if (areaSelect) areaSelect.setMode(!areaSelect.isArmed());
     });
     document.getElementById("btnTlHelp")?.addEventListener("click", () => toggleHelp());
+    // A click anywhere outside the "quick ranges" dropdown dismisses it. The
+    // delegated `onClick` above (a descendant listener) fires first for clicks
+    // inside the control, so this only ever closes on a genuine outside click.
+    document.addEventListener("click", (e) => {
+      if (!(e.target as HTMLElement).closest(".rf-presets")) closeRangePresets();
+    });
   }
 }
 
@@ -835,7 +841,17 @@ function rangeSliderHtml(): string {
     `<div class="rf-window" id="tlRangeWin" aria-hidden="true" ` +
     `title="Drag to slide this time window across your history"></div></div>` +
     `<span class="rf-edge" id="tlRangeTo"></span>` +
+    // The "All" reset is fused with a caret that drops quick relative windows
+    // (last week / month / year), each ending at your most recent day of data.
+    `<span class="rf-presets">` +
     `<button class="rf-reset" data-tl="range-reset" title="Show your whole history">${ICONS.allRange}<span>All</span></button>` +
+    `<button class="rf-caret" data-tl="range-presets" aria-haspopup="true" aria-expanded="false" ` +
+    `aria-label="Quick date ranges" title="Quick date ranges"></button>` +
+    `<div class="splitmenu" role="menu">` +
+    `<button data-tl="range-preset" data-preset="week" role="menuitem">Last week</button>` +
+    `<button data-tl="range-preset" data-preset="month" role="menuitem">Last month</button>` +
+    `<button data-tl="range-preset" data-preset="year" role="menuitem">Last year</button>` +
+    `</div></span>` +
     jumpDateHtml() +
     `</div>`
   );
@@ -952,6 +968,35 @@ function resetRange(): void {
   if (hi) hi.value = String(b.n);
   applyRange(0, b.n, true);
 }
+
+/**
+ * Apply a quick relative window ending at the latest day of data — "last week"
+ * (7 days), "last month" (one calendar month) or "last year" (one calendar year),
+ * clamped to the imported span so a short history just resolves to "all".
+ */
+function applyRangePreset(kind: "week" | "month" | "year"): void {
+  const b = rangeBounds();
+  if (!b) return;
+  const start = new Date(b.lo + b.n * DAY_MS); // the most recent day, then step back
+  if (kind === "week") start.setUTCDate(start.getUTCDate() - 7);
+  else if (kind === "month") start.setUTCMonth(start.getUTCMonth() - 1);
+  else start.setUTCFullYear(start.getUTCFullYear() - 1);
+  const loIdx = clamp(Math.round((dayStartUTC(start.getTime()) - b.lo) / DAY_MS), 0, b.n);
+  const lo = document.getElementById("tlRangeLo") as HTMLInputElement | null;
+  const hi = document.getElementById("tlRangeHi") as HTMLInputElement | null;
+  if (lo) lo.value = String(loIdx);
+  if (hi) hi.value = String(b.n);
+  applyRange(loIdx, b.n, true);
+}
+
+/** Close any open "quick ranges" dropdown (caret menu beside "All"). */
+function closeRangePresets(): void {
+  document.querySelectorAll<HTMLElement>("#tlBar .rf-presets.open").forEach((el) => {
+    el.classList.remove("open");
+    el.querySelector(".rf-caret")?.setAttribute("aria-expanded", "false");
+  });
+}
+
 
 function renderOverviewSide(): void {
   const side = document.getElementById("tlSide");
@@ -1499,7 +1544,29 @@ function onClick(e: Event): void {
       }
       break;
     case "range-reset":
+      closeRangePresets();
       resetRange();
+      break;
+    case "range-presets": {
+      // Toggle the quick-ranges dropdown fused to the "All" reset.
+      const wrap = el.closest<HTMLElement>(".rf-presets");
+      const willOpen = !!wrap && !wrap.classList.contains("open");
+      closeRangePresets();
+      if (wrap && willOpen) {
+        wrap.classList.add("open");
+        el.setAttribute("aria-expanded", "true");
+      }
+      break;
+    }
+    case "range-preset":
+      applyRangePreset(
+        el.dataset.preset === "week"
+          ? "week"
+          : el.dataset.preset === "month"
+            ? "month"
+            : "year",
+      );
+      closeRangePresets();
       break;
     case "open-cal":
       openCalendar(el.dataset.cal === "date" ? "date" : "jump", el);

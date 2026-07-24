@@ -2971,16 +2971,70 @@ body.ridemap-open {
   gap: 9px;
 }
 /* The range row ends in a pair of controls — the "All" reset and the "Open day"
-   picker. Give All a leading icon (like Open day) so the two read as one set; both
-   collapse to equal icon squares on phones (see the ≤560px block). */
-.tl-range .rf-reset {
+   picker. The reset's leading icon + layout are the shared `.range-filter .rf-reset`
+   recipe; on phones both collapse to equal icon squares (see the ≤560px block). */
+/* The "All" reset is fused with a caret that reveals quick relative windows
+   (last week / month / year). Shared by every date-range slider — the Timeline bar
+   and the Map / Stats / Wind·Speed basemap filters — so all four read identically.
+   The two read as one segmented control (shared `.rf-reset` chrome, a single seam,
+   rounded only on the outer edges), mirroring the header `.split`. */
+.range-filter .rf-presets {
+  position: relative;
   display: inline-flex;
-  align-items: center;
-  gap: 6px;
+  flex: 0 0 auto;
+  isolation: isolate;
 }
-.tl-range .rf-reset .bi {
-  width: 14px;
-  height: 14px;
+.range-filter .rf-presets .rf-reset {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+.range-filter .rf-caret {
+  flex: 0 0 auto;
+  width: 24px;
+  padding: 0;
+  margin-left: -1px;
+  background: transparent;
+  border: 1px solid var(--line);
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  border-top-right-radius: 7px;
+  border-bottom-right-radius: 7px;
+  color: var(--muted);
+  cursor: pointer;
+  position: relative;
+}
+/* Chevron drawn from two borders (crisp at any DPI) rather than a "▾" glyph. */
+.range-filter .rf-caret::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 6px;
+  height: 6px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: translateY(-2px) rotate(45deg);
+  transition: transform 0.15s ease;
+}
+.range-filter .rf-presets.open .rf-caret::before {
+  transform: translateY(1px) rotate(-135deg); /* flip to point up while open */
+}
+.range-filter .rf-caret:hover,
+.range-filter .rf-presets.open .rf-caret {
+  z-index: 1;
+  color: var(--text);
+  border-color: var(--border-hover);
+  background: var(--panel2);
+}
+/* Every one of these controls sits at the BOTTOM of its container (the Timeline
+   bar under the map, the basemap filters under their map/chart), so drop the menu
+   UPWARD over the content above rather than off the bottom edge. */
+.range-filter .rf-presets .splitmenu {
+  top: auto;
+  bottom: calc(100% + 4px);
+}
+.range-filter .rf-presets.open .splitmenu {
+  display: block;
 }
 
 /* Shared day-picker calendar popover — dark, blurred chrome matching the design
@@ -4820,6 +4874,9 @@ input[type="range"].uslider:disabled::-moz-range-thumb {
 }
 .range-filter .rf-reset {
   flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   background: transparent;
   border: 1px solid var(--line);
   color: var(--muted);
@@ -4828,6 +4885,12 @@ input[type="range"].uslider:disabled::-moz-range-thumb {
   font-size: 11.5px;
   font-weight: 600;
   cursor: pointer;
+}
+/* Leading "whole range" icon (double-ended arrow) — sized to sit with the label so
+   every "All" reset reads as one control, Timeline bar and basemap filters alike. */
+.range-filter .rf-reset .bi {
+  width: 14px;
+  height: 14px;
 }
 .range-filter .rf-reset:hover {
   color: var(--text);
@@ -5825,8 +5888,10 @@ body.job-active .toast {
   }
   /* All + Open day sit together at the end of the track line as equal icon squares
      (labels drop, the leading icon carries the meaning via the title tooltip). */
-  .tl-range .rf-reset {
+  .tl-range .rf-presets {
     order: 4;
+  }
+  .tl-range .rf-reset {
     padding: 6px;
   }
   .tl-range .rf-reset span {

@@ -17,6 +17,17 @@ humans and the assistant can read this file as a compressed history of decisions
 
 ---
 
+## date-range sliders gain a quick-ranges dropdown
+- **What:** Fused a caret onto every date-range slider's "All" reset — the Timeline
+  bar and the Map / Stats / Wind·Speed basemap filters alike — dropping a menu of
+  quick relative windows (Last week / Last month / Last year), each ending at the most
+  recent day of data and clamped to the loaded span. Shared `.rf-presets`/`.rf-caret`
+  chrome + the `.splitmenu` dropdown, opening upward (every control sits at the bottom
+  of its container) and dismissing on outside click.
+- **Why:** Jumping to a recent window took repeated thumb-dragging; a one-tap preset
+  beside the existing reset makes the common "just show me lately" case trivial. Applied
+  across all four sliders in one go — consistency is a core value, not a follow-up.
+
 ## wind/speed gate counter reflects only analysable rides
 - **What:** the confirm-to-run card's "Analyse N rides" button now counts only rides that can
   actually be charted — resolved wind AND full GPX (real timestamps) — instead of every

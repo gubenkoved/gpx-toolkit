@@ -924,6 +924,11 @@ const DP_CHEV_RIGHT =
 // "Clear this date" glyph — an eraser, distinct from the panel's plain Close ✕.
 const DP_CLEAR =
   '<svg class="bi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21"/><path d="M22 21H7"/><path d="m5 11 9 9"/></svg>';
+// "Whole range" glyph (double-ended horizontal arrow) — the leading icon on each
+// slider's "All" reset. Matches the Timeline bar's `ICONS.allRange` so all four
+// date-range sliders read as one control.
+const ALL_RANGE_ICON =
+  '<svg class="bi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M3 12h18"/><path d="m7 8-4 4 4 4"/><path d="m17 8 4 4-4 4"/></svg>';
 
 /** Local `"YYYY-MM-DD"` for an ISO instant (the ingestion-date filter works in
  *  local days, matching the picker and `matchesFilters`). Null if unparseable. */
@@ -1680,7 +1685,17 @@ function rangeControlHtml(which: RangeView, bounds: DateRange, sel: DateRange): 
     `<div class="rf-track">${input("lo", dayIndex(bounds, sel.minMs))}${input("hi", dayIndex(bounds, sel.maxMs))}` +
     `<div class="rf-window" data-rangewin="${which}" aria-hidden="true" title="Drag to move the selected dates"></div></div>` +
     `<span class="rf-edge" id="${which}To"></span>` +
-    `<button class="rf-reset" data-rangereset="${which}" title="Show every date">All</button>`
+    // The "All" reset is fused with a caret that drops quick relative windows
+    // (last week / month / year), each ending at the latest ride in the span.
+    `<span class="rf-presets">` +
+    `<button class="rf-reset" data-rangereset="${which}" title="Show every date">${ALL_RANGE_ICON}<span>All</span></button>` +
+    `<button class="rf-caret" data-rangepresets="${which}" aria-haspopup="true" aria-expanded="false" ` +
+    `aria-label="Quick date ranges" title="Quick date ranges"></button>` +
+    `<div class="splitmenu" role="menu">` +
+    `<button data-rangepreset="week" data-rangewhich="${which}" role="menuitem">Last week</button>` +
+    `<button data-rangepreset="month" data-rangewhich="${which}" role="menuitem">Last month</button>` +
+    `<button data-rangepreset="year" data-rangewhich="${which}" role="menuitem">Last year</button>` +
+    `</div></span>`
   );
 }
 
@@ -1819,6 +1834,32 @@ function resetRange(which: RangeView): void {
   if (!bounds) return;
   assignRange(which, fullRange(bounds));
   remountRange(which, true);
+}
+
+/**
+ * Apply a quick relative window ending at the latest ride in the span — "last week"
+ * (7 days), "last month" (one calendar month) or "last year" (one calendar year),
+ * clamped to the loaded bounds so a short history just resolves to "all".
+ */
+function applyRangePreset(which: RangeView, kind: "week" | "month" | "year"): void {
+  const bounds = boundsOf(which);
+  if (!bounds) return;
+  const to = startOfDayMs(bounds.maxMs);
+  const start = new Date(to); // step back from the most recent day
+  if (kind === "week") start.setDate(start.getDate() - 7);
+  else if (kind === "month") start.setMonth(start.getMonth() - 1);
+  else start.setFullYear(start.getFullYear() - 1);
+  const from = Math.max(startOfDayMs(start.getTime()), startOfDayMs(bounds.minMs));
+  assignRange(which, { minMs: from, maxMs: to });
+  remountRange(which, true);
+}
+
+/** Close any open "quick ranges" dropdown (the caret menu beside "All"). */
+function closeRangePresets(): void {
+  document.querySelectorAll<HTMLElement>(".rf-presets.open").forEach((el) => {
+    el.classList.remove("open");
+    el.querySelector(".rf-caret")?.setAttribute("aria-expanded", "false");
+  });
 }
 
 /** Switch to the Explore view and reveal a specific ride's details. */
@@ -3724,6 +3765,12 @@ document.addEventListener("click", (e) => {
   if (target && target.tagName === "INPUT") return; // checkboxes handled on 'change'
   const t = (target.closest("button, a, .mhead, .yhead") as HTMLElement) || target;
 
+  // The quick-ranges dropdown (fused to each slider's "All") dismisses on any click
+  // that lands outside it. Runs before the early returns below so it closes reliably;
+  // a click on the caret/menu itself is inside `.rf-presets`, so it's spared here and
+  // handled by the toggle/apply branches instead.
+  if (!target.closest(".rf-presets")) closeRangePresets();
+
   // Sources dialog actions (modal): handle before anything else.
   if (t.id === "btnDemoBeeline") {
     hideSources();
@@ -3883,7 +3930,27 @@ document.addEventListener("click", (e) => {
     return;
   }
   if (t.dataset?.rangereset) {
+    closeRangePresets();
     resetRange(t.dataset.rangereset as RangeView);
+    return;
+  }
+  if (t.dataset?.rangepresets) {
+    // Toggle the quick-ranges dropdown fused to this slider's "All".
+    const wrap = t.closest<HTMLElement>(".rf-presets");
+    const willOpen = !!wrap && !wrap.classList.contains("open");
+    closeRangePresets();
+    if (wrap && willOpen) {
+      wrap.classList.add("open");
+      t.setAttribute("aria-expanded", "true");
+    }
+    return;
+  }
+  if (t.dataset?.rangepreset) {
+    applyRangePreset(
+      (t.dataset.rangewhich as RangeView) ?? "map",
+      t.dataset.rangepreset as "week" | "month" | "year",
+    );
+    closeRangePresets();
     return;
   }
   // The header "Filters" button summons the global ride-filter panel (a desktop
