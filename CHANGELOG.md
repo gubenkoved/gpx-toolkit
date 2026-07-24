@@ -19,6 +19,21 @@ humans and the assistant can read this file as a compressed history of decisions
 
 ---
 
+---
+
+## cleanup: extract the filter model + filter bar into filter-state.ts
+- **What:** Moved the whole Explore filter concern out of `main.ts` into a new
+  `filter-state.ts`: the live `filters` singleton + its persistence (load/save/sanitize),
+  the filter bar rendering (`syncFilterBar`, chips, the Added/Ridden date-pickers, the
+  tag popover) and the global filter panel chrome (desktop dropdown / mobile bottom
+  sheet). The pure predicates stay in `./filter`. `filters` is an exported singleton so
+  the app still reads it via `visibleRides(filters, …)` and handlers mutate it in place;
+  panel/tag open-state is exposed via `isFilterPanelOpen()` / `toggleTagsFilter()` and
+  the module re-renders through an injected `onChange`.
+- **Why:** The filter model + its bar was the largest remaining cross-cutting lump in
+  `main.ts`; consolidating it behind one seam keeps the filter DOM and its mutation in
+  one place and continues shrinking the entry module.
+
 ## cleanup: extract the date-range slider into range-view.ts
 - **What:** Moved the whole dual-thumb date-range slider (the Map/Stats/Wind-Speed
   windows — already parameterized by `RangeView`) out of `main.ts` into a new

@@ -302,6 +302,7 @@ none. The table is grouped by concern; keep new modules in the group they belong
 | [src/parsing.ts](../src/parsing.ts) | Normalized metrics + ride-key/date + uid helpers | `blankMetrics()`, `rideDatetime()`, `beelineRideKey()`, `rideUid()`/`splitUid()`, `bucketRide()` |
 | [src/stats.ts](../src/stats.ts) | Lifetime aggregation: totals, per-period records, biggest rides | `computeStats()`, `RideStats`, `PeriodRecord`, `StatsRide` |
 | [src/filter.ts](../src/filter.ts) | Explore-list filters (incl. `source` + `tags` OR dimension) | `matchesFilters()`, `emptyFilters()`, `Filters` |
+| [src/filter-state.ts](../src/filter-state.ts) | The live `filters` singleton + persistence, the filter bar/chips/date-pickers/tag-popover, and the global filter panel chrome; predicates stay in `./filter`. Behind a `FilterStateDeps` seam | `initFilterState()`, `filters`, `syncFilterBar()`, `saveFilters()`, `clearFilters()`, `cycleChip()`, `setFilterPanel()`, `openIngestionPicker()`, `openRidePicker()` |
 | [src/tags.ts](../src/tags.ts) | Canonical ride-tag normalization + case-insensitive comparison key + catalog | `normalizeTag()`, `tagKey()`, `collectTags()`, `addTag()`/`removeTag()`, `hasTag()` |
 
 *Tracks · maps · geometry*
