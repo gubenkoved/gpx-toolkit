@@ -126,11 +126,20 @@ import {
   initConfirm,
   promptDialog,
 } from "./confirm";
+import { OpenMeteoForecastAdapter } from "./forecast";
+import { ForecastStore } from "./forecast-store";
+import {
+  initForecastView,
+  leaveForecastView,
+  mountForecastView,
+  resetForecastViewData,
+} from "./forecast-view";
 import { GpxRideSource } from "./gpx-source";
 import { GpxCache } from "./gpxcache";
 import {
   idbBackend,
   idbBlobBackend,
+  idbForecastBlobBackend,
   idbLocationBlobBackend,
   idbWindBlobBackend,
   memoryBackend,
@@ -174,6 +183,7 @@ import {
   syncColorByGating,
   windSpeedVisibleRides,
 } from "./windspeed-view";
+import { buildZip, unzip } from "./zip";
 
 const $ = <T extends HTMLElement = HTMLElement>(sel: string): T =>
   document.querySelector(sel) as T;
@@ -187,6 +197,7 @@ const storageBackend = idbBackend();
 /** Durable binary backend for the compressed full-GPX cache (own `gpx` object store). */
 const gpxBlobBackend = idbBlobBackend();
 const windBlobBackend = idbWindBlobBackend();
+const forecastBlobBackend = idbForecastBlobBackend();
 /** Durable binary backend for imported Google Location History (own `location-history`
  *  object store — separate bucket, independently droppable). */
 const locationBlobBackend = idbLocationBlobBackend();
@@ -559,6 +570,10 @@ async function openApp(): Promise<void> {
     if (activeView() === "timeline") mountTimelineView();
     render();
   });
+  void ensureForecastStore().then(() => {
+    if (activeView() === "forecast") void mountForecastView();
+    render();
+  });
 }
 
 /** Pull the whole ride history from the connected Beeline account (the one
@@ -673,6 +688,21 @@ function goGpx(): void {
 /** App-global location-history store (lazy-loaded; separate from any controller). */
 let locStore: LocationHistoryStore | null = null;
 let locLoading: Promise<LocationHistoryStore> | null = null;
+
+/** Live forecasts use their own cache/preferences bucket and never touch ride state. */
+let forecastStore: ForecastStore | null = null;
+let forecastLoading: Promise<ForecastStore> | null = null;
+
+function ensureForecastStore(): Promise<ForecastStore> {
+  if (forecastStore) return Promise.resolve(forecastStore);
+  if (!forecastLoading) {
+    forecastLoading = ForecastStore.load(forecastBlobBackend, onStorageError).then((value) => {
+      forecastStore = value;
+      return value;
+    });
+  }
+  return forecastLoading;
+}
 
 /** Load (once) the location-history store and hydrate its catalog. */
 function ensureLocStore(): Promise<LocationHistoryStore> {
@@ -1207,14 +1237,19 @@ function applyView(): void {
   const isStats = activeView() === "stats";
   const isAnalytics = activeView() === "analytics";
   const isClimate = activeView() === "climate";
+  const isForecast = activeView() === "forecast";
   const isTimeline = activeView() === "timeline";
   document
     .getElementById("exploreView")
-    ?.classList.toggle("hidden", isMap || isStats || isAnalytics || isClimate || isTimeline);
+    ?.classList.toggle(
+      "hidden",
+      isMap || isStats || isAnalytics || isClimate || isForecast || isTimeline,
+    );
   document.getElementById("mapView")?.classList.toggle("hidden", !isMap);
   document.getElementById("statsView")?.classList.toggle("hidden", !isStats);
   document.getElementById("analyticsView")?.classList.toggle("hidden", !isAnalytics);
   document.getElementById("climateView")?.classList.toggle("hidden", !isClimate);
+  document.getElementById("forecastView")?.classList.toggle("hidden", !isForecast);
   document.getElementById("timelineView")?.classList.toggle("hidden", !isTimeline);
   if (!isMap && document.body.classList.contains("map-expanded")) setMapExpanded(false);
   if (!isStats && document.body.classList.contains("heat-expanded")) setHeatExpanded(false);
@@ -1224,10 +1259,30 @@ function applyView(): void {
   if (!isMap && mapLocate.isActive()) mapLocate.setActive(false);
   if (!isStats && heatLocate.isActive()) heatLocate.setActive(false);
   if (!isClimate) leaveClimateView();
+  if (!isForecast) leaveForecastView();
   if (!isTimeline) leaveTimelineView();
-  document.querySelectorAll<HTMLButtonElement>("#viewTabs .vtab").forEach((b) => {
-    b.classList.toggle("active", b.dataset.view === activeView());
+  document.querySelectorAll<HTMLButtonElement>("#viewTabs .vtab").forEach((button) => {
+    const active = button.dataset.view === activeView();
+    button.classList.toggle("active", active);
   });
+  // The tab rail scrolls on narrow screens. Scroll that container explicitly:
+  // Firefox can treat scrollIntoView's inline axis as the page axis here and
+  // leave later tabs represented by only their first character.
+  const selectedTab = document.querySelector<HTMLButtonElement>("#viewTabs .vtab.active");
+  const tabRail = document.getElementById("viewTabs");
+  if (selectedTab && tabRail) {
+    const centerSelectedTab = (): void => {
+      const centeredLeft =
+        selectedTab.offsetLeft - (tabRail.clientWidth - selectedTab.offsetWidth) / 2;
+      tabRail.scrollLeft = Math.max(0, centeredLeft);
+    };
+    requestAnimationFrame(centerSelectedTab);
+    // Firefox restores an overflow element's pre-navigation scroll position
+    // after the first frame, so repeat once when initial page layout is final.
+    if (document.readyState !== "complete") {
+      window.addEventListener("load", centerSelectedTab, { once: true });
+    }
+  }
 }
 
 /** Switch the active view, persist the choice, and re-render. */
@@ -1782,6 +1837,7 @@ function render(): void {
     const cacheCount = controller.gpxCacheCount();
     const dataCount = controller.gpxDataCount();
     const windCount = controller.windCacheCount();
+    const forecastCount = forecastStore?.count ?? 0;
     // Two distinct groups so it's obvious what's safe to clear: YOUR DATA (rides,
     // settings, imported GPX — no clear button, losing it loses real data) vs.
     // re-fetchable CACHES (downloads + wind — each with an inline Clear). A subheading
@@ -1806,12 +1862,16 @@ function render(): void {
       rows.push(row("Location History", fmtBytes(locStore.totalBytes()), "location"));
     }
     // The cache group only appears when something is actually cached.
-    if (cacheCount || windCount) {
+    if (cacheCount || windCount || forecastCount) {
       rows.push(sub("Caches"));
       if (cacheCount)
         rows.push(row("Beeline tracks", fmtBytes(controller.gpxCacheBytes()), "gpx"));
       if (windCount)
         rows.push(row("Wind cache", fmtBytes(controller.windCacheBytes()), "wind"));
+      if (forecastCount)
+        rows.push(
+          row("Forecast cache", fmtBytes(forecastStore?.totalBytes() ?? 0), "forecast"),
+        );
     }
     storageInfo.innerHTML = rows.join("");
     storageInfo.classList.toggle("hidden", rows.length === 0);
@@ -1933,6 +1993,7 @@ function render(): void {
   // re-render (a background job ticking ride state) never restarts a live sweep.
   else if (activeView() === "analytics") void mountWindSpeedView();
   else if (activeView() === "climate") mountClimateView();
+  else if (activeView() === "forecast") void mountForecastView();
   else if (activeView() === "timeline") mountTimelineView();
   else mountMaps();
   // The consolidated actions menu lives in static markup (not rebuilt here), so
@@ -2146,7 +2207,16 @@ async function exportAll(): Promise<void> {
       },
     };
     toast("Building full backup…");
-    const zipBytes = await controller.exportAllZip(meta);
+    const baseZip = await controller.exportAllZip(meta);
+    const entries = await unzip(baseZip);
+    const forecastBlobs = await (await ensureForecastStore()).getAllBlobs();
+    for (const item of forecastBlobs) {
+      entries.push({
+        name: `forecast/${encodeURIComponent(item.key)}.bin`,
+        bytes: item.bytes,
+      });
+    }
+    const zipBytes = await buildZip(entries);
     const now = new Date();
     const yyyymmdd = now.toISOString().slice(0, 10);
     const filename = `${yyyymmdd}-gpx-toolkit-backup.zip`;
@@ -2204,11 +2274,21 @@ function importRides(file: File): void {
         const arrayBuf = reader.result as ArrayBuffer;
         toast("Importing full backup…");
         const result = await controller.importAllZip(arrayBuf);
+        const forecastEntries = (await unzip(new Uint8Array(arrayBuf)))
+          .filter((entry) => entry.name.startsWith("forecast/") && entry.name.endsWith(".bin"))
+          .map((entry) => ({
+            key: decodeURIComponent(entry.name.slice("forecast/".length, -".bin".length)),
+            bytes: entry.bytes,
+          }));
+        const forecastImported = await (await ensureForecastStore()).importBlobs(
+          forecastEntries,
+        );
         const msg =
           `Imported — ${result.ridesImported} ride${result.ridesImported === 1 ? "" : "s"}, ` +
           `${result.gpxCacheImported} cached GPX${result.gpxCacheImported === 1 ? "" : "s"}, ` +
           `${result.gpxDataImported} imported GPX${result.gpxDataImported === 1 ? "" : "s"}, ` +
-          `${result.windImported} wind cache entries.`;
+          `${result.windImported} wind cache entries, ` +
+          `${forecastImported} forecast entries.`;
         toast(msg);
       } else {
         // Import JSON state file (rides + settings, no caches).
@@ -2274,6 +2354,8 @@ async function resetEverything(): Promise<void> {
   // The location-history bucket is separate from the controller's stores, so a full
   // reset must clear it explicitly to be complete (a per-domain drop never does this).
   await ensureLocStore().then((s) => s.clear());
+  await ensureForecastStore().then((s) => s.clearAll());
+  resetForecastViewData(true);
   forgetProfile(); // forget the chosen source so the dialog leads next time
   await openApp(); // rebuild a fresh controller over the now-empty cache
   showSources({ welcome: true }); // start fresh: let the user reconnect a source
@@ -2326,6 +2408,27 @@ async function flushWindCache(): Promise<void> {
   }
   await controller.flushWindCache();
   toast("Wind cache cleared.");
+}
+
+/** Clear live forecast/geocoding payloads while preserving locations and preferences. */
+async function flushForecastCache(): Promise<void> {
+  openMenu = null;
+  const cache = await ensureForecastStore();
+  if (cache.count === 0) {
+    toast("No cached forecasts to clear.");
+    return;
+  }
+  if (
+    !confirm(
+      `Clear cached forecasts (${fmtBytes(cache.totalBytes())})? Pinned and recent locations are kept.`,
+    )
+  ) {
+    return;
+  }
+  await cache.flushCache();
+  resetForecastViewData();
+  render();
+  toast("Forecast cache cleared.");
 }
 
 // --------------------------------------------------------------------------- //
@@ -2611,6 +2714,7 @@ document.addEventListener("click", (e) => {
   }
   if (t.dataset?.clear === "gpx") return void flushGpxCache();
   if (t.dataset?.clear === "wind") return void flushWindCache();
+  if (t.dataset?.clear === "forecast") return void flushForecastCache();
   if (t.dataset?.clear === "location") return void dropLocationHistory();
   if (t.dataset?.cancel) {
     return run(() => controller.cancel(parseInt(t.dataset.cancel!, 10)));
@@ -3175,6 +3279,13 @@ initClimateView({
     controller.getPointWind(lat, lon, startYear, endYear, onStage),
   toast,
   osmAttribution: OSM_ATTRIBUTION,
+});
+
+initForecastView({
+  provider: new OpenMeteoForecastAdapter(),
+  ensureStore: ensureForecastStore,
+  toast,
+  esc: escHtml,
 });
 
 initWindSpeedView({

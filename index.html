@@ -106,8 +106,8 @@
           <button class="ghost small" id="btnSettings" title="Open application settings">Settings</button>
           <button class="ghost small" id="btnImport" title="Merge a previously exported (or Python tool) state file into this browser">Import</button>
           <button class="ghost small" id="btnExport" title="Download all locally stored rides, settings and status as a JSON backup">Export</button>
-          <button class="ghost small" id="btnExportAll" title="Download all state (rides, settings, cached GPX and wind) in a single ZIP file for complete backup">Export All</button>
-          <button class="ghost small danger" id="btnReset" title="Erase ALL locally stored data — rides, settings, cached downloads and imported GPX files — then return to the source-selection screen.">Reset</button>
+          <button class="ghost small" id="btnExportAll" title="Download all state (rides, settings, cached GPX, wind and forecasts) in a single ZIP file for complete backup">Export All</button>
+          <button class="ghost small danger" id="btnReset" title="Erase ALL locally stored data — rides, settings, locations, cached downloads and imported GPX files — then return to the source-selection screen.">Reset</button>
         </span>
       </span>
       <input type="file" id="importFile" accept="application/json,.json,application/zip,.zip" style="display:none" />
@@ -125,6 +125,7 @@
     <button class="vtab" data-view="stats" role="tab">Stats</button>
     <button class="vtab" data-view="analytics" role="tab">Wind/Speed</button>
     <button class="vtab" data-view="climate" role="tab">Wind rose</button>
+    <button class="vtab" data-view="forecast" role="tab">Forecast</button>
     <button class="vtab" data-view="timeline" role="tab">Timeline</button>
   </div>
   <div id="exploreView">
@@ -337,6 +338,124 @@
       </div>
       <aside class="panel cl-side" id="clSide"></aside>
     </div>
+  </div>
+
+  <div id="forecastView" class="view-wide hidden">
+    <section class="fc-top">
+      <div class="fc-map-wrap">
+        <div id="forecastMap"></div>
+        <button class="iconbtn fc-map-locate" id="forecastLocate" type="button" aria-label="Use my location" title="Use my current location">
+          <svg class="mi" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="7" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 1v3M12 20v3M1 12h3M20 12h3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="12" r="2.4" fill="currentColor"/></svg>
+        </button>
+        <button class="iconbtn fc-map-search" id="forecastSearchToggle" type="button" aria-label="Search locations" title="Search locations" aria-expanded="false" aria-controls="forecastLocationPicker">
+          <svg class="mi" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="10.5" cy="10.5" r="6.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="m16 16 5 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        </button>
+        <aside class="panel fc-controls" id="forecastLocationPicker" aria-label="Choose a forecast location" hidden>
+          <div class="fc-location-head">
+            <b>Choose location</b>
+            <button type="button" class="fc-location-close" id="forecastSearchClose" aria-label="Close location search" title="Close">
+              <svg class="mi" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m7 7 10 10M17 7 7 17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+            </button>
+          </div>
+          <div class="fc-search-wrap">
+            <label for="forecastSearch">Find a place or postcode</label>
+            <input id="forecastSearch" type="search" autocomplete="off" placeholder="Amsterdam, NL" aria-autocomplete="list" aria-controls="forecastSearchResults" />
+            <div id="forecastSearchResults" class="fc-search-results hidden" role="listbox"></div>
+          </div>
+          <div class="fc-current-location">
+            <div class="fc-picked-copy">
+              <div class="fc-picked-title" id="forecastPointTitle">
+                <b id="forecastPointLabel">No point selected</b>
+                <button type="button" class="fc-rename-trigger" id="forecastRename" hidden aria-label="Rename pinned location" title="Rename pinned location">
+                  <svg class="mi" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 20h4l10.5-10.5a2.8 2.8 0 0 0-4-4L4 16v4Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="m13 7 4 4" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>
+                </button>
+              </div>
+              <form class="fc-name-editor" id="forecastRenameForm" hidden>
+                <input id="forecastRenameInput" type="text" maxlength="80" autocomplete="off" aria-label="Pinned location name" placeholder="Name this place" />
+                <button type="submit" class="fc-name-action save" aria-label="Save location name" title="Save name">
+                  <svg class="mi" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m5 12.5 4.2 4.2L19 7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                </button>
+                <button type="button" class="fc-name-action" id="forecastRenameCancel" aria-label="Cancel renaming" title="Cancel">
+                  <svg class="mi" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m7 7 10 10M17 7 7 17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+                </button>
+              </form>
+              <small id="forecastStatus">Pick a point or search for a place.</small>
+            </div>
+            <button type="button" class="ghost fc-pin" id="forecastPin" disabled aria-pressed="false" title="Pin or unpin this point">★</button>
+          </div>
+        </aside>
+      </div>
+    </section>
+    <section class="panel fc-options" aria-label="Forecast display options">
+      <div class="fc-option-row">
+        <div class="fc-option-group">
+          <b>Forecast range</b>
+          <!-- biome-ignore lint/a11y/useSemanticElements: compact segmented-control styling uses this labelled group consistently across the app -->
+          <span class="seg" id="forecastRange" role="group" aria-label="Forecast range">
+            <button type="button" data-days="1">1d</button><button type="button" data-days="3" class="active">3d</button><button type="button" data-days="7">7d</button><button type="button" data-days="10">10d</button><button type="button" data-days="15">15d</button>
+          </span>
+        </div>
+        <div class="fc-option-group">
+          <b>Presentation</b>
+          <!-- biome-ignore lint/a11y/useSemanticElements: matches the app's compact segmented controls -->
+          <span class="seg" id="forecastPresentation" role="group" aria-label="Forecast presentation">
+            <button type="button" data-presentation="compare" class="active" aria-label="Compare" title="Overlay selected models and show their spread"><svg class="mi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8 8 5l5 4 5-5 3 2M3 18l5-4 5 2 5-6 3 2"/></svg><span>Compare</span></button><button type="button" data-presentation="graph" aria-label="Graph" title="Show each model as a graph"><svg class="mi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3v18h18M5 16l5-6 4 3 6-8"/></svg><span>Graph</span></button><button type="button" data-presentation="textual" aria-label="Textual" title="Show hourly forecast values"><svg class="mi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg><span>Textual</span></button>
+          </span>
+        </div>
+        <div class="fc-option-actions">
+          <button type="button" class="ghost fc-settings-trigger" id="forecastSettingsOpen" aria-label="Forecast settings" aria-haspopup="dialog" aria-expanded="false" aria-controls="forecastSettingsModal" title="Forecast settings">
+            <svg class="mi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l-1.87 1.87A1.7 1.7 0 0 0 16 18.4a1.7 1.7 0 0 0-1.45 1.08L14 21h-4l-.55-1.52A1.7 1.7 0 0 0 8 18.4a1.7 1.7 0 0 0-1.87.34l-1.87-1.87A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.08-1.45L2 13v-2l1.52-.55A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.34-1.87l1.87-1.87A1.7 1.7 0 0 0 8 5.6a1.7 1.7 0 0 0 1.45-1.08L10 3h4l.55 1.52A1.7 1.7 0 0 0 16 5.6a1.7 1.7 0 0 0 1.87-.34l1.87 1.87A1.7 1.7 0 0 0 19.4 9a1.7 1.7 0 0 0 1.08 1.45L22 11v2l-1.52.55A1.7 1.7 0 0 0 19.4 15Z"/></svg>
+          </button>
+          <button type="button" class="fc-refresh accent" id="forecastRefresh" aria-label="Refresh forecast" title="Refresh forecast now">
+            <svg class="mi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v5h-5"/></svg>
+          </button>
+        </div>
+      </div>
+    </section>
+    <div class="fc-settings scrim hidden" id="forecastSettingsModal" role="dialog" aria-modal="true" aria-labelledby="forecastSettingsTitle">
+      <div class="fc-settings-card modal-card">
+        <button class="modal-x" id="forecastSettingsClose" type="button" aria-label="Close forecast settings" title="Close">
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        </button>
+        <h2 class="settings-title" id="forecastSettingsTitle">Forecast settings</h2>
+        <div class="fc-option-group">
+          <b>Wind units</b>
+          <!-- biome-ignore lint/a11y/useSemanticElements: matches the app's compact segmented controls -->
+          <span class="seg" id="forecastSpeedUnit" role="group" aria-label="Wind speed units">
+            <button type="button" data-speed-unit="ms">m/s</button><button type="button" data-speed-unit="kmh" class="active">km/h</button><button type="button" data-speed-unit="kn">kn</button>
+          </span>
+        </div>
+        <fieldset id="forecastMetricList" class="fc-metric-list">
+          <legend>Displayed data</legend>
+          <label><input type="checkbox" data-forecast-metric="windSpeed" checked><span>Average wind</span></label>
+          <label><input type="checkbox" data-forecast-metric="windGust" checked><span>Gusts</span></label>
+          <label><input type="checkbox" data-forecast-metric="windDirection" checked><span>Direction</span></label>
+          <label><input type="checkbox" data-forecast-metric="precipitation" checked><span>Precipitation</span></label>
+          <label><input type="checkbox" data-forecast-metric="temperature" checked><span>Temperature</span></label>
+          <label><input type="checkbox" data-forecast-metric="pressure" checked><span>Pressure</span></label>
+          <label><input type="checkbox" data-forecast-metric="cloudCover" checked><span>Cloud cover</span></label>
+        </fieldset>
+        <details class="fc-models">
+          <summary>Forecast models <span id="forecastModelCount"></span></summary>
+          <fieldset class="fc-model-actions">
+            <legend>Forecast model selection presets</legend>
+            <button type="button" class="ghost small" id="forecastModelsRecommended" title="Use five diverse models recommended for Europe and the Netherlands">Recommended 5</button>
+            <button type="button" class="ghost small" id="forecastModelsReset" title="Select every available model">All on</button>
+            <button type="button" class="ghost small" id="forecastModelsClear" title="Clear the selection, then add only the models you want">All off</button>
+          </fieldset>
+          <div id="forecastModelsList"></div>
+        </details>
+      </div>
+    </div>
+    <section class="fc-comparison">
+      <div id="forecastReadout" class="fc-readout" aria-live="polite">Consensus shows the median and model range; hover the chart for details.</div>
+      <div class="fc-legend" id="forecastLegend"><span class="fc-wind" data-forecast-metric="windSpeed">average wind</span><span class="fc-gust" data-forecast-metric="windGust">gusts</span><span class="fc-direction" data-forecast-metric="windDirection">direction</span><span class="fc-rain" data-forecast-metric="precipitation">precipitation</span><span class="fc-temp" data-forecast-metric="temperature">temperature</span><span class="fc-pressure" data-forecast-metric="pressure">pressure</span><span class="fc-cloud" data-forecast-metric="cloudCover">cloud cover</span></div>
+      <div class="fc-model-legend hidden" id="forecastCompareLegend"></div>
+      <!-- biome-ignore lint/a11y/noNoninteractiveTabindex: the synchronized chart stack owns left/right keyboard navigation -->
+      <div id="forecastCharts" class="fc-charts compare-mode" role="application" tabindex="0" aria-label="Forecast model comparison"></div>
+      <section id="forecastCompareDetail" class="fc-detail-sheet hidden" aria-label="Selected forecast details" aria-live="polite"></section>
+    </section>
+    <small class="fc-credit fc-credit-footer">Forecast delivery by <a href="https://open-meteo.com/" target="_blank" rel="noopener noreferrer">Open-Meteo</a>; each row names its originating weather service.</small>
   </div>
 
   <div id="timelineView" class="view-wide hidden">

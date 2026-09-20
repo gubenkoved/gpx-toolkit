@@ -125,6 +125,16 @@ See [`infra/gpx-relay/README.md`](infra/gpx-relay/README.md) for the AWS deploy 
 - **Map** view plots every ride's track as an overlapping heatmap; a **Stats** view adds a
   route-frequency heatmap and lifetime totals/records. Both have a *locate me* toggle and a
   rubber-band area filter.
+- **Forecast** compares hourly wind and broader weather models for any map point. Search for
+  a place or postcode, use five recent searches or pinned favourites, and stack every
+  available KNMI/DMI/ECMWF/DWD/NOAA/etc. model on one synchronized timeline. Choose m/s,
+  km/h or knots and independently show only the weather variables you care about. Use a
+  per-model graph stack, a large combined comparison with a clean consensus-band mode or
+  toggleable full model lines, hover-highlighted tracks and per-model cursor values, or a
+  Textual mode with a compact hourly table.
+  Double-click a comparison legend item to isolate it. Pinned coordinates can be given useful
+  names. Data includes the preceding 24 hours when available, comes directly from Open-Meteo,
+  and lives in its own flushable browser cache.
 - **Filter** by source, route presence, distance, whether you've named the ride — plus, for
   Beeline rides, **Strava status** (Pending / Uploaded / Other) and destination.
 - **Push to Strava** *(Beeline rides only)* — upload one ride, the current selection, or
@@ -161,6 +171,8 @@ npm run test:watch   # watch mode
 | [src/parsing.ts](src/parsing.ts) | Normalized metrics + ride-key/date + uid helpers |
 | [src/jobs.ts](src/jobs.ts) | Single-worker background job queue |
 | [src/store.ts](src/store.ts) | Unified, versioned IndexedDB ride store |
+| [src/forecast.ts](src/forecast.ts) | Provider-neutral forecasts + Open-Meteo adapter/model catalog |
+| [src/forecast-view.ts](src/forecast-view.ts) | Forecast map, search, model picker and comparison UI |
 | [src/track.ts](src/track.ts) | Decode/render ride GPS tracks |
 
 ## Tests

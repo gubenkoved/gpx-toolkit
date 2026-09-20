@@ -17,13 +17,16 @@ humans and the assistant can read this file as a compressed history of decisions
 
 ---
 
----
-
----
-
----
-
----
+## feat: compare live forecasts across models
+- **What:** Added a ride-independent Forecast view with map/search selection, recent and pinned
+  locations, Compare/Graph/Textual hourly presentations, model selection, and configurable
+  weather data and wind units. The combined chart shows consensus ranges, model tracks and
+  direction spread; a shared inline SVG marker identifies picked analysis points. Open-Meteo
+  forecasts include available 24-hour history and use a compressed browser cache included in
+  full backup/restore.
+- **Why:** Wind decisions benefit from seeing independent regional and global models together;
+  browser-only delivery and storage preserve the app's backend-free design, while caching and
+  honest regional horizons minimize API traffic.
 
 ## chore: apply biome across the codebase & clear all lint findings
 - **What:** Ran `biome check --write` repo-wide (format + import organization on 19 files)

@@ -17,7 +17,14 @@
 
 import { signal } from "./reactive";
 
-export type ViewName = "explore" | "map" | "stats" | "analytics" | "climate" | "timeline";
+export type ViewName =
+  | "explore"
+  | "map"
+  | "stats"
+  | "analytics"
+  | "climate"
+  | "forecast"
+  | "timeline";
 
 const VIEW_KEY = "beeline_uploader.view";
 
@@ -28,6 +35,7 @@ function readView(): ViewName {
       v === "stats" ||
       v === "analytics" ||
       v === "climate" ||
+      v === "forecast" ||
       v === "timeline"
       ? v
       : "explore";

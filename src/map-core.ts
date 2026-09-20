@@ -8,6 +8,7 @@
  *   - one canonical OSM tile-usage credit string,
  *   - one factory for "a big interactive map" — dark desaturated OSM basemap, compact
  *     credit, sane world default — so the look is identical and defined once,
+ *   - one asset-free marker for a user-picked analysis point,
  *   - one builder for the pseudo-fullscreen expand toggle the Map and heatmap share.
  *
  * View-specific machinery (track layers, the heat layer, area-select wiring, side
@@ -38,6 +39,28 @@ export const CLICK_PX =
 /** Highlight style for an emphasized track — the Map view's selection/hover and the
  *  Stats heatmap's hover overlay both use it so a lit-up route looks the same. */
 export const HOT_TRACK = { color: "#ffe066", weight: 6, opacity: 1 } as const;
+
+const LOCATION_POINT_SVG = `
+  <span class="map-location-dot" aria-hidden="true">
+    <svg viewBox="0 0 30 30" focusable="false">
+      <path class="map-location-dot-crosshair" d="M15 1.5v5.75M15 22.75v5.75M1.5 15h5.75M22.75 15h5.75" />
+      <circle class="map-location-dot-core" cx="15" cy="15" r="7" />
+    </svg>
+  </span>`;
+
+/**
+ * The canonical marker for a coordinate explicitly picked by the user for analysis.
+ * It is an inline SVG so static deployments never have to resolve Leaflet's default
+ * marker PNGs. Callers decide whether the point is draggable or merely informational.
+ */
+export function createLocationPointIcon(): L.DivIcon {
+  return L.divIcon({
+    html: LOCATION_POINT_SVG,
+    className: "map-location-marker",
+    iconSize: [30, 30],
+    iconAnchor: [15, 15],
+  });
+}
 
 export interface InteractiveMapOpts {
   /**

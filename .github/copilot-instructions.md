@@ -200,6 +200,16 @@ Hard rules:
   matches `package.json`. A manual edit — or a forgotten regen — risks a partial/inconsistent
   lockfile that `npm ci` will reject.
 
+## Scratch workspace
+
+- Put every temporary artifact created while working — previews, screenshots, experiments,
+  generated diagnostics and disposable downloads — under `.tmp/yyyymmdd-topic/`, using the
+  current date and a short kebab-case topic (for example, `.tmp/20260920-forecast-marker/`).
+- `.tmp/` is gitignored. Never put scratch material in `.codex/`, the repository root, source
+  directories or documentation directories where it appears as a product change.
+- Keep one dated topic directory per task and remove it when the scratch material is no longer
+  useful. Files intended to ship belong in their normal tracked location, not `.tmp/`.
+
 ## Changelog
 
 Maintain [CHANGELOG.md](../CHANGELOG.md) — an **internal** intent log (not public release notes).

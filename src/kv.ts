@@ -86,14 +86,23 @@ const WIND_STORE_NAME = "wind";
  *  columnar blob per month + a catalog). Its OWN bucket, separate from rides/GPX/wind,
  *  so it can be dropped independently and never bloats the ride-state blob. */
 const LOCATION_STORE_NAME = "location-history";
+/** Live forecast responses + forecast-specific location preferences. */
+const FORECAST_STORE_NAME = "forecast";
 // v2 adds the `gpx` object store alongside the original `kv` store.
 // v3 adds the `wind` object store for the global historical-wind cache.
 // v4 adds the `location-history` object store for imported Google Location History.
-const DB_VERSION = 4;
+// v5 adds the isolated live-forecast store.
+const DB_VERSION = 5;
 
 /** Every object store this app expects. `onupgradeneeded` creates whichever are
  *  missing, so a forced upgrade always converges to the full, current schema. */
-const ALL_STORES = [STORE_NAME, GPX_STORE_NAME, WIND_STORE_NAME, LOCATION_STORE_NAME];
+const ALL_STORES = [
+  STORE_NAME,
+  GPX_STORE_NAME,
+  WIND_STORE_NAME,
+  LOCATION_STORE_NAME,
+  FORECAST_STORE_NAME,
+];
 
 /**
  * The version we open at. Normally `DB_VERSION`, but `dbWithStore` raises it to force
@@ -232,6 +241,11 @@ export function idbWindBlobBackend(): BlobStore {
  */
 export function idbLocationBlobBackend(): BlobStore {
   return idbBlobBackendFor(LOCATION_STORE_NAME);
+}
+
+/** Dedicated binary backend for live forecasts and forecast location preferences. */
+export function idbForecastBlobBackend(): BlobStore {
+  return idbBlobBackendFor(FORECAST_STORE_NAME);
 }
 
 /** Build a binary backend over one named object store (shared DB connection). */

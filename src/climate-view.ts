@@ -17,6 +17,7 @@
 
 import L from "leaflet";
 import { createLocate, type Locate } from "./locate";
+import { createLocationPointIcon } from "./map-core";
 import { setSliderFill } from "./slider";
 import { statNum } from "./ui";
 import type { CellDayWind } from "./weather";
@@ -866,13 +867,11 @@ function drawMapMarker(): void {
     }).addTo(markerLayer);
   }
 
-  // The exact point you clicked, with a white casing so it reads on any basemap.
-  L.circleMarker([picked.lat, picked.lon], {
-    radius: 5,
-    color: "#fff",
-    weight: 2,
-    fillColor: ACCENT,
-    fillOpacity: 1,
+  // The exact point the user picked: the same shared analysis-point marker used
+  // by Forecast. The ERA5 cell outline remains specific to this view.
+  L.marker([picked.lat, picked.lon], {
+    icon: createLocationPointIcon(),
     interactive: false,
+    keyboard: false,
   }).addTo(markerLayer);
 }
