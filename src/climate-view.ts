@@ -18,6 +18,7 @@
 import L from "leaflet";
 import { createLocate, type Locate } from "./locate";
 import { createLocationPointIcon } from "./map-core";
+import { type RoutePoint, sameRoutePoint, validRoutePoint } from "./router";
 import { setSliderFill } from "./slider";
 import { statNum } from "./ui";
 import type { CellDayWind } from "./weather";
@@ -51,6 +52,7 @@ export interface ClimateDeps {
   toast: (msg: string, err?: boolean) => void;
   /** OSM tile attribution credit string. */
   osmAttribution: string;
+  onPointChange?: (point: RoutePoint) => void;
 }
 
 let deps: ClimateDeps;
@@ -80,6 +82,7 @@ let map: L.Map | null = null;
 let markerLayer: L.LayerGroup | null = null;
 let locate: Locate | null = null;
 let wired = false;
+let mounted = false;
 
 /** The user-picked coordinate (where they clicked), or null until they pick one. */
 let picked: { lat: number; lon: number } | null = null;
@@ -129,7 +132,11 @@ function loadPrefs(): void {
       selectedMonth?: number;
       months?: number[];
     };
-    if (typeof p.lat === "number" && typeof p.lon === "number") {
+    if (
+      typeof p.lat === "number" &&
+      typeof p.lon === "number" &&
+      validRoutePoint(p as RoutePoint)
+    ) {
       picked = { lat: p.lat, lon: p.lon };
     }
     if (typeof p.endYear === "number") endYear = clampYear(p.endYear);
@@ -195,7 +202,9 @@ export function initClimateView(d: ClimateDeps): void {
 
 export function mountClimateView(): void {
   if (!deps) return; // not yet wired (boot/HMR order)
+  mounted = true;
   ensureMap();
+  if (picked) deps.onPointChange?.(picked);
   if (picked && days.length === 0 && !loading) {
     void fetchPoint({ fit: true });
   } else {
@@ -204,8 +213,31 @@ export function mountClimateView(): void {
 }
 
 export function leaveClimateView(): void {
+  mounted = false;
+  loadToken += 1;
+  loading = false;
   if (document.body.classList.contains("climate-expanded")) setExpanded(false);
   if (locate?.isActive()) locate.setActive(false);
+}
+
+/** Apply a linked point before the view mounts, or move the live view to it. */
+export function setClimateRoutePoint(next: RoutePoint | null): void {
+  if (!next || sameRoutePoint(picked, next)) return;
+  picked = next;
+  loadToken += 1;
+  loading = false;
+  cellInfo = null;
+  days = [];
+  samples = [];
+  savePrefs();
+  if (!mounted) return;
+  map?.setView([next.lat, next.lon], Math.max(map.getZoom(), 7));
+  renderAll({ fit: false });
+  void fetchPoint({ fit: false });
+}
+
+export function climatePoint(): RoutePoint | null {
+  return picked;
 }
 
 /** True while the climatology map is in pseudo-fullscreen (for the Esc handler). */
@@ -247,9 +279,8 @@ function ensureMap(): void {
   markerLayer = L.layerGroup().addTo(map);
   map.setView(picked ? [picked.lat, picked.lon] : [30, 0], picked ? 7 : 2);
   map.on("click", (e: L.LeafletMouseEvent) => {
-    picked = { lat: e.latlng.lat, lon: e.latlng.lng };
-    savePrefs();
-    void fetchPoint({ fit: false });
+    setClimateRoutePoint({ lat: e.latlng.lat, lon: e.latlng.lng });
+    if (picked) deps.onPointChange?.(picked);
   });
   setTimeout(() => map!.invalidateSize(), 0);
 }

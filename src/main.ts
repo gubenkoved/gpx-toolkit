@@ -113,11 +113,13 @@ import { BeelineError } from "./beeline-api";
 import { DEMO_BEELINE_EMAIL, demoBeelineDeps } from "./beeline-demo";
 import { BeelineRideSource, type BeelineSourceDeps } from "./beeline-source";
 import {
+  climatePoint,
   collapseClimate,
   initClimateView,
   isClimateExpanded,
   leaveClimateView,
   mountClimateView,
+  setClimateRoutePoint,
 } from "./climate-view";
 import {
   closeConfirm,
@@ -129,10 +131,12 @@ import {
 import { OpenMeteoForecastAdapter } from "./forecast";
 import { ForecastStore } from "./forecast-store";
 import {
+  forecastPoint,
   initForecastView,
   leaveForecastView,
   mountForecastView,
   resetForecastViewData,
+  setForecastRoutePoint,
 } from "./forecast-view";
 import { GpxRideSource } from "./gpx-source";
 import { GpxCache } from "./gpxcache";
@@ -161,6 +165,13 @@ import {
   toggleRideMapProfileStops,
   toggleRideMapWind,
 } from "./ridemap";
+import {
+  parseRoute,
+  type Route,
+  type RoutePoint,
+  validRoutePoint,
+  writeRoute,
+} from "./router";
 import type { SourceFactory } from "./source";
 import { type RideSource, STORAGE_KEY, Store } from "./store";
 import {
@@ -1285,9 +1296,39 @@ function applyView(): void {
   }
 }
 
-/** Switch the active view, persist the choice, and re-render. */
+function routeForView(view: ViewName): Route {
+  if (view === "forecast") {
+    const point = forecastPoint();
+    return { view, point: point && validRoutePoint(point) ? point : undefined };
+  }
+  if (view === "climate") {
+    const point = climatePoint();
+    return { view, point: point && validRoutePoint(point) ? point : undefined };
+  }
+  return { view };
+}
+
+function onRoutedPointChange(view: "forecast" | "climate", point: RoutePoint): void {
+  if (activeView() === view && validRoutePoint(point)) writeRoute({ view, point }, "replace");
+}
+
+/** Apply Back/Forward, pasted links and manual edits to the hash. */
+function applyHashRoute(): void {
+  const route = parseRoute(window.location.hash);
+  const target = route ?? routeForView(activeView());
+  if (target.view === "forecast") setForecastRoutePoint(target.point ?? null);
+  if (target.view === "climate") setClimateRoutePoint(target.point ?? null);
+  writeRoute(target, "replace"); // normalize invalid routes and coordinate precision
+  if (!setActiveView(target.view)) return;
+  applyView();
+  render();
+  trackView(target.view);
+}
+
+/** Switch the active view, persist the choice, and add a browser history entry. */
 function setView(v: ViewName): void {
   if (!setActiveView(v)) return;
+  writeRoute(routeForView(v), "push");
   applyView();
   render();
   trackView(v); // privacy-friendly per-view usage signal (GoatCounter)
@@ -2356,6 +2397,9 @@ async function resetEverything(): Promise<void> {
   await ensureLocStore().then((s) => s.clear());
   await ensureForecastStore().then((s) => s.clearAll());
   resetForecastViewData(true);
+  setActiveView("explore");
+  writeRoute({ view: "explore" }, "replace");
+  applyView();
   forgetProfile(); // forget the chosen source so the dialog leads next time
   await openApp(); // rebuild a fresh controller over the now-empty cache
   showSources({ welcome: true }); // start fresh: let the user reconnect a source
@@ -3279,6 +3323,7 @@ initClimateView({
     controller.getPointWind(lat, lon, startYear, endYear, onStage),
   toast,
   osmAttribution: OSM_ATTRIBUTION,
+  onPointChange: (point) => onRoutedPointChange("climate", point),
 });
 
 initForecastView({
@@ -3286,6 +3331,7 @@ initForecastView({
   ensureStore: ensureForecastStore,
   toast,
   esc: escHtml,
+  onPointChange: (point) => onRoutedPointChange("forecast", point),
 });
 
 initWindSpeedView({
@@ -3406,7 +3452,17 @@ function showVersion(): void {
 }
 showVersion();
 
-// Reflect the remembered view before the first render so the right tab is shown.
+// A shared route wins over the remembered view and point before the first render.
+const initialRoute = parseRoute(window.location.hash);
+if (initialRoute) {
+  setActiveView(initialRoute.view);
+  if (initialRoute.view === "forecast") setForecastRoutePoint(initialRoute.point ?? null);
+  if (initialRoute.view === "climate") setClimateRoutePoint(initialRoute.point ?? null);
+  writeRoute(initialRoute, "replace");
+} else {
+  writeRoute(routeForView(activeView()), "replace");
+}
+window.addEventListener("hashchange", applyHashRoute);
 applyView();
 
 // Ask the browser to keep our IndexedDB ride cache durable (best-effort; a no-op

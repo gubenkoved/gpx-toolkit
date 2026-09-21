@@ -74,6 +74,10 @@ a short **Sources** dialog explains the model and lets you fill it: **Add GPX fi
 with no account, or **connect Beeline** (or try its **demo**). You can open **Sources** from
 the header any time to connect or manage sources — there's no per-source "mode" to switch.
 
+The address bar follows the current tab. Forecast and Wind rose links include the selected
+map coordinates, so copying the URL shares that point. Browser Back and Forward navigate
+between tabs; picking another point updates the current history entry.
+
 ## Beeline account & your password
 
 The design goal is to **never store your Beeline password in clear** (or at all):

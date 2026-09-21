@@ -41,6 +41,7 @@ import {
 } from "./forecast-chart";
 import type { ForecastStore } from "./forecast-store";
 import { createInteractiveMap, createLocationPointIcon } from "./map-core";
+import { type RoutePoint, sameRoutePoint } from "./router";
 import { browserZone, loadTz, zoneForPoint } from "./tz";
 
 export interface ForecastViewDeps {
@@ -48,6 +49,7 @@ export interface ForecastViewDeps {
   ensureStore: () => Promise<ForecastStore>;
   toast: (message: string, error?: boolean) => void;
   esc: (value: string) => string;
+  onPointChange?: (point: RoutePoint) => void;
 }
 
 let deps: ForecastViewDeps;
@@ -81,6 +83,10 @@ let focusedLane: ForecastChartLane | null = null;
 let selectionSource: "hover" | "touch" | "keyboard" | null = null;
 let zone = browserZone();
 let mounted = false;
+let ready = false;
+let mountToken = 0;
+let selectionToken = 0;
+let routePoint: RoutePoint | null = null;
 let wired = false;
 let loadToken = 0;
 let locateToken = 0;
@@ -210,14 +216,17 @@ export function initForecastView(d: ForecastViewDeps): void {
 export async function mountForecastView(): Promise<void> {
   if (!deps) return;
   if (mounted) {
-    ensureMap();
-    renderAll();
+    if (ready) {
+      ensureMap();
+      renderAll();
+    }
     return;
   }
   mounted = true;
+  const token = ++mountToken;
   store = await deps.ensureStore();
+  if (!mounted || token !== mountToken) return;
   const prefs = store.prefs();
-  point = point ?? prefs.lastPoint;
   days = prefs.days;
   selectedModels = prefs.selectedModels;
   hiddenCompareModels = new Set(prefs.hiddenCompareModels);
@@ -227,10 +236,17 @@ export async function mountForecastView(): Promise<void> {
   compareDetailHeightPx = prefs.compareDetailHeightPx;
   metrics = prefs.metrics;
   await loadTz();
+  if (!mounted || token !== mountToken) return;
+  point = routePoint ? pointForRoute(routePoint) : (point ?? prefs.lastPoint);
+  ready = true;
   ensureMap();
   if (point) {
     zone = zoneForPoint(point.lat, point.lon) || browserZone();
     placeMarker(point, true);
+    deps.onPointChange?.(point);
+    if (routePoint && !sameRoutePoint(prefs.lastPoint, point)) {
+      void store.setPrefs({ lastPoint: point });
+    }
     await refreshForecast(false);
   } else {
     renderAll();
@@ -239,6 +255,10 @@ export async function mountForecastView(): Promise<void> {
 
 export function leaveForecastView(): void {
   mounted = false;
+  ready = false;
+  mountToken += 1;
+  selectionToken += 1;
+  loadToken += 1;
   setForecastSettingsOpen(false, false);
   locateToken += 1;
   locating = false;
@@ -253,6 +273,30 @@ export function leaveForecastView(): void {
   if (compareTrackClickTimer) clearTimeout(compareTrackClickTimer);
   compareTrackClickTimer = null;
   if (searchTimer) clearTimeout(searchTimer);
+}
+
+function pointForRoute(next: RoutePoint): ForecastPoint {
+  const prefs = store?.prefs();
+  const saved = [prefs?.lastPoint, ...(prefs?.favorites ?? []), ...(prefs?.recent ?? [])].find(
+    (item) => item && sameRoutePoint(item, next),
+  );
+  return saved ?? rawPoint(next.lat, next.lon);
+}
+
+/** A route point wins over saved preferences, including while the store is loading. */
+export function setForecastRoutePoint(next: RoutePoint | null): void {
+  routePoint = next;
+  if (!ready) return;
+  const target = next ? pointForRoute(next) : store?.prefs().lastPoint;
+  if (!target || sameRoutePoint(point, target)) {
+    if (point) deps.onPointChange?.(point);
+    return;
+  }
+  void choosePoint(target, true, false);
+}
+
+export function forecastPoint(): RoutePoint | null {
+  return point;
 }
 
 function setForecastSettingsOpen(open: boolean, restoreFocus = true): void {
@@ -299,6 +343,10 @@ export function resetForecastViewData(fullReset = false): void {
   searchOpen = false;
   searching = false;
   if (fullReset) {
+    routePoint = null;
+    selectionToken += 1;
+    loadToken += 1;
+    loadAbort?.abort();
     point = null;
     renameMode = null;
     days = 3;
@@ -356,6 +404,10 @@ async function choosePoint(
   fit: boolean,
   addRecent: boolean,
 ): Promise<void> {
+  const token = ++selectionToken;
+  routePoint = next;
+  loadToken += 1;
+  loadAbort?.abort();
   point = next;
   renameMode = null;
   forecasts.clear();
@@ -370,11 +422,14 @@ async function choosePoint(
   if (search) search.value = "";
   zone = zoneForPoint(next.lat, next.lon) || browserZone();
   placeMarker(next, fit);
+  deps.onPointChange?.(next);
   renderToolbar();
   renderSearchResults();
   if (!store) store = await deps.ensureStore();
+  if (token !== selectionToken || !mounted) return;
   if (addRecent) await store.addRecent(next as LocationResult);
   else await store.setPrefs({ lastPoint: next });
+  if (token !== selectionToken || !mounted) return;
   await refreshForecast(false);
 }
 
@@ -420,6 +475,7 @@ async function refreshForecast(force: boolean): Promise<void> {
     return;
   }
   const cached = await Promise.all(ids.map((id) => store!.getForecast(point!, id)));
+  if (token !== loadToken || !mounted) return;
   const need: string[] = [];
   for (let i = 0; i < ids.length; i++) {
     const item = cached[i];
@@ -463,7 +519,7 @@ async function refreshForecast(force: boolean): Promise<void> {
       ? cachedStatus("Updated")
       : "No forecast models returned wind data for this point.";
   } catch (error) {
-    if ((error as Error).name === "AbortError") return;
+    if (token !== loadToken || !mounted || (error as Error).name === "AbortError") return;
     const stale = visibleForecasts().length;
     status = stale
       ? cachedStatus(navigator.onLine ? "Refresh failed" : "Offline")

@@ -17,6 +17,13 @@ humans and the assistant can read this file as a compressed history of decisions
 
 ---
 
+## feat: share tab and point links with hash routes
+- **What:** Added hash routes for every top-level view. Forecast and Wind rose links carry the
+  selected coordinates; tab changes create browser history entries while point changes replace
+  the current entry. Shared points override saved points on load.
+- **Why:** A copied link should reopen the same screen and map point on another device, while
+  Back and Forward remain useful for moving between screens.
+
 ## feat: compare live forecasts across models
 - **What:** Added a ride-independent Forecast view with map/search selection, recent and pinned
   locations, Compare/Graph/Textual hourly presentations, model selection, and configurable
