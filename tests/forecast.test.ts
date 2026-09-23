@@ -83,7 +83,7 @@ describe("Open-Meteo forecast parsing", () => {
     expect(batch.forecasts[0].windGustKmh).toEqual([18, null]);
     expect(batch.forecasts[0].cloudCoverPct).toEqual([40, 80]);
     expect(batch.forecasts[0].freshUntil).toBe(3_601_000);
-    expect(batch.forecasts[1].freshUntil).toBe(21_601_000);
+    expect(batch.forecasts[1].freshUntil).toBe(3_601_000);
     expect(batch.forecasts[1].precipitationMm).toEqual([null, null]);
   });
 

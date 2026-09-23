@@ -5,6 +5,7 @@ import {
   DEFAULT_FORECAST_METRICS,
   DEFAULT_FORECAST_MODEL_IDS,
   FORECAST_HISTORY_HOURS,
+  FORECAST_REFRESH_INTERVAL_MS,
   type ForecastCompareStyle,
   type ForecastMetric,
   type ForecastModel,
@@ -93,6 +94,8 @@ let locateToken = 0;
 let loadAbort: AbortController | null = null;
 let searchAbort: AbortController | null = null;
 let searchTimer: ReturnType<typeof setTimeout> | null = null;
+let forecastAgeTimer: ReturnType<typeof setInterval> | null = null;
+let forecastRefreshTimer: ReturnType<typeof setTimeout> | null = null;
 let searchResults: LocationResult[] = [];
 let searchOpen = false;
 let locationPickerOpen = false;
@@ -119,6 +122,8 @@ let detailResize: {
 const TOUCH_TAP_SLOP = 8;
 const DETAIL_MIN_HEIGHT = 180;
 const DETAIL_MAX_VIEWPORT_SHARE = 0.85;
+const FORECAST_AGE_UPDATE_MS = 60_000;
+const FORECAST_RETRY_INTERVAL_MS = 5 * 60_000;
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string): T | null =>
   document.getElementById(id) as T | null;
@@ -239,6 +244,7 @@ export async function mountForecastView(): Promise<void> {
   if (!mounted || token !== mountToken) return;
   point = routePoint ? pointForRoute(routePoint) : (point ?? prefs.lastPoint);
   ready = true;
+  startForecastAgeTimer();
   ensureMap();
   if (point) {
     zone = zoneForPoint(point.lat, point.lon) || browserZone();
@@ -256,6 +262,7 @@ export async function mountForecastView(): Promise<void> {
 export function leaveForecastView(): void {
   mounted = false;
   ready = false;
+  stopForecastTimers();
   mountToken += 1;
   selectionToken += 1;
   loadToken += 1;
@@ -334,6 +341,7 @@ function onForecastSettingsKeydown(event: KeyboardEvent): void {
 }
 
 export function resetForecastViewData(fullReset = false): void {
+  clearForecastRefreshTimer();
   locateToken += 1;
   locating = false;
   forecasts.clear();
@@ -408,6 +416,7 @@ async function choosePoint(
   routePoint = next;
   loadToken += 1;
   loadAbort?.abort();
+  clearForecastRefreshTimer();
   point = next;
   renameMode = null;
   forecasts.clear();
@@ -453,15 +462,72 @@ function ageLabel(timestamp: number, now = Date.now()): string {
   return `${Math.floor(hours / 24)}d ago`;
 }
 
+function selectedForecastEntries(): HourlyForecast[] {
+  return candidateIds().flatMap((id) => {
+    const item = forecasts.get(id);
+    return item && Number.isFinite(item.fetchedAt) ? [item] : [];
+  });
+}
+
+function oldestSelectedForecastFetchedAt(): number | null {
+  const entries = selectedForecastEntries();
+  return entries.length ? Math.min(...entries.map((item) => item.fetchedAt)) : null;
+}
+
+function forecastIsStale(item: HourlyForecast, now = Date.now()): boolean {
+  return (
+    !Number.isFinite(item.fetchedAt) || item.fetchedAt + FORECAST_REFRESH_INTERVAL_MS <= now
+  );
+}
+
+function clearForecastRefreshTimer(): void {
+  if (forecastRefreshTimer) clearTimeout(forecastRefreshTimer);
+  forecastRefreshTimer = null;
+}
+
+function scheduleForecastRefresh(): void {
+  clearForecastRefreshTimer();
+  if (!mounted || !point) return;
+  const fetchedAt = oldestSelectedForecastFetchedAt();
+  if (fetchedAt == null) return;
+  const delay = Math.max(0, fetchedAt + FORECAST_REFRESH_INTERVAL_MS - Date.now());
+  forecastRefreshTimer = setTimeout(() => {
+    forecastRefreshTimer = null;
+    if (mounted) void refreshForecast(false);
+  }, delay);
+}
+
+function scheduleForecastRetry(): void {
+  clearForecastRefreshTimer();
+  if (!mounted || !point || !navigator.onLine) return;
+  forecastRefreshTimer = setTimeout(() => {
+    forecastRefreshTimer = null;
+    if (mounted) void refreshForecast(false);
+  }, FORECAST_RETRY_INTERVAL_MS);
+}
+
+function startForecastAgeTimer(): void {
+  if (forecastAgeTimer) clearInterval(forecastAgeTimer);
+  forecastAgeTimer = setInterval(() => {
+    if (mounted) renderFetchedAt();
+  }, FORECAST_AGE_UPDATE_MS);
+}
+
+function stopForecastTimers(): void {
+  clearForecastRefreshTimer();
+  if (forecastAgeTimer) clearInterval(forecastAgeTimer);
+  forecastAgeTimer = null;
+}
+
 function cachedStatus(prefix = "Cached"): string {
   const shown = visibleForecasts();
   if (!shown.length) return `${prefix} · no usable cached forecast`;
-  const oldest = Math.min(...shown.map((item) => item.fetchedAt));
-  return `${prefix} · ${shown.length} model${shown.length === 1 ? "" : "s"} · oldest update ${ageLabel(oldest)}`;
+  return `${prefix} · ${shown.length} model${shown.length === 1 ? "" : "s"}`;
 }
 
 async function refreshForecast(force: boolean): Promise<void> {
   if (!point || !store) return;
+  clearForecastRefreshTimer();
   const token = ++loadToken;
   loadAbort?.abort();
   loadAbort = new AbortController();
@@ -484,12 +550,13 @@ async function refreshForecast(force: boolean): Promise<void> {
     // Regional products legitimately end before a 10/15-day global comparison;
     // treating that honest short tail as a cache miss would re-request it on every visit.
     const covers = !!item && item.requestedHours >= hours;
-    if (force || !item || item.freshUntil <= now || !covers) need.push(ids[i]);
+    if (force || !item || forecastIsStale(item, now) || !covers) need.push(ids[i]);
   }
   renderAll();
   if (!need.length) {
     status = cachedStatus("Up to date");
     renderToolbar();
+    scheduleForecastRefresh();
     return;
   }
   if (!navigator.onLine) {
@@ -518,6 +585,12 @@ async function refreshForecast(force: boolean): Promise<void> {
     status = available.length
       ? cachedStatus("Updated")
       : "No forecast models returned wind data for this point.";
+    const shouldRetry = need.some((id) => {
+      const item = forecasts.get(id);
+      return !item || forecastIsStale(item) || item.requestedHours < hours;
+    });
+    if (shouldRetry) scheduleForecastRetry();
+    else scheduleForecastRefresh();
   } catch (error) {
     if (token !== loadToken || !mounted || (error as Error).name === "AbortError") return;
     const stale = visibleForecasts().length;
@@ -526,6 +599,7 @@ async function refreshForecast(force: boolean): Promise<void> {
       : navigator.onLine
         ? "Forecast unavailable."
         : "Offline · no cached forecast";
+    scheduleForecastRetry();
     deps.toast(error instanceof Error ? error.message : "Forecast request failed.", true);
   } finally {
     if (token === loadToken) {
@@ -585,11 +659,37 @@ function renderAll(): void {
   renderCharts();
 }
 
+function renderFetchedAt(): void {
+  const time = $("forecastFetchedAt") as HTMLTimeElement | null;
+  if (!time) return;
+  const fetchedAt = oldestSelectedForecastFetchedAt();
+  time.toggleAttribute("hidden", fetchedAt == null);
+  if (fetchedAt == null) {
+    time.removeAttribute("datetime");
+    time.removeAttribute("title");
+    time.removeAttribute("aria-label");
+    const age = $("forecastFetchedAge");
+    if (age) age.textContent = "";
+    return;
+  }
+  const relative = ageLabel(fetchedAt);
+  const exact = new Intl.DateTimeFormat(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(fetchedAt);
+  time.dateTime = new Date(fetchedAt).toISOString();
+  time.title = `Oldest selected forecast fetched ${exact}`;
+  time.setAttribute("aria-label", `Forecast last fetched ${relative}, at ${exact}`);
+  const age = $("forecastFetchedAge");
+  if (age) age.textContent = relative;
+}
+
 function renderToolbar(): void {
   const label = $("forecastPointLabel");
   if (label) label.textContent = point?.label ?? "No point selected";
   const stat = $("forecastStatus");
   if (stat) stat.textContent = status;
+  renderFetchedAt();
   const refresh = $("forecastRefresh");
   refresh?.toggleAttribute("disabled", !point || loading);
   refresh?.classList.toggle("loading", loading);
@@ -923,7 +1023,7 @@ function renderCharts(): void {
   host.setAttribute(
     "aria-label",
     isTable
-      ? "Textual hourly forecast comparison table"
+      ? "Hourly forecast comparison table"
       : isCompare
         ? "Combined forecast model spread chart"
         : "Forecast model comparison",
@@ -932,7 +1032,7 @@ function renderCharts(): void {
   const rows = shown
     .map((item) => {
       const model = modelFor(item.modelId);
-      const stale = item.freshUntil <= Date.now();
+      const stale = forecastIsStale(item);
       return (
         `<article class="fc-model-row" data-model-row="${model.id}">` +
         modelHeader(model, stale) +

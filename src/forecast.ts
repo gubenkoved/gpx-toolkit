@@ -14,6 +14,7 @@ export type ForecastCompareStyle = "consensus" | "models";
 
 /** Rolling history shown before the current hour when a provider or cache can supply it. */
 export const FORECAST_HISTORY_HOURS = 24;
+export const FORECAST_REFRESH_INTERVAL_MS = 3_600_000;
 
 export type ForecastMetric =
   | "windSpeed"
@@ -346,7 +347,7 @@ export function parseOpenMeteoForecast(
       pressureHpa: numericArray(modelValues(hourly, VARS[5], model.id), n),
       cloudCoverPct: numericArray(modelValues(hourly, VARS[6], model.id), n),
       fetchedAt: now,
-      freshUntil: now + Math.max(1, Math.min(6, model.updateHours)) * 3_600_000,
+      freshUntil: now + FORECAST_REFRESH_INTERVAL_MS,
       requestedHours: hours,
       ...(noData ? { noData: true } : {}),
     } satisfies HourlyForecast;

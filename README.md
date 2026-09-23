@@ -135,7 +135,7 @@ See [`infra/gpx-relay/README.md`](infra/gpx-relay/README.md) for the AWS deploy 
   km/h or knots and independently show only the weather variables you care about. Use a
   per-model graph stack, a large combined comparison with a clean consensus-band mode or
   toggleable full model lines, hover-highlighted tracks and per-model cursor values, or a
-  Textual mode with a compact hourly table.
+  Table mode with compact hourly values.
   Double-click a comparison legend item to isolate it. Pinned coordinates can be given useful
   names. Data includes the preceding 24 hours when available, comes directly from Open-Meteo,
   and lives in its own flushable browser cache.

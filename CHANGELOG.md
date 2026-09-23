@@ -17,6 +17,15 @@ humans and the assistant can read this file as a compressed history of decisions
 
 ---
 
+## feat: keep live forecasts visibly fresh
+- **What:** Added a subtle oldest-model fetch age beside the neutral forecast controls, hourly
+  automatic refresh while the view is open, a bounded retry after transient failures, and clearer
+  Combined / Per model / Table presentation labels. Per-model charts and tables now share the
+  same space-saving rotated model headers on mobile.
+- **Why:** Forecast users should be able to judge data freshness at a glance and should not need
+  to manually refresh a long-lived view, without overstating freshness or repeatedly hitting the
+  provider during an outage.
+
 ## feat: share tab and point links with hash routes
 - **What:** Added hash routes for every top-level view. Forecast and Wind rose links carry the
   selected coordinates; tab changes create browser history entries while point changes replace

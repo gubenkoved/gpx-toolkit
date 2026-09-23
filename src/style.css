@@ -3065,6 +3065,13 @@ body.ridemap-open {
   gap: 8px;
   margin-left: auto;
 }
+.fc-fetched-at {
+  color: var(--muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+  white-space: nowrap;
+}
 .fc-option-actions button {
   display: inline-flex;
   align-items: center;
@@ -3960,6 +3967,9 @@ body.ridemap-open {
   .fc-option-actions {
     gap: 5px;
   }
+  .fc-fetched-prefix {
+    display: none;
+  }
   .fc-option-actions button {
     width: 30px;
     height: 32px;
@@ -3981,28 +3991,29 @@ body.ridemap-open {
     width: 125px;
     padding: 8px;
   }
-  .fc-charts.textual-mode .fc-model-row,
+  /* Both row-based presentations use the same narrow, rotated model header on mobile. */
+  .fc-charts:not(.compare-mode) .fc-model-row,
   .fc-charts.textual-mode .fc-hourly-heading-row {
     grid-template-columns: 56px max-content;
   }
-  .fc-charts.textual-mode .fc-model-row {
+  .fc-charts:not(.compare-mode) .fc-model-row {
     min-height: 88px;
   }
-  .fc-charts.textual-mode .fc-model-row > header,
+  .fc-charts:not(.compare-mode) .fc-model-row > header,
   .fc-charts.textual-mode .fc-hourly-corner {
     width: 56px;
   }
-  .fc-charts.textual-mode .fc-model-row > header {
+  .fc-charts:not(.compare-mode) .fc-model-row > header {
     min-height: 0;
     padding: 0;
     overflow: hidden;
   }
-  .fc-charts.textual-mode .fc-model-row > header > b,
-  .fc-charts.textual-mode .fc-model-row > header > span:not(.fc-model-compact),
-  .fc-charts.textual-mode .fc-model-row > header > small {
+  .fc-charts:not(.compare-mode) .fc-model-row > header > b,
+  .fc-charts:not(.compare-mode) .fc-model-row > header > span:not(.fc-model-compact),
+  .fc-charts:not(.compare-mode) .fc-model-row > header > small {
     display: none;
   }
-  .fc-charts.textual-mode .fc-model-row > header .fc-model-compact {
+  .fc-charts:not(.compare-mode) .fc-model-row > header .fc-model-compact {
     position: absolute;
     inset: 4px;
     display: grid;
@@ -4010,7 +4021,7 @@ body.ridemap-open {
     overflow: hidden;
     place-items: center;
   }
-  .fc-charts.textual-mode .fc-model-row > header .fc-model-compact-text {
+  .fc-charts:not(.compare-mode) .fc-model-row > header .fc-model-compact-text {
     display: block;
     height: 100%;
     max-width: 100%;
@@ -4027,7 +4038,7 @@ body.ridemap-open {
     white-space: normal;
     writing-mode: vertical-rl;
   }
-  .fc-charts.textual-mode .fc-model-row > header .fc-model-compact b {
+  .fc-charts:not(.compare-mode) .fc-model-row > header .fc-model-compact b {
     color: var(--accent);
     font-size: inherit;
     font-weight: 700;
