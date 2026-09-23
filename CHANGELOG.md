@@ -17,6 +17,19 @@ humans and the assistant can read this file as a compressed history of decisions
 
 ---
 
+## feat: turn the forecast table into a metric matrix
+- **What:** Replaced each hour's repeated weather text stack with a persisted measure picker and
+  one aligned value per model/hour cell; average wind keeps gust as a small secondary value. The
+  picker becomes icon-only on narrow screens, where fixed-height, ellipsized horizontal model
+  labels keep every row compact and aligned; tapping a model label reveals its full identity and
+  forecast metadata in the persistent readout without recoloring the header cell. The current-hour
+  shading now carries the same precise, smoothly advancing “now” line as the graphs instead of
+  marking only the hour boundary, with sticky headers always masking scrolled timeline graphics;
+  its keyboard-focusable viewport uses a restrained inset cue instead of the browser's bright
+  outer focus outline.
+- **Why:** The exact-value view should make model differences and changes over time immediately
+  scannable instead of forcing the reader to parse the same seven labels in every cell.
+
 ## feat: keep live forecasts visibly fresh
 - **What:** Added a subtle oldest-model fetch age beside the neutral forecast controls, hourly
   automatic refresh while the view is open, a bounded retry after transient failures, and clearer

@@ -49,6 +49,7 @@ export interface ForecastPrefs {
   compareStyle: ForecastCompareStyle;
   speedUnit: ForecastSpeedUnit;
   presentation: ForecastPresentation;
+  tableMetric: ForecastMetric;
   compareDetailHeightPx: number | null;
   metrics: ForecastMetric[];
 }
@@ -70,6 +71,7 @@ const emptyPrefs = (): ForecastPrefs => ({
   compareStyle: "consensus",
   speedUnit: "kmh",
   presentation: "compare",
+  tableMetric: "windSpeed",
   compareDetailHeightPx: null,
   metrics: [...DEFAULT_FORECAST_METRICS],
 });
@@ -169,6 +171,9 @@ export class ForecastStore {
             prefs.presentation === "textual"
               ? prefs.presentation
               : "compare",
+          tableMetric: FORECAST_METRICS.has(prefs.tableMetric)
+            ? prefs.tableMetric
+            : "windSpeed",
           compareDetailHeightPx:
             typeof prefs.compareDetailHeightPx === "number" &&
             Number.isFinite(prefs.compareDetailHeightPx) &&

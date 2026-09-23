@@ -64,6 +64,7 @@ let hiddenCompareModels = new Set<string>();
 let compareStyle: ForecastCompareStyle = "consensus";
 let speedUnit: ForecastSpeedUnit = "kmh";
 let presentation: ForecastPresentation = "compare";
+let tableMetric: ForecastMetric = "windSpeed";
 let compareDetailHeightPx: number | null = null;
 let metrics: ForecastMetric[] = [...DEFAULT_FORECAST_METRICS];
 const forecasts = new Map<string, HourlyForecast>();
@@ -80,6 +81,7 @@ let loading = false;
 let locating = false;
 let status = "Pick a point or search for a place.";
 let selectedTime: number | null = null;
+let selectedTableModel: string | null = null;
 let focusedLane: ForecastChartLane | null = null;
 let selectionSource: "hover" | "touch" | "keyboard" | null = null;
 let zone = browserZone();
@@ -96,6 +98,7 @@ let searchAbort: AbortController | null = null;
 let searchTimer: ReturnType<typeof setTimeout> | null = null;
 let forecastAgeTimer: ReturnType<typeof setInterval> | null = null;
 let forecastRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+let forecastNowTimer: ReturnType<typeof setTimeout> | null = null;
 let searchResults: LocationResult[] = [];
 let searchOpen = false;
 let locationPickerOpen = false;
@@ -134,6 +137,7 @@ function canHover(): boolean {
 
 function clearChartSelection(): void {
   selectedTime = null;
+  selectedTableModel = null;
   focusedLane = null;
   selectionSource = null;
   touchChartGesture = null;
@@ -206,7 +210,9 @@ export function initForecastView(d: ForecastViewDeps): void {
   window.addEventListener("resize", applyDetailHeight);
   window.visualViewport?.addEventListener("resize", applyDetailHeight);
   window.addEventListener("focus", () => {
-    if (mounted) void refreshForecast(false);
+    if (!mounted) return;
+    scheduleForecastNowMarker();
+    void refreshForecast(false);
   });
   window.addEventListener("online", () => {
     if (mounted) void refreshForecast(false);
@@ -238,6 +244,7 @@ export async function mountForecastView(): Promise<void> {
   compareStyle = prefs.compareStyle;
   speedUnit = prefs.speedUnit;
   presentation = prefs.presentation;
+  tableMetric = prefs.tableMetric;
   compareDetailHeightPx = prefs.compareDetailHeightPx;
   metrics = prefs.metrics;
   await loadTz();
@@ -363,6 +370,7 @@ export function resetForecastViewData(fullReset = false): void {
     compareStyle = "consensus";
     speedUnit = "kmh";
     presentation = "compare";
+    tableMetric = "windSpeed";
     compareDetailHeightPx = null;
     metrics = [...DEFAULT_FORECAST_METRICS];
     clearChartSelection();
@@ -511,12 +519,15 @@ function startForecastAgeTimer(): void {
   forecastAgeTimer = setInterval(() => {
     if (mounted) renderFetchedAt();
   }, FORECAST_AGE_UPDATE_MS);
+  scheduleForecastNowMarker();
 }
 
 function stopForecastTimers(): void {
   clearForecastRefreshTimer();
   if (forecastAgeTimer) clearInterval(forecastAgeTimer);
   forecastAgeTimer = null;
+  if (forecastNowTimer) clearTimeout(forecastNowTimer);
+  forecastNowTimer = null;
 }
 
 function cachedStatus(prefix = "Cached"): string {
@@ -840,16 +851,138 @@ function renderDisplayOptions(): void {
         ? `<button type="button" class="fc-tracks-reset" id="forecastCompareShowAll">Show all</button>`
         : "");
   }
+  renderTableControls();
 }
 
 const FORECAST_HOUR_MS = 3_600_000;
-const TABLE_HOUR_WIDTH = 88;
+const TABLE_HOUR_WIDTH = 80;
+
+function updateTableNowMarker(now = Date.now()): void {
+  const host = $("forecastCharts");
+  if (!host || presentation !== "textual") return;
+  const currentHour = Math.floor(now / FORECAST_HOUR_MS) * FORECAST_HOUR_MS;
+  const progress = Math.max(0, Math.min(1, (now - currentHour) / FORECAST_HOUR_MS));
+  const remaining = Math.max(1, currentHour + FORECAST_HOUR_MS - now);
+  host.style.setProperty("--fc-now-progress", progress.toFixed(6));
+  host.style.setProperty("--fc-now-duration", `${remaining}ms`);
+  host.querySelectorAll<HTMLElement>("[data-time].current").forEach((cell) => {
+    cell.classList.remove("current");
+  });
+  // Restart the CSS animation from the exact wall-clock position after a render or wake.
+  void host.offsetWidth;
+  host.querySelectorAll<HTMLElement>(`[data-time="${currentHour}"]`).forEach((cell) => {
+    cell.classList.add("current");
+  });
+}
+
+function scheduleForecastNowMarker(): void {
+  if (forecastNowTimer) clearTimeout(forecastNowTimer);
+  forecastNowTimer = null;
+  if (!mounted) return;
+  const now = Date.now();
+  updateTableNowMarker(now);
+  const delay = FORECAST_HOUR_MS - (now % FORECAST_HOUR_MS) + 50;
+  forecastNowTimer = setTimeout(() => scheduleForecastNowMarker(), delay);
+}
+
+function tableMetricOptions(): ForecastMetric[] {
+  const enabled = new Set(metrics);
+  const options: ForecastMetric[] = [];
+  if (enabled.has("windSpeed")) options.push("windSpeed");
+  else if (enabled.has("windGust")) options.push("windGust");
+  for (const metric of DEFAULT_FORECAST_METRICS) {
+    if (metric === "windSpeed" || metric === "windGust" || !enabled.has(metric)) continue;
+    options.push(metric);
+  }
+  return options;
+}
+
+function activeTableMetric(): ForecastMetric {
+  const options = tableMetricOptions();
+  if (!options.includes(tableMetric) && options[0]) tableMetric = options[0];
+  return tableMetric;
+}
+
+function tableMetricLabel(metric: ForecastMetric): string {
+  if (metric === "windSpeed") return metrics.includes("windGust") ? "Wind + gust" : "Wind";
+  if (metric === "windGust") return "Gusts";
+  if (metric === "windDirection") return "Direction";
+  if (metric === "precipitation") return "Rain";
+  if (metric === "temperature") return "Temperature";
+  if (metric === "pressure") return "Pressure";
+  return "Cloud";
+}
+
+function tableMetricUnit(metric: ForecastMetric): string {
+  if (metric === "windSpeed")
+    return metrics.includes("windGust")
+      ? `${speedUnitLabel(speedUnit)} · gust shown smaller`
+      : speedUnitLabel(speedUnit);
+  if (metric === "windGust") return speedUnitLabel(speedUnit);
+  if (metric === "windDirection") return "from · degrees";
+  if (metric === "precipitation") return "mm";
+  if (metric === "temperature") return "°C";
+  if (metric === "pressure") return "hPa";
+  return "%";
+}
+
+function tableMetricShortUnit(metric: ForecastMetric): string {
+  if (metric === "windSpeed" || metric === "windGust") return speedUnitLabel(speedUnit);
+  if (metric === "windDirection") return "°";
+  if (metric === "precipitation") return "mm";
+  if (metric === "temperature") return "°C";
+  if (metric === "pressure") return "hPa";
+  return "%";
+}
+
+function tableMetricIcon(metric: ForecastMetric): string {
+  const paths: Record<ForecastMetric, string> = {
+    windSpeed: '<path d="M3 7h10a3 3 0 1 0-3-3M3 12h15a3 3 0 1 1-3 3M3 17h7"/>',
+    windGust: '<path d="M3 7h10a3 3 0 1 0-3-3M3 12h15a3 3 0 1 1-3 3M3 17h7"/>',
+    windDirection: '<path d="m12 3 4 9-4-2-4 2 4-9Z"/><path d="M12 10v11"/>',
+    precipitation: '<path d="M12 3s-5 5.7-5 10a5 5 0 0 0 10 0c0-4.3-5-10-5-10Z"/>',
+    temperature: '<path d="M10 14.8V5a2 2 0 1 1 4 0v9.8a4 4 0 1 1-4 0Z"/><path d="M12 11v6"/>',
+    pressure:
+      '<circle cx="12" cy="13" r="8"/><path d="m12 13 4-4M7 18l-1.5 1.5M17 18l1.5 1.5"/>',
+    cloudCover: '<path d="M7 18h10a4 4 0 0 0 .5-8 6 6 0 0 0-11.4 1.7A3.2 3.2 0 0 0 7 18Z"/>',
+  };
+  return `<svg class="mi fc-table-metric-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[metric]}</svg>`;
+}
+
+function renderTableControls(): void {
+  const host = $("forecastTableControls");
+  if (!host) return;
+  const options = tableMetricOptions();
+  const shown = presentation === "textual" && options.length > 0;
+  host.classList.toggle("hidden", !shown);
+  if (!shown) {
+    host.innerHTML = "";
+    return;
+  }
+  const metric = activeTableMetric();
+  host.innerHTML =
+    `<b>Measure</b>` +
+    (options.length > 1
+      ? `<span class="seg" role="group" aria-label="Table measure">${options
+          .map((option) => {
+            const label = tableMetricLabel(option);
+            return `<button type="button" data-table-metric="${option}" class="${option === metric ? "active" : ""}" aria-pressed="${option === metric}" aria-label="${deps.esc(label)}" title="${deps.esc(label)}">${tableMetricIcon(option)}<span>${deps.esc(label)}</span></button>`;
+          })
+          .join("")}</span>`
+      : `<span class="fc-table-measure">${deps.esc(tableMetricLabel(metric))}</span>`) +
+    `<small aria-label="${deps.esc(tableMetricUnit(metric))}"><span class="fc-table-unit-wide">${deps.esc(tableMetricUnit(metric))}</span><span class="fc-table-unit-narrow">${deps.esc(tableMetricShortUnit(metric))}</span></small>`;
+}
 
 function modelHeader(model: ForecastModel, stale: boolean): string {
+  const name = `${model.provider} ${model.label}`;
+  const selected = selectedTableModel === model.id;
   return (
-    `<header><b>${deps.esc(model.provider)}</b><span>${deps.esc(model.label)}</span>` +
+    `<header title="${deps.esc(name)}"><b>${deps.esc(model.provider)}</b><span>${deps.esc(model.label)}</span>` +
     `<small>${deps.esc(model.resolution)} · ${model.nativeHours}h native${stale ? " · stale" : ""}</small>` +
-    `<span class="fc-model-compact" title="${deps.esc(`${model.provider} ${model.label}`)}"><span class="fc-model-compact-text"><b>${deps.esc(model.provider)}</b> ${deps.esc(model.label)}</span></span>` +
+    `<span class="fc-model-compact" title="${deps.esc(name)}"><span class="fc-model-compact-text"><b>${deps.esc(model.provider)}</b> ${deps.esc(model.label)}</span></span>` +
+    (presentation === "textual"
+      ? `<button type="button" class="fc-model-reveal" data-table-model="${deps.esc(model.id)}" aria-pressed="${selected}" aria-label="${selected ? "Hide" : "Show"} details for ${deps.esc(name)}" title="${deps.esc(name)}"><svg class="mi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></svg></button>`
+      : "") +
     `</header>`
   );
 }
@@ -857,7 +990,7 @@ function modelHeader(model: ForecastModel, stale: boolean): string {
 function hourlyTable(
   item: HourlyForecast,
   timeline: ReturnType<typeof sharedForecastTimeline>,
-  options: ReturnType<typeof chartOptions>,
+  metric: ForecastMetric,
 ): string {
   const indexes = new Map(item.times.map((time, index) => [time, index]));
   const wind = (value: number | null | undefined): string =>
@@ -866,12 +999,54 @@ function hourlyTable(
       : convertWindSpeed(value, speedUnit).toFixed(speedUnit === "kmh" ? 0 : 1);
   const value = (itemValue: number | null | undefined, digits = 0): string =>
     itemValue == null ? "—" : itemValue.toFixed(digits);
+  const cellValue = (index: number): string | null => {
+    if (metric === "windSpeed") {
+      const average = item.windSpeedKmh[index];
+      const gust = metrics.includes("windGust") ? item.windGustKmh[index] : null;
+      if (average == null && gust == null) return null;
+      return (
+        `<span class="fc-hour-primary wind">${wind(average)}</span>` +
+        (gust == null ? "" : `<span class="fc-hour-secondary gust">gust ${wind(gust)}</span>`)
+      );
+    }
+    if (metric === "windGust") {
+      const gust = item.windGustKmh[index];
+      return gust == null ? null : `<span class="fc-hour-primary gust">${wind(gust)}</span>`;
+    }
+    if (metric === "windDirection") {
+      const direction = item.windDirectionDeg[index];
+      return direction == null
+        ? null
+        : `<span class="fc-hour-primary direction"><i style="--direction:${windTravelDeg(direction)}deg">↑</i>${compassFrom(direction)}</span><span class="fc-hour-secondary">${Math.round(direction)}°</span>`;
+    }
+    if (metric === "precipitation") {
+      const rain = item.precipitationMm[index];
+      return rain == null
+        ? null
+        : `<span class="fc-hour-primary rain">${value(rain, 1)}</span>`;
+    }
+    if (metric === "temperature") {
+      const temperature = item.temperatureC[index];
+      return temperature == null
+        ? null
+        : `<span class="fc-hour-primary temp">${value(temperature, 1)}</span>`;
+    }
+    if (metric === "pressure") {
+      const pressure = item.pressureHpa[index];
+      return pressure == null
+        ? null
+        : `<span class="fc-hour-primary pressure">${value(pressure)}</span>`;
+    }
+    const cloud = item.cloudCoverPct[index];
+    return cloud == null ? null : `<span class="fc-hour-primary cloud">${value(cloud)}</span>`;
+  };
   const currentHour = Math.floor(Date.now() / FORECAST_HOUR_MS) * FORECAST_HOUR_MS;
   const cells: string[] = [];
   for (let offset = 0; offset < timeline.hours; offset++) {
     const time = timeline.startMs + offset * FORECAST_HOUR_MS;
     const index = indexes.get(time) ?? -1;
-    const available = index >= 0 && hasForecastValueAt(item, index, options.metrics);
+    const content = index >= 0 ? cellValue(index) : null;
+    const available = content != null;
     const classes = [
       "fc-hour-cell",
       available ? "" : "empty",
@@ -880,49 +1055,8 @@ function hourlyTable(
     ]
       .filter(Boolean)
       .join(" ");
-    const lines: string[] = [];
-    if (available) {
-      if (options.metrics.has("windSpeed")) {
-        lines.push(
-          `<span class="wind"><b>${wind(item.windSpeedKmh[index])}</b> ${speedUnitLabel(speedUnit)}</span>`,
-        );
-      }
-      if (options.metrics.has("windGust")) {
-        lines.push(`<span class="gust">Gust <b>${wind(item.windGustKmh[index])}</b></span>`);
-      }
-      if (options.metrics.has("windDirection")) {
-        const direction = item.windDirectionDeg[index];
-        lines.push(
-          direction == null
-            ? `<span class="direction">Direction —</span>`
-            : `<span class="direction"><i style="--direction:${windTravelDeg(direction)}deg">↑</i> ${compassFrom(direction)} <b>${Math.round(direction)}°</b></span>`,
-        );
-      }
-      if (options.metrics.has("precipitation")) {
-        lines.push(
-          `<span class="rain">Rain <b>${value(item.precipitationMm[index], 1)}</b> mm</span>`,
-        );
-      }
-      if (options.metrics.has("temperature")) {
-        lines.push(
-          `<span class="temp"><b>${value(item.temperatureC[index], 1)}</b> °C</span>`,
-        );
-      }
-      if (options.metrics.has("pressure")) {
-        lines.push(
-          `<span class="pressure"><b>${value(item.pressureHpa[index])}</b> hPa</span>`,
-        );
-      }
-      if (options.metrics.has("cloudCover")) {
-        lines.push(
-          `<span class="cloud">Cloud <b>${value(item.cloudCoverPct[index])}</b>%</span>`,
-        );
-      }
-    } else {
-      lines.push(`<span class="fc-hour-empty">No data</span>`);
-    }
     cells.push(
-      `<div class="${classes}" role="cell" data-time="${time}">${lines.join("")}</div>`,
+      `<div class="${classes}" role="cell" data-time="${time}">${content ?? `<span class="fc-hour-empty">No data</span>`}</div>`,
     );
   }
   const width = Math.max(TABLE_HOUR_WIDTH, timeline.hours * TABLE_HOUR_WIDTH);
@@ -1004,6 +1138,7 @@ function renderCharts(): void {
   const timeline = sharedForecastTimeline(shown);
   const isTable = presentation === "textual";
   const isCompare = presentation === "compare";
+  const selectedTableMetric = isTable ? activeTableMetric() : null;
   const compared = isCompare ? visibleCompareForecasts() : shown;
   const width = chartWidthForHours(
     timeline.hours,
@@ -1023,7 +1158,7 @@ function renderCharts(): void {
   host.setAttribute(
     "aria-label",
     isTable
-      ? "Hourly forecast comparison table"
+      ? `Hourly ${tableMetricLabel(selectedTableMetric!)} comparison table`
       : isCompare
         ? "Combined forecast model spread chart"
         : "Forecast model comparison",
@@ -1037,7 +1172,7 @@ function renderCharts(): void {
         `<article class="fc-model-row" data-model-row="${model.id}">` +
         modelHeader(model, stale) +
         (isTable
-          ? hourlyTable(item, timeline, options)
+          ? hourlyTable(item, timeline, selectedTableMetric!)
           : `<canvas style="width:${width}px;height:${height}px" aria-label="Hourly forecast from ${deps.esc(model.provider)} ${deps.esc(model.label)}"></canvas>`) +
         `</article>`
       );
@@ -1064,6 +1199,7 @@ function renderCharts(): void {
   }
   host.scrollTop = oldScrollTop;
   if (isTable) {
+    updateTableNowMarker();
     renderReadout();
     return;
   }
@@ -1309,10 +1445,22 @@ function renderReadout(): void {
     return;
   }
   if (presentation === "textual") {
+    const selectedItem = selectedTableModel
+      ? shown.find((item) => item.modelId === selectedTableModel)
+      : null;
+    if (selectedItem) {
+      const model = modelFor(selectedItem.modelId);
+      const cadence = model.nativeHours === 1 ? "hourly" : `${model.nativeHours}-hour`;
+      host.innerHTML =
+        `<b>${deps.esc(`${model.provider} · ${model.label}`)}</b>` +
+        `<span>${deps.esc(`${model.resolution} grid · ${cadence} native data · ${model.horizonDays}-day horizon${forecastIsStale(selectedItem) ? " · stale" : ""}`)}</span>`;
+      return;
+    }
+    selectedTableModel = null;
     const guidance = canHover()
-      ? "Scroll horizontally by hour; hover a column to align that time across every model."
-      : "Scroll horizontally by hour; the current hour stays marked across every model.";
-    if (selectedTime == null || selectionSource !== "keyboard") {
+      ? "Choose one measure above, then scan across models and hours; hover or click a column to align it."
+      : "Choose one measure above, then scan across models and hours; tap a column to align it.";
+    if (selectedTime == null || selectionSource === "hover") {
       host.textContent = guidance;
       return;
     }
@@ -1337,7 +1485,9 @@ function renderReadout(): void {
         return `${model.provider} ${model.label}: ${values.join("; ")}`;
       })
       .join(". ");
-    host.innerHTML = `${deps.esc(guidance)}<span class="fc-a11y-values">${deps.esc(`${date}. ${announcement}`)}</span>`;
+    host.innerHTML =
+      `<b>${deps.esc(date)}</b><span>Showing ${deps.esc(tableMetricLabel(activeTableMetric()))} across models; choose another measure above or use ←/→ to step through hours.</span>` +
+      `<span class="fc-a11y-values">${deps.esc(announcement)}</span>`;
     return;
   }
   if (presentation === "compare" && selectionSource === "touch") {
@@ -1492,6 +1642,7 @@ function onChartKeydown(event: KeyboardEvent): void {
           ),
         )
       : timeline.startMs;
+  selectedTableModel = null;
   selectedTime = Math.max(
     timeline.startMs,
     Math.min(timeline.endMs, (selectedTime ?? initial) + step),
@@ -1729,8 +1880,34 @@ function onCompareLegendDoubleClick(event: MouseEvent): void {
 }
 
 function onClick(event: MouseEvent): void {
-  const button = (event.target as HTMLElement).closest<HTMLButtonElement>("button");
+  const target = event.target as HTMLElement;
+  const tableCell = target.closest<HTMLElement>("[data-time]");
+  if (presentation === "textual" && tableCell?.dataset.time) {
+    selectedTime = Number(tableCell.dataset.time);
+    selectedTableModel = null;
+    focusedLane = null;
+    selectionSource = "touch";
+    updateTableSelection();
+    renderReadout();
+    return;
+  }
+  const button = target.closest<HTMLButtonElement>("button");
   if (!button) return;
+  if (button.dataset.tableModel) {
+    selectedTableModel =
+      selectedTableModel === button.dataset.tableModel ? null : button.dataset.tableModel;
+    document.querySelectorAll<HTMLButtonElement>("[data-table-model]").forEach((item) => {
+      const selected = item.dataset.tableModel === selectedTableModel;
+      const model = modelFor(item.dataset.tableModel!);
+      item.setAttribute("aria-pressed", String(selected));
+      item.setAttribute(
+        "aria-label",
+        `${selected ? "Hide" : "Show"} details for ${model.provider} ${model.label}`,
+      );
+    });
+    renderReadout();
+    return;
+  }
   if (button.id === "forecastSettingsOpen") {
     setForecastSettingsOpen(true);
     return;
@@ -1758,6 +1935,13 @@ function onClick(event: MouseEvent): void {
     hoveredCompareModel = null;
     void store?.setPrefs({ presentation });
     renderAll();
+    return;
+  }
+  if (button.dataset.tableMetric) {
+    tableMetric = button.dataset.tableMetric as ForecastMetric;
+    void store?.setPrefs({ tableMetric });
+    renderDisplayOptions();
+    renderCharts();
     return;
   }
   if (button.id === "forecastRefresh") return void refreshForecast(true);
@@ -1924,8 +2108,10 @@ function onChange(event: Event): void {
         "#forecastMetricList input[data-forecast-metric]:checked",
       ),
     ].map((item) => item.dataset.forecastMetric as ForecastMetric);
+    const tableOptions = tableMetricOptions();
+    if (!tableOptions.includes(tableMetric) && tableOptions[0]) tableMetric = tableOptions[0];
     clearChartSelection();
-    void store?.setPrefs({ metrics });
+    void store?.setPrefs({ metrics, tableMetric });
     renderAll();
     return;
   }

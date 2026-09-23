@@ -3412,6 +3412,42 @@ body.ridemap-open {
 .fc-legend.table-hidden {
   display: none;
 }
+.fc-table-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 2px 8px;
+  overflow-x: auto;
+  color: var(--muted);
+  scrollbar-width: thin;
+  white-space: nowrap;
+}
+.fc-table-controls.hidden {
+  display: none;
+}
+.fc-table-controls > b {
+  flex: 0 0 auto;
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.fc-table-controls .seg {
+  flex: 0 0 auto;
+}
+.fc-table-metric-icon,
+.fc-table-unit-narrow {
+  display: none;
+}
+.fc-table-controls > small {
+  margin-left: auto;
+  font-size: 10px;
+}
+.fc-table-measure {
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 650;
+}
 .fc-model-legend {
   display: flex;
   gap: 5px 14px;
@@ -3544,6 +3580,13 @@ body.ridemap-open {
   border-radius: var(--radius);
   background: var(--panel);
 }
+.fc-charts:focus {
+  outline: none;
+}
+.fc-charts:focus-visible {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 24%, transparent);
+}
 .fc-model-row {
   display: grid;
   grid-template-columns: 180px max-content;
@@ -3555,7 +3598,7 @@ body.ridemap-open {
 }
 .fc-model-row > header {
   position: sticky;
-  z-index: 2;
+  z-index: 3;
   left: 0;
   display: flex;
   flex-direction: column;
@@ -3582,6 +3625,49 @@ body.ridemap-open {
 }
 .fc-model-row > header .fc-model-compact {
   display: none;
+}
+.fc-model-reveal {
+  position: absolute;
+  z-index: 3;
+  inset: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--muted);
+  -webkit-tap-highlight-color: transparent;
+}
+button.fc-model-reveal:hover:not(:disabled),
+button.fc-model-reveal:active,
+button.fc-model-reveal:focus-visible,
+button.fc-model-reveal[aria-pressed="true"] {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+}
+.fc-model-reveal:focus-visible {
+  outline: 0;
+}
+.fc-model-reveal[aria-pressed="true"] {
+  color: var(--accent);
+}
+.fc-model-reveal .mi {
+  position: absolute;
+  right: 5px;
+  bottom: 5px;
+  width: 12px;
+  height: 12px;
+  opacity: 0.55;
+}
+.fc-model-reveal:hover .mi,
+.fc-model-reveal:focus-visible .mi,
+.fc-model-reveal[aria-pressed="true"] .mi {
+  opacity: 1;
+}
+.fc-model-reveal:focus-visible .mi {
+  border-radius: 50%;
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
 }
 .fc-model-row canvas {
   display: block;
@@ -3831,25 +3917,30 @@ body.ridemap-open {
 .fc-hour-cell {
   display: flex;
   flex-direction: column;
-  gap: 3px;
-  padding: 7px 7px 8px;
+  justify-content: center;
+  gap: 2px;
+  min-height: 43px;
+  padding: 6px 7px;
   overflow: hidden;
   border-right: 1px solid var(--line);
   color: var(--muted);
   font-size: 9px;
   line-height: 1.25;
+  text-align: right;
   cursor: crosshair;
-}
-.fc-hour-cell span,
-.fc-hour-cell span b {
-  white-space: nowrap;
 }
 .fc-hour-cell span {
   display: block;
+  white-space: nowrap;
 }
-.fc-hour-cell span b {
+.fc-hour-cell .fc-hour-primary {
   color: var(--text);
+  font-size: 12px;
   font-weight: 650;
+}
+.fc-hour-cell .fc-hour-secondary {
+  color: var(--muted);
+  font-size: 9px;
 }
 .fc-hour-cell .wind {
   color: var(--accent);
@@ -3866,9 +3957,17 @@ body.ridemap-open {
 .fc-hour-cell .pressure {
   color: #72b7d2;
 }
+.fc-hour-cell .cloud {
+  color: var(--text);
+}
+.fc-hour-cell .direction {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 3px;
+}
 .fc-hour-cell .direction i {
   display: inline-block;
-  margin-right: 2px;
   color: var(--text);
   font-style: normal;
   transform: rotate(var(--direction));
@@ -3884,24 +3983,60 @@ body.ridemap-open {
 }
 .fc-hour-heading.current,
 .fc-hour-cell.current {
-  box-shadow: inset 1px 0 color-mix(in srgb, var(--accent) 38%, transparent);
+  position: relative;
+  overflow: hidden;
+}
+.fc-hour-heading.current::after,
+.fc-hour-cell.current::after {
+  position: absolute;
+  z-index: 1;
+  top: 0;
+  bottom: 0;
+  left: calc(var(--fc-now-progress, 0) * 100%);
+  width: 0;
+  border-left: 1px dashed color-mix(in srgb, var(--accent) 80%, transparent);
+  pointer-events: none;
+  content: "";
+  animation: fc-now-progress var(--fc-now-duration, 3600000ms) linear forwards;
+}
+@keyframes fc-now-progress {
+  to {
+    left: 100%;
+  }
 }
 .fc-charts.textual-mode .fc-model-row > header {
   display: grid;
   grid-template-columns: auto 1fr;
   align-content: center;
   gap: 3px 8px;
+  height: 52px;
   padding: 7px 10px;
+  overflow: hidden;
+}
+.fc-charts.textual-mode .fc-model-row {
+  height: 52px;
+  min-height: 52px;
+}
+.fc-charts.textual-mode .fc-model-row .fc-hourly-grid {
+  height: 100%;
 }
 .fc-charts.textual-mode .fc-model-row > header b {
   grid-column: 1;
   grid-row: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .fc-charts.textual-mode .fc-model-row > header > span:not(.fc-model-compact) {
   grid-column: 1 / -1;
   grid-row: 2;
+  min-width: 0;
   margin-top: 0;
+  padding-right: 14px;
+  overflow: hidden;
   line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .fc-charts.textual-mode .fc-model-row > header small {
   grid-column: 2;
@@ -3974,6 +4109,33 @@ body.ridemap-open {
     width: 30px;
     height: 32px;
   }
+  .fc-table-controls {
+    gap: 6px;
+  }
+  .fc-table-controls > b {
+    display: none;
+  }
+  .fc-table-controls .seg button {
+    display: grid;
+    width: var(--tap-min);
+    padding: var(--ctrl-pad-y-sm);
+    place-items: center;
+  }
+  .fc-table-controls .seg button > span,
+  .fc-table-unit-wide {
+    display: none;
+  }
+  .fc-table-metric-icon,
+  .fc-table-unit-narrow {
+    display: block;
+  }
+  .fc-table-metric-icon {
+    width: 17px;
+    height: 17px;
+  }
+  .fc-table-controls > small {
+    margin-left: 0;
+  }
   #forecastModelsList {
     grid-template-columns: 1fr;
   }
@@ -3991,7 +4153,7 @@ body.ridemap-open {
     width: 125px;
     padding: 8px;
   }
-  /* Both row-based presentations use the same narrow, rotated model header on mobile. */
+  /* Per-model graphs use a narrow, rotated model header on mobile. */
   .fc-charts:not(.compare-mode) .fc-model-row,
   .fc-charts.textual-mode .fc-hourly-heading-row {
     grid-template-columns: 56px max-content;
@@ -4043,8 +4205,46 @@ body.ridemap-open {
     font-size: inherit;
     font-weight: 700;
   }
-  .fc-charts.textual-mode .fc-hourly-corner {
-    padding: 0 4px;
+  #forecastCharts.textual-mode .fc-model-row,
+  #forecastCharts.textual-mode .fc-hourly-heading-row {
+    grid-template-columns: 104px max-content;
+  }
+  #forecastCharts.textual-mode .fc-model-row {
+    height: 52px;
+    min-height: 52px;
+  }
+  #forecastCharts.textual-mode .fc-model-row > header,
+  #forecastCharts.textual-mode .fc-hourly-corner {
+    width: 104px;
+  }
+  #forecastCharts.textual-mode .fc-model-row > header {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 2px;
+    height: 52px;
+    min-height: 52px;
+    padding: 6px 8px;
+  }
+  #forecastCharts.textual-mode .fc-model-row > header > b,
+  #forecastCharts.textual-mode .fc-model-row > header > span:not(.fc-model-compact) {
+    display: block;
+    grid-column: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  #forecastCharts.textual-mode .fc-model-row > header > b {
+    grid-row: 1;
+  }
+  #forecastCharts.textual-mode .fc-model-row > header > span:not(.fc-model-compact) {
+    grid-row: 2;
+    font-size: 10px;
+  }
+  #forecastCharts.textual-mode .fc-model-row > header > small,
+  #forecastCharts.textual-mode .fc-model-row > header .fc-model-compact {
+    display: none;
+  }
+  #forecastCharts.textual-mode .fc-hourly-corner {
+    padding: 0 8px;
     font-size: 8px;
     letter-spacing: 0;
   }

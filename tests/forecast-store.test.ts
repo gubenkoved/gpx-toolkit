@@ -25,6 +25,7 @@ describe("ForecastStore", () => {
   it("defaults new and incomplete preferences to compare without overriding saved graph", async () => {
     const fresh = ForecastStore.memory();
     expect(fresh.prefs().presentation).toBe("compare");
+    expect(fresh.prefs().tableMetric).toBe("windSpeed");
     expect(fresh.prefs().compareDetailHeightPx).toBeNull();
 
     const graphBackend = memoryBlobBackend();
@@ -39,7 +40,9 @@ describe("ForecastStore", () => {
         JSON.stringify({ v: 1, entries: {}, geo: {}, prefs: { days: 3 } }),
       ),
     );
-    expect((await ForecastStore.load(incompleteBackend)).prefs().presentation).toBe("compare");
+    const incomplete = (await ForecastStore.load(incompleteBackend)).prefs();
+    expect(incomplete.presentation).toBe("compare");
+    expect(incomplete.tableMetric).toBe("windSpeed");
   });
 
   it("round-trips compressed forecasts and reuses the 0.001 degree point bucket", async () => {
@@ -110,6 +113,7 @@ describe("ForecastStore", () => {
     await store.setPrefs({
       speedUnit: "ms",
       presentation: "textual",
+      tableMetric: "pressure",
       compareDetailHeightPx: 420,
       metrics: ["temperature", "precipitation"],
       hiddenCompareModels: ["ecmwf_ifs"],
@@ -119,6 +123,7 @@ describe("ForecastStore", () => {
     const restored = await ForecastStore.load(backend);
     expect(restored.prefs().speedUnit).toBe("ms");
     expect(restored.prefs().presentation).toBe("textual");
+    expect(restored.prefs().tableMetric).toBe("pressure");
     expect(restored.prefs().compareDetailHeightPx).toBe(420);
     expect(restored.prefs().metrics).toEqual(["temperature", "precipitation"]);
     expect(restored.prefs().hiddenCompareModels).toEqual(["ecmwf_ifs"]);

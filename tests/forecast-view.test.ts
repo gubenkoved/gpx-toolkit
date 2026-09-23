@@ -119,6 +119,7 @@ describe("forecast presentation view", () => {
       `<div id="forecastModelsList"></div></div>` +
       `<div id="forecastPresentation"><button data-presentation="textual">Table</button></div>` +
       `<div id="forecastReadout"></div><div id="forecastLegend"></div>` +
+      `<div id="forecastTableControls" class="hidden"></div>` +
       `<div id="forecastCharts"></div><section id="forecastCompareDetail" class="hidden"></section></div>`;
 
     const store = await ForecastStore.load(memoryBlobBackend());
@@ -238,9 +239,40 @@ describe("forecast presentation view", () => {
     expect(headings[0].querySelector("b")?.textContent).toBe("Mon 21");
     expect(headings[6].querySelector("b")).toBeNull();
     expect(headings[16].querySelector("b")?.textContent).toBe("Tue 22");
+    const table = document.getElementById("forecastCharts")!;
+    expect(table.style.getPropertyValue("--fc-now-progress")).toBe("0.000000");
+    expect(table.style.getPropertyValue("--fc-now-duration")).toBe("3600000ms");
+    expect(table.querySelectorAll("[data-time].current")).toHaveLength(2);
     const compact = document.querySelector(".fc-model-compact")!;
     expect(compact.querySelector("b")?.textContent).toBe("ECMWF");
     expect(compact.textContent).toBe("ECMWF IFS HRES");
+    expect(
+      [...document.querySelectorAll<HTMLButtonElement>("[data-table-metric]")].map(
+        (button) => button.textContent,
+      ),
+    ).toEqual(["Wind + gust", "Direction", "Rain", "Temperature", "Pressure", "Cloud"]);
+    expect(document.querySelectorAll(".fc-table-metric-icon")).toHaveLength(6);
+    expect(document.querySelector(".fc-hour-cell")?.children).toHaveLength(2);
+
+    const modelReveal = document.querySelector<HTMLButtonElement>("[data-table-model]")!;
+    modelReveal.click();
+    expect(modelReveal.getAttribute("aria-pressed")).toBe("true");
+    expect(document.getElementById("forecastReadout")?.textContent).toContain(
+      "ECMWF · IFS HRES",
+    );
+    expect(document.getElementById("forecastReadout")?.textContent).toContain("9 km grid");
+
+    document.querySelector<HTMLButtonElement>("[data-table-metric='precipitation']")!.click();
+    expect(store.prefs().tableMetric).toBe("precipitation");
+    expect(document.getElementById("forecastCharts")?.getAttribute("aria-label")).toBe(
+      "Hourly Rain comparison table",
+    );
+    expect(document.querySelector(".fc-hour-primary.rain")?.textContent).toBe("0.0");
+    expect(document.querySelector(".fc-hour-cell")?.children).toHaveLength(1);
+
+    document.querySelector<HTMLElement>(".fc-hour-cell")!.click();
+    expect(document.querySelectorAll("[data-time].selected")).toHaveLength(2);
+    expect(document.getElementById("forecastReadout")?.textContent).toContain("Showing Rain");
   });
 
   it("shows the oldest fetch age and refreshes at the one-hour boundary", async () => {

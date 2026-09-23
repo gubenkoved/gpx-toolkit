@@ -203,12 +203,15 @@ Hard rules:
 ## Scratch workspace
 
 - Put every temporary artifact created while working — previews, screenshots, experiments,
-  generated diagnostics and disposable downloads — under `.tmp/yyyymmdd-topic/`, using the
+  generated diagnostics and disposable downloads — under `.tmp/YYYYMMDD-topic/`, using the
   current date and a short kebab-case topic (for example, `.tmp/20260920-forecast-marker/`).
 - `.tmp/` is gitignored. Never put scratch material in `.codex/`, the repository root, source
-  directories or documentation directories where it appears as a product change.
-- Keep one dated topic directory per task and remove it when the scratch material is no longer
-  useful. Files intended to ship belong in their normal tracked location, not `.tmp/`.
+  directories, ad hoc `work/` or `tmp/` directories, or documentation directories where it
+  appears as a product change.
+- Keep one dated topic directory per task, with all related artifacts together. Preserve these
+  ignored directories by default as local working history and future reference; delete one only
+  when the user explicitly asks. Files intended to ship belong in their normal tracked location,
+  not `.tmp/`.
 
 ## Changelog
 
