@@ -90,6 +90,10 @@ const DATASETS: Record<DatasetId, Dataset> = {
 
 /** Wind variables we request (kept ≤10 so a request stays a single API call). */
 const WIND_VARS = ["wind_speed_10m", "wind_direction_10m", "wind_gusts_10m"] as const;
+/** The rest of a ride's weather (rain / air temperature / cloud), fetched with the
+ *  wind for rides so the big ride map can show the conditions along the route. The
+ *  Wind rose's decades of point history stay wind-only (smaller, and all it needs). */
+const WEATHER_VARS = ["precipitation", "temperature_2m", "cloud_cover"] as const;
 
 /** The archive (ERA5/ERA5-Land) lags real time by ~5 days; newer rides use forecast. */
 const ARCHIVE_LAG_DAYS = 5;
@@ -169,6 +173,10 @@ export interface CellDayWind {
   hourly: Record<string, (number | null)[]>;
   /** Negative-cache sentinel: the model has no wind for this cell-day (don't refetch). */
   noData?: boolean;
+  /** The weather variables (rain / temperature / cloud) were requested with this
+   *  entry — whether or not the model served them — so a ride resolve never
+   *  re-fetches it. Entries cached before weather variables existed lack it. */
+  wx?: boolean;
 }
 
 /** Instantaneous wind at one track point, plus its along-track component. */
@@ -189,6 +197,13 @@ export interface PointWind {
   /** Grid-center of the cell that served this point (for the footprint hover). */
   cellLat: number;
   cellLon: number;
+  /** Rain in the hour containing this point, mm (null when the cached cell-day
+   *  predates weather variables — wind only). */
+  rainMm?: number | null;
+  /** Air temperature at 2 m, °C (null when unknown). */
+  tempC?: number | null;
+  /** Cloud cover, 0–100 (null when unknown). */
+  cloudPct?: number | null;
 }
 
 /** Small per-ride derived summary stored on the ride record (no per-point arrays). */
@@ -209,6 +224,13 @@ export interface RideWind {
   prevailingFromDeg: number;
   avgSpeedKmh: number;
   avgGustKmh: number;
+  /** Share of points ridden in rain (≥ 0.1 mm in that hour); absent when the cached
+   *  cell-days carried no weather variables. */
+  wetShare?: number;
+  /** Heaviest hourly rain met along the ride, mm. */
+  maxRainMmH?: number;
+  /** Mean air temperature along the ride, °C. */
+  avgTempC?: number;
   /** True when no wind could be resolved for this ride (negative cache). */
   noData?: boolean;
 }
@@ -364,6 +386,38 @@ export function windAtMs(entry: CellDayWind, tMs: number): WindSample | null {
   });
 }
 
+/** True when a cell-day carries the weather variables (rain / temperature / cloud)
+ *  and not just wind — older cache entries predate them. */
+export function hasWeatherVars(entry: CellDayWind): boolean {
+  return !!entry.hourly.precipitation;
+}
+
+/** The non-wind weather at an instant: the rain of the hour containing it (an hourly
+ *  total, not interpolated), temperature and cloud cover interpolated between hours.
+ *  Null when the entry has no weather variables. */
+export function weatherAtMs(
+  entry: CellDayWind,
+  tMs: number,
+): { rainMm: number | null; tempC: number | null; cloudPct: number | null } | null {
+  if (!hasWeatherVars(entry)) return null;
+  const n = entry.step;
+  const first = sampleMsForHour(entry.dayISO, 0);
+  const hourF = Math.min(Math.max((tMs - first) / 3_600_000, 0), n - 1);
+  const i0 = Math.floor(hourF);
+  const i1 = Math.min(i0 + 1, n - 1);
+  const frac = hourF - i0;
+  const at = (arr: (number | null)[] | undefined, i: number): number | null =>
+    arr ? (arr[i] ?? null) : null;
+  const rain = entry.hourly.precipitation;
+  const temp = entry.hourly.temperature_2m;
+  const cloud = entry.hourly.cloud_cover;
+  return {
+    rainMm: at(rain, i0) ?? at(rain, i1),
+    tempC: lerpNullable(at(temp, i0), at(temp, i1), frac),
+    cloudPct: lerpNullable(at(cloud, i0), at(cloud, i1), frac),
+  };
+}
+
 interface Vec {
   fx: number;
   fy: number;
@@ -428,6 +482,9 @@ export function computeRidePoints(
     gustKmh: number;
     cellLat: number;
     cellLon: number;
+    rainMm: number | null;
+    tempC: number | null;
+    cloudPct: number | null;
   } | null)[] = new Array(n).fill(null);
   for (let i = 0; i < n; i++) {
     const tMs = pointTimesMs[i];
@@ -438,12 +495,16 @@ export function computeRidePoints(
     if (!entry || entry.noData) continue;
     const w = windAtMs(entry, tMs);
     if (!w) continue;
+    const wx = weatherAtMs(entry, tMs);
     sample[i] = {
       fromDeg: w.fromDeg,
       speedKmh: w.speedKmh,
       gustKmh: w.gustKmh,
       cellLat: entry.cellLat,
       cellLon: entry.cellLon,
+      rainMm: wx?.rainMm ?? null,
+      tempC: wx?.tempC ?? null,
+      cloudPct: wx?.cloudPct ?? null,
     };
   }
   // Fill gaps: any point with no sample borrows the nearest resolved one (by index —
@@ -465,6 +526,9 @@ export function computeRidePoints(
       headingDeg: bearing,
       cellLat: s.cellLat,
       cellLon: s.cellLon,
+      rainMm: s.rainMm,
+      tempC: s.tempC,
+      cloudPct: s.cloudPct,
     };
   }
   return out;
@@ -533,7 +597,7 @@ export function summarize(
     fy += p.speedKmh * Math.sin(p.fromDeg * D2R);
   }
   const n = real.length;
-  return {
+  const out: RideWind = {
     ...base,
     avgAlongKmh: along / n,
     pctTailwind: tail / n,
@@ -541,6 +605,15 @@ export function summarize(
     avgSpeedKmh: speed / n,
     avgGustKmh: gust / n,
   };
+  // Rain / temperature only when the cell-days carried them (older caches don't).
+  const wet = real.filter((p) => p.rainMm != null);
+  if (wet.length) {
+    out.wetShare = wet.filter((p) => (p.rainMm ?? 0) >= 0.1).length / wet.length;
+    out.maxRainMmH = Math.max(...wet.map((p) => p.rainMm ?? 0));
+  }
+  const temps = real.map((p) => p.tempC).filter((t): t is number => t != null);
+  if (temps.length) out.avgTempC = temps.reduce((a, b) => a + b, 0) / temps.length;
+  return out;
 }
 
 // --------------------------------------------------------------------------- //
@@ -612,25 +685,26 @@ export class OpenMeteo {
     cells: Cell[],
     days: string[],
     onStage?: (msg: string) => void,
+    opts: { weather?: boolean } = {},
   ): Promise<CellDayWind[]> {
     if (cells.length === 0 || days.length === 0) return [];
-    const url = this.buildUrl(dataset, cells, days);
+    const url = this.buildUrl(dataset, cells, days, !!opts.weather);
     const resp = await this.request(url, onStage);
     if (!resp.ok) {
       throw new WeatherError(`Open-Meteo responded ${resp.status}`, resp.status);
     }
     const json = (await resp.json()) as unknown;
-    return this.parse(dataset, cells, days, json);
+    return this.parse(dataset, cells, days, json, !!opts.weather);
   }
 
   // -- URL + parsing --------------------------------------------------------
 
-  private buildUrl(dataset: Dataset, cells: Cell[], days: string[]): string {
+  private buildUrl(dataset: Dataset, cells: Cell[], days: string[], weather: boolean): string {
     const sorted = [...days].sort();
     const p = new URLSearchParams();
     p.set("latitude", cells.map((c) => c.lat.toFixed(4)).join(","));
     p.set("longitude", cells.map((c) => c.lon.toFixed(4)).join(","));
-    p.set("hourly", WIND_VARS.join(","));
+    p.set("hourly", (weather ? [...WIND_VARS, ...WEATHER_VARS] : [...WIND_VARS]).join(","));
     p.set("wind_speed_unit", "kmh");
     p.set("timezone", "GMT"); // UTC days → deterministic cache keys
     if (dataset.forecast) {
@@ -653,6 +727,7 @@ export class OpenMeteo {
     cells: Cell[],
     days: string[],
     json: unknown,
+    weather = false,
   ): CellDayWind[] {
     if (json && typeof json === "object" && (json as { error?: unknown }).error) {
       const reason = String((json as { reason?: unknown }).reason ?? "unknown error");
@@ -672,6 +747,15 @@ export class OpenMeteo {
           out.push(negativeEntry(dataset, cell, dayISO, loc));
           continue;
         }
+        const hourly: Record<string, (number | null)[]> = {
+          wind_speed_10m: hours.speed,
+          wind_direction_10m: hours.dir,
+          wind_gusts_10m: hours.gust,
+        };
+        // Weather variables ride along only when they were requested and served.
+        if (loc?.hourly?.precipitation) hourly.precipitation = hours.rain;
+        if (loc?.hourly?.temperature_2m) hourly.temperature_2m = hours.temp;
+        if (loc?.hourly?.cloud_cover) hourly.cloud_cover = hours.cloud;
         out.push({
           dataset: dataset.id,
           latIdx: cell.latIdx,
@@ -681,11 +765,8 @@ export class OpenMeteo {
           gridKm: dataset.gridKm,
           dayISO,
           step: hours.speed.length,
-          hourly: {
-            wind_speed_10m: hours.speed,
-            wind_direction_10m: hours.dir,
-            wind_gusts_10m: hours.gust,
-          },
+          hourly,
+          ...(weather ? { wx: true } : {}),
         });
       }
     }
@@ -757,6 +838,9 @@ interface OpenMeteoLocation {
     wind_speed_10m?: (number | null)[];
     wind_direction_10m?: (number | null)[];
     wind_gusts_10m?: (number | null)[];
+    precipitation?: (number | null)[];
+    temperature_2m?: (number | null)[];
+    cloud_cover?: (number | null)[];
   };
 }
 
@@ -764,6 +848,9 @@ interface DayHours {
   speed: (number | null)[];
   dir: (number | null)[];
   gust: (number | null)[];
+  rain: (number | null)[];
+  temp: (number | null)[];
+  cloud: (number | null)[];
 }
 
 /** Bucket a location's flat hourly arrays into per-UTC-day slices keyed "YYYY-MM-DD". */
@@ -776,12 +863,15 @@ function groupByDay(loc: OpenMeteoLocation | undefined): Map<string, DayHours> {
     const day = times[i].slice(0, 10);
     let bucket = out.get(day);
     if (!bucket) {
-      bucket = { speed: [], dir: [], gust: [] };
+      bucket = { speed: [], dir: [], gust: [], rain: [], temp: [], cloud: [] };
       out.set(day, bucket);
     }
     bucket.speed.push(h.wind_speed_10m?.[i] ?? null);
     bucket.dir.push(h.wind_direction_10m?.[i] ?? null);
     bucket.gust.push(h.wind_gusts_10m?.[i] ?? null);
+    bucket.rain.push(h.precipitation?.[i] ?? null);
+    bucket.temp.push(h.temperature_2m?.[i] ?? null);
+    bucket.cloud.push(h.cloud_cover?.[i] ?? null);
   }
   return out;
 }

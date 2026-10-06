@@ -230,4 +230,21 @@ describe("Controller historical wind", () => {
     expect(weather.calls()).toBe(before);
     expect(b.days.length).toBe(a.days.length);
   });
+
+  it("cachedWindYears reports exactly the fully-cached years for a point's cell", async () => {
+    const store = new Store(memoryBackend());
+    const weather = fakeWeather();
+    const c = makeController(store, weather.deps);
+    const ny = new Date().getUTCFullYear();
+
+    expect(c.cachedWindYears(52.0, 13.0)).toEqual([]);
+    await c.getPointWind(52.0, 13.0, ny - 3, ny - 2);
+    // The two pulled years — and only those — are cached; a nearby point in the
+    // same 25 km cell sees the same, a far-away one sees nothing. No fetch happens.
+    const before = weather.calls();
+    expect(c.cachedWindYears(52.0, 13.0)).toEqual([ny - 3, ny - 2]);
+    expect(c.cachedWindYears(52.01, 13.01)).toEqual([ny - 3, ny - 2]);
+    expect(c.cachedWindYears(40.0, -3.0)).toEqual([]);
+    expect(weather.calls()).toBe(before);
+  });
 });

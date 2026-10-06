@@ -72,11 +72,17 @@ npm run dev          # open the printed http://localhost:… URL
 The app boots straight into your (initially empty) **ride library**. On the very first launch
 a short **Sources** dialog explains the model and lets you fill it: **Add GPX files** to start
 with no account, or **connect Beeline** (or try its **demo**). You can open **Sources** from
-the header any time to connect or manage sources — there's no per-source "mode" to switch.
+the sidebar (the **More** sheet on a phone) any time to connect or manage sources — there's no
+per-source "mode" to switch.
 
-The address bar follows the current tab. Forecast and Wind rose links include the selected
+Views are grouped in a left sidebar — **Rides** (Explore, Map, Stats), **Weather** (Forecast,
+Wind rose) and **Research** (Wind vs speed, Timeline); on a phone the same views live in a
+bottom navigation bar. The app ships a **dark** and a **light** theme (Settings → Theme, or
+follow the system preference).
+
+The address bar follows the current view. Forecast and Wind rose links include the selected
 map coordinates, so copying the URL shares that point. Browser Back and Forward navigate
-between tabs; picking another point updates the current history entry.
+between views; picking another point updates the current history entry.
 
 ## Beeline account & your password
 
@@ -124,18 +130,34 @@ See [`infra/gpx-relay/README.md`](infra/gpx-relay/README.md) for the AWS deploy 
   by day / week / month / year.
 - Rides are grouped by **year → month**, each header showing a riding-volume bar (its
   distance vs the busiest sibling) and a **select-all checkbox** for batch actions.
+  **Shift+click** a ride (its checkbox or the row) to select the range from the last one
+  you picked; **Ctrl/⌘+click** a row toggles just that ride. The selection is yours until
+  you clear it — it survives view switches, jobs and reloads.
 - Expand any ride to see full details (distance, avg/max speed, moving / elapsed time,
-  elevation) and its GPS route on a map.
+  elevation) and its GPS route on a map. Open the route full-screen for a toolbar of
+  labelled controls: colour the route by height, speed or head/tailwind; switch on
+  **Rain & wind** to see the weather you rode in — wind streaks and rain on the map,
+  following the point you hover, with a readout of wind, rain and temperature; graph the
+  elevation or speed profile by distance or time, skipping stops.
 - **Map** view plots every ride's track as an overlapping heatmap; a **Stats** view adds a
   route-frequency heatmap and lifetime totals/records. Both have a *locate me* toggle and a
   rubber-band area filter.
+- **Wind rose** pulls decades of ERA5 wind history for any map point: where the wind blows
+  from by hour and month, with a draggable year window that updates live over loaded years.
+  **Pin to compare** freezes the rose you are looking at; then move the window or pick
+  another spot and a card shows pinned vs now side by side (prevailing direction, mean,
+  steadiness, calm) with the differences — periods, places, or both — and a Swap.
 - **Forecast** compares hourly wind and broader weather models for any map point. Search for
   a place or postcode, use five recent searches or pinned favourites, and stack every
-  available KNMI/DMI/ECMWF/DWD/NOAA/etc. model on one synchronized timeline. Choose m/s,
+  available KNMI/DMI/ECMWF/DWD/NOAA/etc. model on one synchronized timeline. By default it
+  picks the best models for the spot: the finest regional models whose domain covers it
+  (HARMONIE over the Netherlands, HRRR over the US, MSM over Japan…) plus the leading
+  global models, 5–10 in all, chosen afresh for every location. Choose m/s,
   km/h or knots and independently show only the weather variables you care about. Use a
   per-model graph stack, a large combined comparison with a clean consensus-band mode or
   toggleable full model lines, hover-highlighted tracks and per-model cursor values, or a
-  Table mode with compact hourly values.
+  Table mode: a timetable with the hours down the page, the models across, a consensus
+  column first, and every cell tinted by how windy, wet or warm that hour is.
   Double-click a comparison legend item to isolate it. Pinned coordinates can be given useful
   names. Data includes the preceding 24 hours when available, comes directly from Open-Meteo,
   and lives in its own flushable browser cache.

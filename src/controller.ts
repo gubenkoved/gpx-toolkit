@@ -56,6 +56,7 @@ import {
   type Dataset,
   type DatasetId,
   datasetById,
+  hasWeatherVars,
   OpenMeteo,
   type PointWind,
   pickDatasets,
@@ -578,6 +579,14 @@ export class Controller {
     void this.recomputeCachedWind(uid, rec);
   }
 
+  /** True when the ride's resolved per-point wind also carries rain / temperature
+   *  (false for wind resolved before weather variables were fetched — a forced
+   *  re-resolve upgrades it). */
+  hasRideWeather(key: string): boolean {
+    const w = this.rideWinds.get(this.normalizeUid(key));
+    return !!w?.some((p) => p != null && p.rainMm != null);
+  }
+
   /** True when an explicit wind resolution is queued/running for this ride. */
   isResolvingWind(key: string): boolean {
     return this.windBusy.has(this.normalizeUid(key));
@@ -650,6 +659,38 @@ export class Controller {
    * the grid cell that served the point and every cached cell-day in range, oldest
    * first, for the view to aggregate entirely in memory.
    */
+  /** The UTC days of ERA5 point-wind year `y` that are available at all (the
+   *  current year ends `POINT_WIND_LAG_DAYS` ago); [] for a year not yet started. */
+  private pointWindYearDays(y: number): string[] {
+    const chunkStart = Date.UTC(y, 0, 1);
+    const chunkEnd = Math.min(
+      Date.now() - POINT_WIND_LAG_DAYS * 86_400_000,
+      Date.UTC(y, 11, 31),
+    );
+    return chunkEnd < chunkStart ? [] : utcDaysBetween(chunkStart, chunkEnd);
+  }
+
+  /** Which ERA5 years are fully cached for the cell that serves `lat/lon` — a
+   *  synchronous index probe (no IndexedDB reads), so the wind-rose slider can
+   *  paint the loaded ranges and know which windows need no network. */
+  cachedWindYears(lat: number, lon: number): number[] {
+    const dataset = datasetById("era5");
+    const cell = quantizeCell(lat, lon, dataset);
+    const nowYear = new Date().getUTCFullYear();
+    const out: number[] = [];
+    for (let y = POINT_WIND_MIN_YEAR; y <= nowYear; y++) {
+      const days = this.pointWindYearDays(y);
+      if (days.length === 0) continue;
+      if (
+        days.every((d) =>
+          this.windCache.has(cellDayKey(dataset.id, cell.latIdx, cell.lonIdx, d)),
+        )
+      )
+        out.push(y);
+    }
+    return out;
+  }
+
   async getPointWind(
     lat: number,
     lon: number,
@@ -664,21 +705,12 @@ export class Controller {
     let lo = Math.max(POINT_WIND_MIN_YEAR, Math.round(startYear));
     if (lo > hi) lo = hi;
     if (hi - lo + 1 > POINT_WIND_MAX_SPAN) lo = hi - (POINT_WIND_MAX_SPAN - 1);
-    // ERA5 lags real time by several days; the current year ends a touch earlier.
-    const endMs = Math.min(
-      Date.now() - POINT_WIND_LAG_DAYS * 86_400_000,
-      Date.UTC(hi, 11, 31),
-    );
-    const startMs = Date.UTC(lo, 0, 1);
 
     const out: CellDayWind[] = [];
     const keyFor = (d: string): string => cellDayKey(dataset.id, cell.latIdx, cell.lonIdx, d);
 
     for (let y = lo; y <= hi; y++) {
-      const chunkStart = Math.max(startMs, Date.UTC(y, 0, 1));
-      const chunkEnd = Math.min(endMs, Date.UTC(y, 11, 31));
-      if (chunkEnd < chunkStart) continue;
-      const chunkDays = utcDaysBetween(chunkStart, chunkEnd);
+      const chunkDays = this.pointWindYearDays(y);
       if (chunkDays.length === 0) continue;
 
       const missing = chunkDays.some((d) => !this.windCache.has(keyFor(d)));
@@ -786,14 +818,24 @@ export class Controller {
       report(
         `Sampling ${cells.length} wind cell${cells.length === 1 ? "" : "s"} along the route…`,
       );
-      // A forced refresh re-fetches every cell; otherwise only the cache gaps.
-      const missingCells = force
-        ? cells
-        : cells.filter((c) =>
-            days.some(
-              (d) => !this.windCache.has(cellDayKey(dataset.id, c.latIdx, c.lonIdx, d)),
-            ),
-          );
+      // A forced refresh re-fetches every cell; otherwise only the cache gaps — and a
+      // cell-day cached before weather variables existed (wind only) counts as a gap,
+      // so a resolve also upgrades it to carry rain / temperature / cloud.
+      const missingCells: typeof cells = [];
+      for (const c of cells) {
+        let missing = force;
+        for (const d of days) {
+          if (missing) break;
+          const key = cellDayKey(dataset.id, c.latIdx, c.lonIdx, d);
+          if (!this.windCache.has(key)) {
+            missing = true;
+            break;
+          }
+          const e = await this.windCache.get(key);
+          if (!e || (!e.noData && !e.wx && !hasWeatherVars(e))) missing = true;
+        }
+        if (missing) missingCells.push(c);
+      }
       if (missingCells.length > 0) {
         report(
           `Fetching wind from Open-Meteo · ${dataset.label} · ` +
@@ -805,6 +847,9 @@ export class Controller {
           missingCells,
           days,
           report,
+          {
+            weather: true,
+          },
         );
         // Compute from the data we JUST fetched (merged with any cache hits) so the
         // result NEVER depends on the cache write succeeding — caching is only an

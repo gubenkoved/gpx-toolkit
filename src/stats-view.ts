@@ -20,14 +20,21 @@ import "leaflet.heat";
 import { type AreaSelect, createAreaSelect } from "./areaselect";
 import type { RideView } from "./controller";
 import { fmtDuration, fmtElevation, fmtKm } from "./format";
-import { BASE_SPACING_M, buildHeatPoints, type HeatBounds, spacingForZoom } from "./heatmap";
+import {
+  BASE_SPACING_M,
+  buildHeatPoints,
+  type HeatBounds,
+  type HeatPoint,
+  spacingForZoom,
+} from "./heatmap";
+import { chunked, runInSlices } from "./idle";
 import { createLocate, type Locate } from "./locate";
 import { CLICK_PX, createInteractiveMap, HOT_TRACK, makeExpandToggle } from "./map-core";
 import { type DateRange, type RideTrack, ridesWithTracks } from "./mapview";
 import { rideShortLabel } from "./parsing";
 import { setSliderFill } from "./slider";
 import { computeStats, type PeriodRecord } from "./stats";
-import { statNum } from "./ui";
+import { paneLoader, statNum } from "./ui";
 
 /** What the view needs from the app (injected once via `initStatsView`). */
 export interface StatsViewDeps {
@@ -57,6 +64,10 @@ let deps!: StatsViewDeps;
 
 let freqHeatMap: L.Map | null = null;
 let freqHeatLayer: L.Layer | null = null;
+/** Cancels an in-progress sliced heat build (a newer viewport / track set wins). */
+let heatBuildCancel: (() => void) | null = null;
+/** Above this many tracks the densify runs in idle slices behind a loader. */
+const SLICED_HEAT_FROM = 300;
 // Whether the heatmap has been framed at least once. Like the Map view, background
 // data updates must NOT re-fit; we frame only on the first draw and on an explicit
 // reset/reframe (see mountFreqHeatmap's `fit`).
@@ -118,10 +129,14 @@ export function renderHeatMatched(): void {
   heatSelectedKeys = heatSelectedKeys.filter((k) => drawn.has(k));
   clearHeatHover();
   const cards = deps.renderSelectedCards(heatSelectedKeys);
-  box.innerHTML =
-    cards ||
-    `<div class="ms-empty">Drag a rectangle on the heatmap with the <b>Select area</b> ` +
-      `tool — or click near a route — to list the rides passing through it here.</div>`;
+  box.innerHTML = cards;
+  // The side panel appears only with a selection; the map re-measures the freed width.
+  const wrap = box.closest<HTMLElement>(".freq-wrap");
+  const had = !!wrap?.classList.contains("has-sel");
+  const has = !!cards;
+  wrap?.classList.toggle("has-sel", has);
+  document.getElementById("statsHeatHint")?.classList.toggle("hidden", has);
+  if (had !== has) setTimeout(() => freqHeatMap?.invalidateSize(), 0);
 }
 
 // The Stats heatmap's area-select gesture: a box-drag selects every ride crossing
@@ -179,27 +194,63 @@ function freqHeatSig(tracks: ReadonlyArray<RideTrack>): string {
   return `${view}#${tracks.map((t) => t.key).join("|")}`;
 }
 
+/** A radius being dragged (null = the persisted setting). The slider's `input`
+ *  ticks preview through `setHeatRadiusPreview` — a cheap `setOptions` redraw of the
+ *  existing layer — and the value is committed to the store once on `change`. */
+let liveRadius: number | null = null;
+function heatRadius(): number {
+  return liveRadius ?? deps.heatRadius();
+}
+export function setHeatRadiusPreview(radius: number | null): void {
+  liveRadius = radius;
+  if (radius == null || !freqHeatLayer) return;
+  (freqHeatLayer as L.HeatLayer).setOptions({ radius, blur: radius + 2 });
+}
+
 /** (Re)build the heat layer from `lastHeatTracks` for the current zoom/viewport. */
 function buildFreqHeatLayer(): void {
   if (!freqHeatMap) return;
+  heatBuildCancel?.();
+  heatBuildCancel = null;
   if (freqHeatLayer) {
     freqHeatMap.removeLayer(freqHeatLayer);
     freqHeatLayer = null;
   }
-  const radius = deps.heatRadius();
+  const radius = heatRadius();
   const spacing = freqHeatSpacing(radius);
   // Scale weight by spacing so a finer (zoomed-in) resample deposits the same glow
   // energy per metre as the 30 m baseline — denser points must not over-saturate.
   const weight = spacing / BASE_SPACING_M;
-  const pts = buildHeatPoints(lastHeatTracks, spacing, weight, freqHeatBounds());
-  if (pts.length) {
-    freqHeatLayer = L.heatLayer(pts as [number, number, number][], {
-      radius,
-      blur: radius + 2,
-      minOpacity: 0.25,
-      gradient: { 0.0: "#1e3a8a", 0.4: "#22d3ee", 0.7: "#facc15", 1.0: "#f97316" },
-    }).addTo(freqHeatMap);
+  const bounds = freqHeatBounds();
+  const pts: HeatPoint[] = [];
+  const map = freqHeatMap;
+  const finish = (): void => {
+    heatBuildCancel = null;
+    if (pts.length) {
+      freqHeatLayer = L.heatLayer(pts as [number, number, number][], {
+        radius,
+        blur: radius + 2,
+        minOpacity: 0.25,
+        gradient: { 0.0: "#1e3a8a", 0.4: "#22d3ee", 0.7: "#facc15", 1.0: "#f97316" },
+      }).addTo(map);
+    }
+    paneLoader(document.querySelector<HTMLElement>(".freq-main"), null);
+  };
+  const collect = (tracks: RideTrack[]): void => {
+    for (const p of buildHeatPoints(tracks, spacing, weight, bounds)) pts.push(p);
+  };
+  if (lastHeatTracks.length <= SLICED_HEAT_FROM) {
+    collect(lastHeatTracks);
+    finish();
+    return;
   }
+  // Thousands of routes: densify in idle slices behind a loader so opening Stats
+  // (and every pan / zoom rebuild) never freezes the page.
+  paneLoader(
+    document.querySelector<HTMLElement>(".freq-main"),
+    `Building the heatmap for ${lastHeatTracks.length.toLocaleString()} routes…`,
+  );
+  heatBuildCancel = runInSlices(chunked(lastHeatTracks, 60), collect, { onDone: finish });
 }
 
 /** Re-render the cached heat layer after a pan/zoom, without re-scanning rides. */
@@ -285,7 +336,7 @@ export function mountStatsView(opts: { fit?: boolean } = {}): void {
 function syncHeatControl(): void {
   const slider = document.getElementById("heatRadius") as HTMLInputElement | null;
   const out = document.getElementById("heatRadiusOut") as HTMLOutputElement | null;
-  const radius = deps.heatRadius();
+  const radius = heatRadius();
   if (slider && document.activeElement !== slider) {
     slider.value = String(radius);
   }
@@ -316,7 +367,7 @@ function mountFreqHeatmap(rides: RideView[], hidden: number, fit?: boolean): voi
     heatAreaSelect.attach();
   }
 
-  const radius = deps.heatRadius();
+  const radius = heatRadius();
   const blur = radius + 2;
   const dataSig = tracks.map((t) => t.key).join("|");
   if (dataSig !== lastHeatDataSig) {

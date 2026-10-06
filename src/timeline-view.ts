@@ -19,6 +19,7 @@
  */
 
 import L from "leaflet";
+import { icon } from "./icons";
 import "leaflet.heat";
 
 import { type AreaSelect, createAreaSelect } from "./areaselect";
@@ -200,36 +201,17 @@ function areaOffsetMin(recs: LocRecord[]): number {
 // Inline SVG icons — 16px, stroke: currentColor, so they inherit the button's text
 // colour and stay crisp at any DPI (no Unicode glyphs). Shared by the text buttons.
 // --------------------------------------------------------------------------- //
-const SVG = (body: string): string =>
-  `<svg class="bi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" ` +
-  `stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${body}</svg>`;
+/** The view's glyphs, drawn from the shared registry (src/icons.ts). */
 const ICONS = {
-  /** Upload tray with an up arrow — import a file. */
-  import: SVG(
-    '<path d="M12 15V3"/><path d="m8 7 4-4 4 4"/><path d="M4 14v5a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-5"/>',
-  ),
-  /** Plus in a circle — add more. */
-  add: SVG('<circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/>'),
-  /** Trash can — drop/delete. */
-  trash: SVG(
-    '<path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m2 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M10 11v6M14 11v6"/>',
-  ),
-  /** Back arrow — return to the overview/heatmap. */
-  back: SVG('<path d="M19 12H5M12 19l-7-7 7-7"/>'),
-  /** Chevron left — previous day. */
-  chevLeft: SVG('<path d="m15 18-6-6 6-6"/>'),
-  /** Chevron right — next day. */
-  chevRight: SVG('<path d="m9 18 6-6-6-6"/>'),
-  /** Calendar — open a day picker. */
-  calendar: SVG(
-    '<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/>',
-  ),
-  /** Double-ended horizontal arrow — reset the date range back to your whole history. */
-  allRange: SVG('<path d="M3 12h18"/><path d="m7 8-4 4 4 4"/><path d="m17 8 4 4-4 4"/>'),
-  /** Phone with an up arrow — export from your phone. */
-  phone: SVG(
-    '<rect x="7" y="3" width="10" height="18" rx="2"/><path d="M12 7v6M9.5 9 12 6.5 14.5 9"/>',
-  ),
+  import: icon("import"),
+  add: icon("add"),
+  trash: icon("trash"),
+  back: icon("back"),
+  chevLeft: icon("chevLeft"),
+  chevRight: icon("chevRight"),
+  calendar: icon("calendar"),
+  allRange: icon("allRange"),
+  phone: icon("phone"),
 } as const;
 
 // --------------------------------------------------------------------------- //
@@ -738,6 +720,21 @@ function heatControlsHtml(): string {
 }
 
 /** Apply a live heat tweak from a slider without rebuilding the bar (keeps drag focus). */
+/** Coalesce a slider's live redraw to one per animation frame (the latest wins):
+ *  the dwell heatmap and the range re-frame cost far more than a drag tick. */
+let liveRaf = 0;
+let liveFn: (() => void) | null = null;
+function liveRedraw(fn: () => void): void {
+  liveFn = fn;
+  if (liveRaf) return;
+  liveRaf = requestAnimationFrame(() => {
+    liveRaf = 0;
+    const f = liveFn;
+    liveFn = null;
+    f?.();
+  });
+}
+
 function tweakHeat(which: "radius" | "dwellH", value: number): void {
   heatPrefs[which] = value;
   saveHeatPrefs();
@@ -745,7 +742,7 @@ function tweakHeat(which: "radius" | "dwellH", value: number): void {
     const out = document.getElementById("tlHeatDwellOut");
     if (out) out.textContent = `${value}h`;
   }
-  buildHeat();
+  liveRedraw(buildHeat);
 }
 
 /** A "jump to a day" trigger → opens the custom calendar popover (day replay). */
@@ -908,7 +905,7 @@ function onRangeWindowDrag(win: HTMLElement, e: PointerEvent): void {
   const lo = document.getElementById("tlRangeLo") as HTMLInputElement | null;
   const hi = document.getElementById("tlRangeHi") as HTMLInputElement | null;
   if (!b || !track || !lo || !hi || b.n <= 0) return;
-  const usablePx = track.getBoundingClientRect().width - 15; // track width minus one thumb
+  const usablePx = track.getBoundingClientRect().width - 16; // track width minus one thumb (--rf-thumb)
   if (usablePx <= 0) return;
 
   const startX = e.clientX;
@@ -955,7 +952,7 @@ function onRangeInput(): void {
     lo.value = String(loIdx);
     hi.value = String(hiIdx);
   }
-  applyRange(loIdx, hiIdx, false);
+  liveRedraw(() => applyRange(loIdx, hiIdx, false));
 }
 
 /** Reset the slider to the whole history and re-frame the map. */
@@ -1082,7 +1079,7 @@ function renderSelectionSide(side: HTMLElement): void {
 
   side.innerHTML =
     `<div class="tl-side-head"><h2>When you were here</h2>` +
-    `<button class="ms-clear" data-tl="clear-sel" title="Clear the selection">Clear</button></div>` +
+    `<button class="ms-clear" data-tl="clear-sel" title="Clear the selection" aria-label="Clear the selection">${icon("x")}</button></div>` +
     `<div class="tl-side-sub">${deps.esc(span)} \u00b7 ${totalDays.toLocaleString()} day${totalDays === 1 ? "" : "s"}${yearsSpan} \u00b7 ` +
     `${totalVisits.toLocaleString()} visit${totalVisits === 1 ? "" : "s"}` +
     (totalDwellSec ? ` \u00b7 ${fmtDur(totalDwellSec)} here` : "") +

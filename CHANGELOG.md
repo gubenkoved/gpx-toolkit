@@ -17,6 +17,495 @@ humans and the assistant can read this file as a compressed history of decisions
 
 ---
 
+## ux: one loading form, an Actions menu, and a phone pass over every view
+- **What:** Loading is now one form everywhere — the thread, a 2px hairline that fills
+  with progress or runs an accent segment while the total is unknown. The job strip is one
+  lean row (verb, "2 / 3", the live step, Stop, hide) with the thread along its top edge;
+  the spinner, the "N rides queued" pill and the second phone row are gone. The minimized
+  pill carries the thread along its bottom. A ride a job is working on gets a running thread
+  along its bottom edge, a queued ride a static dotted one (replacing the spinning ring and
+  the row-wide sweep). The pane loader is a small chip at the top of the pane with the
+  thread under it (no dimming veil), and the wind rose's loading banner runs the thread too.
+  Selection: below 1700px the batch actions fold into a labelled **Actions** menu (the same
+  buttons restyled as rows, each with icon + name, Delete in red; closes on pick, outside
+  click or Esc); wide screens keep the inline labelled buttons. Phone pass over every view:
+  the Forecast measures legend is one sideways line and the nine models fold behind a
+  "● ● ● 9 models" button; the per-model graphs' name column is back to a 56px rotated strip
+  (a stylesheet cleanup had widened it to 125px); the timetable's columns are sized by the
+  grid (names wrap to two lines on a phone) instead of by the longest model name, and its
+  sticky day line sits under the measured header; the readout wraps instead of cutting
+  mid-word; the ride map's collapse chevron has its glyph (it was an invisible button) and
+  its summary is one sideways line; a ride's time-zone tag folds away on phones. Desktop
+  fix: the Forecast readout line is no longer squeezed to a sliver in the side-by-side
+  layout (a height-bound flex child with hidden overflow may shrink — now it may not). The
+  Explore chart's collapse chevron has its own column at the head's top-right; between
+  ~700 and 768px it had been absolutely positioned over the granularity switch.
+- **Why:** Four different loading looks (a spinner, a ring, a sweep, a veil) said the same
+  thing four ways; one quiet hairline says it consistently and never covers what you are
+  looking at. Seven icon-only buttons, two of them identical, made the selection toolbar a
+  guessing game; a phone gave nine full rows to a model legend before any chart.
+
+## forecast: the direction lane is a ribbon of arrows
+- **What:** The direction lane no longer plots the heading as a line against a degree axis
+  (a 6° span would fill the lane and read as a dramatic swing). It is a ribbon: arrows on a
+  centre line, north up, each pointing where the wind blows to, sampled so they never
+  overlap. In the combined chart's Consensus mode a translucent fan behind each arrow spans
+  the models' angular spread; in All lines each model's own arrow sits behind the consensus
+  one in its colour, and focusing a model in the legend shows its arrows alone. The axis
+  margin carries a north-up glyph and "N"; the lane caption reads "Direction · blowing to";
+  hovering a model row draws a larger arrow at the cursor with the "From ESE (107°)" badge.
+  The legend's hover figures already give each model's compass point and degrees.
+- **Why:** A compass heading is not a quantity: 350° and 10° are neighbours, and a
+  continuous "unwrapped" line with an auto-scaled axis makes small changes look large and
+  shows numbers nobody reads. Arrows are how every weather service shows direction, and
+  the fan says at a glance how much the models agree. The charts' left gutter grew by 12px so the
+  unit labels and tick figures no longer sit against the panel's border.
+
+## ux: one field family, hover details off the chart, themed map chrome, bundled type
+- **What:** Every text-like input (text, email, password, search, number, textarea,
+  select, `.field`) shares one look from new tokens — a filled well (`--field-bg`), a
+  hairline that strengthens on hover, an inset top edge, a muted placeholder and an accent
+  ring on focus — so a field reads as something you type into; the filter bar's underlined
+  range fields stay the one deliberate exception. The combined forecast chart no longer
+  draws a details card over the lanes: on hover, each model's figures for that hour appear
+  beside its name in the legend (which lines up as a small table), and the hour's range
+  and median per column sit in the readout line; touch keeps its docked sheet. Leaflet's
+  attribution strip and disabled controls take the theme's glass (they were a dark strip on
+  the light map). Ubuntu and Ubuntu Mono are bundled (`@fontsource`) so every machine
+  renders the same type. Fixes: the table's measure row was being crushed by the tall
+  timetable (a column-flex child with overflow shrinks — it no longer may); the time
+  column sizes to its widest cell so the "now" tag always fits. The remaining colour
+  literals outside the token sheet are now tokens (`--marker-ink`, `--star`, `--grad-cool`
+  / `--grad-warm`, `--green`, `--blue`, `--wind-text`); what is left is the data palette
+  (chart series, speed bins), which is theme-independent by design.
+- **Why:** A box that is only a border is a box, not a field. A tooltip that covers the
+  exact curve you are reading defeats its purpose — the legend already names every model
+  in its colour, so that is where its number belongs.
+
+## ux: a forecast timetable, segmented controls that slide, plain checkboxes, a quieter sidebar
+- **What:** Forecast table mode is a timetable: hours run down the page with a sticky day
+  line between days, models run across (each column headed by the model's chart colour,
+  provider, name and grid), and a Consensus column — the median of the shown models, the
+  mean of their directions — comes first. One figure per cell, tinted by its magnitude
+  (`--fc-heat-*` tokens: wind, rain, warm, cold, cloud) so the windy, wet or warm hours stand
+  out before a number is read; the wind cell carries a small arrow pointing where the wind
+  blows to; 0 mm and calm hours are soft; past hours are dimmed; the current hour carries a
+  "now" tag and the table opens on it. Each enabled measure is its own table (Wind, Gusts,
+  Direction, Rain, Temperature, Pressure, Cloud). Every segmented control in the app now has
+  a sliding thumb (`src/seg.ts`): a raised pill that glides to the active option, driven by
+  observers so none of the code that toggles `.active` changed; the ride map's accent segs
+  slide too; reduced motion turns the glide off. Forecast settings' "Displayed data" chips
+  became a two-column list of plain checkboxes. The ride count left the sidebar footer for
+  the top bar's subtitle beside "Explore" (the Wind rose keeps its own subtitle there).
+- **Why:** A row-per-model, hour-per-column grid with two figures in every cell was dense
+  without being readable; a timetable is how people already read hourly weather, and a tint
+  does the first pass of reading for them. A highlight that jumps between options feels
+  mechanical; one that slides feels like a control. Chips are for filters; these are
+  switches.
+
+## forecast: the auto model set is chosen for the place
+- **What:** Every Open-Meteo model in the catalog now carries its regional domain as a
+  lat/lon box (global models none) and a `family` for the same model at another
+  resolution. `recommendForecastModels()` replaces the fixed five-model default: for the
+  picked point it takes the regional models whose domain covers it, finest grid first (ties:
+  update frequency, horizon), at most one per family and two per provider, up to six; then
+  global models until the set holds the regionals + 3 (at least 5, at most 10) — ECMWF IFS
+  first, then a "home" provider's hourly ≤ 15 km global (GFS in the Americas, ICON in
+  central Europe), then the rest by cadence and grid. A model that comes back empty for the
+  point drops out and its replacement is fetched (two rounds at most). The settings preset
+  reads "Best for this spot · N". Toolbar: the "Updated …" text leads the action cluster
+  and the three buttons sit together after it (no text between buttons).
+- **Why:** "KNMI + DMI + ECMWF + ICON EU + GFS" is a fine set for Amsterdam and a poor one
+  for Denver, Tokyo or the open sea; the best forecast at a spot is its national
+  high-resolution model, and the catalog knows where each one is valid.
+
+## ux: panels that fold away, true-sized profile labels, aligned toggles
+- **What:** Four big panels now collapse behind a small chevron, remembered per panel
+  (`ui.initCollapse`, `gpx_toolkit.collapse.*`): the Explore chart folds to its title +
+  figures line, the Stats totals and records compact into one line of value · label
+  pairs, the Forecast legend rows fold under the toolbar, and the ride map's toolbar +
+  summary + wind line fold into its title bar (`toggleRideMapChrome`, remembered across
+  opens). Ride map fixes: the toggle boxes ("Profile", "Rain & wind") are 15px, vertically
+  centred, and the standalone buttons match the segmented controls' height; the profile
+  graph's axis labels moved out of the stretched SVG (`preserveAspectRatio: none` was
+  widening the type with the strip) into HTML spans, and the graph's strokes no longer
+  scale with the strip (`vector-effect: non-scaling-stroke`).
+  Polish pass: the selection toolbar's buttons lost their grey outlines (quiet on the
+  accent tint, a tint on hover, red text for Delete); the ride chips (GPX, deleted, tags)
+  are flat tints with 5px corners instead of outlined pills; every spinner (job tile,
+  minimized handle, pane loader, ride ring, ride-map status) is a thin 1.6px arc drawn by
+  a masked conic sweep instead of a thick bordered circle, and the job tile and handle
+  use 9px corners. Ride map toolbar: actions and segment pillars show icon + label (a
+  toggle's box is its mark; its icon appears only once the row folds); a fetched full
+  track is reported inline in the toolbar's status slot (a tick that clears itself)
+  instead of a toast, and while the ride map is open any toast sits above the profile
+  strip, never over the controls. Sources: the Beeline card's connection state is a
+  quiet row — a green dot, "Connected", the account in muted text — instead of a line
+  of green prose.
+- **Why:** A big screen should go to the map and the list, not to a chart or a legend the
+  user already read; a toggle box that floats above its label, or axis text squashed by
+  the viewport, reads as careless.
+
+## ux: the full-screen ride map — a toolbar that says what it does, and the weather you rode in
+- **What:** The ride map's controls moved from the title bar into their own row of
+  labelled groups — "Colour route by" (Route / Height / Speed / Wind), "Weather", "Graph"
+  (Profile, Elevation / Speed, By distance / By time, Skip stops) and "Track" (Fetch full
+  track). Toggles carry a ticked box and keep one label ("Profile", "Skip stops") instead
+  of flipping verbs; the colour switch is always present (Height / Speed disabled until the
+  full track is loaded) so the standalone "Resolve wind / Show wind / Wind: on" button is
+  gone; the toolbar no longer disappears while you hover the route (only the title steps
+  aside for the readout). New **Rain & wind** toggle: the Forecast map's effects overlay
+  (wind streaks, rain in the air and on the glass) on the ride map, following the hovered
+  point along the route (the ride's midpoint when idle), with a corner readout of time,
+  wind, rain and temperature. For that, a ride's wind resolve now also fetches hourly
+  rain, temperature and cloud cover (`WEATHER_VARS`); they ride along per point and in the
+  summary (wet share, heaviest rain, mean temperature — shown in the wind line); entries
+  cached before carry a one-time upgrade when the toggle is used; entries fetched with the
+  variables are marked (`wx`) so overlapping rides still cost no request. The Wind rose's
+  decades of point history stay wind-only. Forecast chart: the current moment is a 2px
+  dashed rule in a themed colour (`--fc-now`) capped by a "now" tag, readable on the light
+  panel. Light-theme audit: literal whites on themed surfaces (the Explore year heading on
+  hover, the profile cursor, the wind dial ring, the job tile's hover, the rose's hover
+  wedge / calm hub / legend swatch) now use tokens or `color-mix` of `--text`.
+- **Why:** A toolbar of unlabelled verbs ("Hide profile", "Wind: on") that vanished when
+  you touched the map was the opposite of clear. And wind alone is half the story of a
+  ride: whether it rained, and how warm it was, belongs on the same map — the Forecast
+  view already knew how to show it.
+
+## ux: wind rose comparisons across periods AND places
+- **What:** "Pin to compare" now freezes a snapshot — the rose, its twelve monthly roses,
+  the place (point + ERA5 cell), window, hour and month — that survives picking another
+  spot on the map and a reload (persisted in the view's prefs). The pin button moved to the
+  rose it freezes; a comparison card under the rose puts pinned and live side by side
+  (where, when, prevailing direction, mean, steadiness, calm share) with the deltas on the
+  live side, says what is being compared (periods, places, or both), and offers Swap (the
+  live rose becomes the pin and the view moves to the pinned place + window — in memory
+  for the same cell, a cached fetch otherwise) and Unpin. The ghost outlines use a
+  dedicated compare colour (`--cmp`, themed) instead of the text colour, and the monthly
+  mini-roses carry a quiet outline of the pinned month too. A second place shows on the
+  map as a dashed hollow marker labelled "Pinned" with its cell outline. The panel's
+  provenance line no longer repeats the top bar's dataset · cell · years (except on phones,
+  where that subtitle is hidden). Review pass: the phone forecast model legend wraps into
+  rows instead of scrolling sideways.
+- **Why:** Comparing two periods at one spot answered "has it changed?"; riders also ask
+  "is the coast windier than home?" and "which of these two routes gets the tailwind?" —
+  that needs the pin to outlive a map click, and the answer needs numbers, not just two
+  overlaid outlines in the same colour as the compass labels.
+
+## ux: range selection, a selection that sticks, a list that holds still
+- **What:** Shift+click a ride's checkbox or row selects the range from the last pick (list
+  order; the clicked box's new state is applied over the range), Ctrl/⌘+click a row toggles
+  one; a one-line hint appears in the toolbar while exactly one ride is picked (pointer
+  devices only). The selection is persisted (`gpx_toolkit.selection`), restored before the
+  library loads and pruned only against a loaded library — a reload, a view switch or a job
+  never drops it. The list no longer moves under the user: a rebuild captures the month at
+  the reading line and its offset, builds that month first and restores it pixel-exact; the
+  same anchor is saved when leaving Explore and used on return; months not built yet carry
+  heights measured from a live row (`contain-intrinsic-size` + `min-height`) so a slice
+  landing or a section scrolling into view shifts nothing; opening a ride's details patches
+  its row instead of rebuilding the list; a tree click builds just its target month and
+  jumps (far) or glides (near), then settles the heading exactly on the line; the tree stops
+  auto-scrolling while the pointer is in it and no longer scroll-chains into the page; the
+  year caret collapses the tree again instead of navigating.
+- **Why:** Picking forty rides one by one, then losing them to a reload, or watching the
+  list leap to the top because a ride was opened, is the kind of thing that makes a tool
+  feel hostile. Selection is the user's work and the scroll position is their place in it;
+  neither may change unless they change it.
+
+## fix: live indicators never restart mid-job
+- **What:** A ride's status ring is now a dedicated element (`.rring`) created once per row;
+  `applyJobUpdate` flips only its class (and the row's `busy` sweep) and the weather patch
+  targets the title's own span (`.rtitle-main`), so neither touches the ring. The render
+  signature is split in two: `stateSig` covers the list's *structure* (which rides, in which
+  groups, filters, layout, selection), while a per-ride `rowSigs` map feeds `applyRowUpdates`,
+  which patches only the rows whose own fields changed (title, status, cached-GPX badge, meta
+  line) — a fetch landing on one ride no longer rebuilds 2,000 rows. `ui.paneLoader(host,
+  null)` hides after a 160ms grace, so the Stats heatmap's fit → `moveend` rebuild (and any
+  back-to-back Map draw) reuses the element instead of re-creating it.
+- **Why:** A CSS animation restarts from zero whenever its element is re-created or its
+  markup re-set, and every store notification that rebuilt the rows (or re-rendered the
+  title's HTML with the ring inside it) did exactly that — the "working" ring and the pane
+  loader visibly snapped back every few seconds. Continuous motion is the whole signal of
+  "still working"; a stuttering one reads as broken.
+
+## perf: the UI never freezes at a 2,000-ride scale
+- **What:** Measured on a 2,114-ride library (the demo exported, multiplied and re-imported
+  through the app's own backup path; main-thread long tasks ≥50ms recorded per interaction).
+  Before: selecting one ride 667ms, opening a row menu 606ms, every store notification a
+  ~650ms full list rebuild, the main thread busy 6s of every 8s during a wind job, Map open
+  810ms, Stats open 1.2s. Fixes: (1) Explore patches selection, job state (the title rings /
+  busy sweep) and resolved-wind flags **in place** — only the rows that changed — instead of
+  rebuilding the list; the ⋯ menus open in place and a ride's eight menu entries are built
+  only when its menu opens (they were most of the list's HTML); (2) the render signature no
+  longer serialises every ride's polyline; (3) the right pane builds one screenful of rows
+  synchronously and the rest in idle slices (`src/idle.ts` — ~12ms per slice, cancelled by
+  the next render, flushed before a scroll-to), with `content-visibility: auto` on off-screen
+  months and placeholder heights so the scrollbar is honest; narrow screens build no rows for
+  closed months; (4) the Map draws thousands of tracks and Stats densifies its heatmap in
+  idle slices behind a visible pane loader (`ui.paneLoader`: a ring + one line over the pane)
+  instead of blocking the switch; (5) the paint path carries User Timing marks (`ui:snapshot`,
+  `ui:sig`, `ui:render`, `ui:jobs`, `ui:weather`, `ui:selection`) for DevTools / the harness.
+  After: 0 long tasks for select / clear / menus / scroll / tree clicks and throughout an
+  8s wind job; Map open one 168ms task behind the loader, Stats 301ms behind the loader,
+  first render after a 2,100-ride import 266ms.
+- **Why:** A frozen page is a broken page whatever it is computing; everything that scales
+  with the library now either patches the few things that changed, slices its work through
+  idle time, or shows a loader while it finishes.
+
+## polish: selection toolbar in the top bar; activity tile along the bottom of the pane
+- **What:** Selecting rides now opens an accent-tinted toolbar in the top bar — a clear ×, "N
+  selected", and every batch action (Push to Strava / Save route GPX / Save full GPX / Fetch
+  full GPX / Resolve wind / Manage tags / Delete) as icon + label buttons whose labels fold to
+  icons under 1700px (the full label stays in the tooltip); on phones the toolbar takes the
+  title's place and scrolls sideways. The "N selected ×" chip in the sidebar footer and the
+  "Selected (N)" group in the ⋯ menu are gone — the ⋯ menu is app data only. The live
+  activity card moved out of the sidebar: it is a long glass tile fixed along the bottom of the
+  main pane (following the sidebar's width, phones unchanged), a single line — spinner, title,
+  live message, Up next, Clear, Stop, Hide — with the progress line along its top edge; the
+  minimized handle sits in the pane's bottom-right corner.
+  The per-ride "● working" / "queued" pills are gone too: a ride a job is touching now shows a
+  small ring at its title — spinning in the accent while being worked on, dotted and still
+  while queued — and the busy row carries a faint light sweep; both are static under
+  `prefers-reduced-motion`.
+- **Why:** A selection is a mode and its actions belong where the eye is, not folded into a
+  footer chip and a menu; a labelled pill with a blinking dot read as boilerplate, where a ring
+  and a sweep say "in progress" without a word; and the running-job card was cramped in a 232px sidebar (and
+  reduced to a spinner in the rail) where a tile across the pane has the room to say what it
+  is doing.
+
+## fix: sliders never freeze the page — preview on input, commit on change
+- **What:** The Explore trim sliders and the heatmap Thickness slider wrote the store and
+  notified on every drag tick, and each notification re-rendered the entire ride list (2,000+
+  rows) — the page locked up under the thumb. Now an `input` tick only previews: the trims
+  redraw just the chart with the dragged values, Thickness does a cheap `setOptions` redraw of
+  the existing heat layer; the store write and the one full render happen once on `change`
+  (release). Store notifications are also coalesced to one paint per animation frame, so a
+  sync upserting hundreds of rides or a job reporting per item can't stack renders either.
+  The shared date-range sliders (Map / Stats / Wind vs speed) and the Timeline's range and
+  heat-tweak sliders, which redraw a whole map per tick, now coalesce to one redraw per
+  animation frame with the latest value winning. The chart's own Distance / Speed and
+  granularity toggles redraw only the chart instead of the whole list, and the chart title
+  reserves its longest form's width ("Average speed per month") so the toggles beside it no
+  longer jump when it changes. The rule is written into the agent instructions.
+- **Why:** A control that stalls the UI while you use it is broken, whatever it computes;
+  live previews must be local and cheap, and persistence belongs on release.
+
+## feat: Explore as contents + continuous list; density-driven Auto granularity
+- **What:** From 1100px Explore is a table of contents and a list: the year / month tree on
+  the left is a flat, sticky navigator (no boxes — the month in view carries a 2px rule and
+  the accent on its name) and the pane on the right lists every ride continuously, with a
+  sticky month heading and a heavier year heading as the only structure. Clicking a month or
+  year in the tree scrolls the list there; a scroll-spy keeps the tree row of the month in view
+  marked and visible. Narrower screens keep the stacked month boxes (an open month's header
+  now just gets a rule beneath it — no stripe, no tint). The chart's **Auto** granularity picks
+  the finest resolution whose bars fit the chart's real width (~22px a slot, 12–120) — months
+  across five years on a wide screen, years on a phone — re-rendering on resize when it would
+  change; every quiet period between the first and last ride is filled with an empty bar so
+  a time axis shows gaps as gaps; and the renderer labels every Nth bar so the axis never
+  collides. (The brief card-grid and open-month-pane attempts are gone.)
+- **Why:** A 980px column of collapsed rows wasted a wide screen; a contents tree beside a
+  continuous ruled list reads like a well-made ledger, and "Auto" showing five bars on a
+  1400px chart was the opposite of auto.
+
+## polish: compact Stats
+- **What:** Lifetime totals and Records share one compact band — side by side from 1200px with
+  a hairline between them, overline captions and 24px numerals — instead of two stacked rows of
+  30px figures that pushed the heatmap down the page. The "Selected rides" side panel exists only
+  once there is a selection (the heatmap takes the whole width until then, and re-measures when
+  the panel appears); the how-to hint moved into the section heading as a quiet sub-line.
+  Thickness sits with the heading rather than orphaned at the far right of a 2000px row.
+  Phones get two KPI columns and no list row under the heatmap until something is selected.
+- **Why:** The figures were the biggest thing on a screen whose subject is the map, and an
+  empty 280px side panel plus an empty half of the KPI area wasted a third of a wide display.
+
+## polish: connection state lives in the Sources row
+- **What:** The sidebar footer's standalone "Beeline · signed out" line (red text, red dot) is
+  gone. The connection state is now a muted caption under the Sources label with a small dot —
+  green "Beeline · connected", blue "Beeline · demo", grey "Beeline · offline" — and nothing at
+  all for a GPX-only library; the full story stays in the tooltip. When the sidebar is an icon
+  rail the caption folds away and a dot badge on the row's corner keeps the state visible.
+- **Why:** Being signed out is the designed resting state (the password is deliberately never
+  stored), so red was a lie — it read as an error on every launch. Attaching the state to the
+  control that acts on it (Sources) is also where the eye looks for it.
+
+## feat: forecast map pane beside the charts, with a resizable split
+- **What:** From 1400px the Forecast view composes like Map and Wind rose: a full-height map
+  pane on the left (the wind / rain effects get real room) and the work on the right — the
+  range / presentation toolbar, the legends, and the charts filling the rest of the viewport
+  height and scrolling inside their panel. A drag handle between the panes resizes the split
+  (from 320px up to whatever leaves the chart pane 640px; arrow keys nudge it, double-click
+  resets, the width persists and is re-clamped on resize);
+  the model legend wraps instead of scrolling in the narrower pane. Below 1400px, and whenever
+  the map is hidden behind the location strip, the stacked layout stays.
+- **Why:** On a 2000px screen the stacked layout gave the map a 1700×300 letterbox and pushed
+  the charts below the fold; side by side, both get the height they want and the user decides
+  how much of the width is map.
+
+## feat: raindrops on the glass over the forecast map
+- **What:** Hovering a wet hour now beads raindrops onto the map as if on a window pane: each
+  drop is a pre-shaded lens sprite (no outline — a soft dark edge, a faintly tinted body, a
+  bright crescent where light refracts through the lower edge, a sharp glint up top; runners
+  are the same lens stretched tall); drops land at a rate that
+  ramps with the hour's millimetres, sit and swell, evaporate when old or when the hour turns
+  dry, and the heavy ones start running down the pane (gravity, a little wobble, picking up
+  water, swallowing the sitting drops they pass and shedding tiny beads) leaving a faint wet
+  trail until they run off. Spawn rate, population cap and drop size
+  all scale from a drizzle (a few beads) to a downpour (a streaming pane, saturating at 3 mm/h).
+  The in-air rain streaks and the wash stay as the lighter cue; `prefers-reduced-motion` gets
+  one static, representative frame. Colours come from `--fx-drop-fill` / `--fx-drop-edge` /
+  `--fx-drop-glint` per theme; the light theme's wind streaks also softened from near-black
+  slashes to a grey-blue.
+- **Why:** The ask was a touch of theatre — and it is also the fastest read of "how wet" an hour
+  is: the pane fills in proportion to the forecast, no numbers needed.
+
+## polish: one icon set across every button
+- **What:** Added `src/icons.ts` — a single registry of inline-SVG glyphs (24-unit, 2px round
+  strokes, the sidebar/map style) with `icon(name)` for templates and `decorateIcons()` for
+  static markup declared as `data-icon="…"` — and applied it holistically: the ⋯ menu and the
+  per-ride row menu (download / cloud-fetch / wind / tag / pencil / pin / trash, muted leading
+  glyphs), the App-data rows (import / archive / alert), the empty-library CTAs, the Sources
+  dialog (sign in / play / refresh / log-out / folder), Settings' theme switch (moon / sun /
+  monitor), the Explore Distance / Speed switch (ruler / gauge), the Wind-vs-speed gate and prep
+  actions (play / wind / cloud), its Reset and "How are segments cut?" link, the wind-rose Pin /
+  Unpin (push-pin), the forecast strip (search / map), the Consensus / All lines switch (band /
+  lines), the favourite star (a real glyph instead of a "★" character), the tag-modal Add, the
+  job card's Stop, and Filters' Clear. The selection panels' "Clear" chips became icon-only ×
+  buttons (meaning in `aria-label`/`title`). The Timeline's private icon map and the range
+  slider's inline "All" arrow now read from the same registry.
+- **Why:** Rows of bare text buttons read as a wall; a consistent glyph in front of each action
+  makes the menus scannable and the dialogs friendlier, and one registry keeps the vocabulary
+  from drifting across views.
+
+## polish: forecast map readout + legend
+- **What:** The hovered hour no longer drops a wind-arrow marker on the picked point (it sat
+  exactly on the spot the user chose, and the streaks already show direction); the speed /
+  from / rain readout — now with the hour — lives in a glass pill pinned bottom-left of the map,
+  the same fragment the collapsed strip shows. The metric legend went from 10px to 12.5px with
+  swatches that mirror each line's style (solid wind, dashed gusts, arrow, rain bars, cloud
+  wash); the model row matches at 12.5px with bigger dots, and the Consensus / All lines switch
+  is the shared `.seg` control instead of a one-off mini segment. The direction line and its
+  swatch read a per-theme `--fc-direction` token (the pale grey vanished on white).
+- **Why:** The marker hid the very thing it annotated, and the legend was the least readable
+  text on the screen.
+
+## polish: deep-state review (selections, menus, dialogs, scatter, rose, toasts)
+- **What:** The Wind vs speed scatter draws larger dots (3–8 px by segment length) cased in
+  the panel colour at higher opacity, so the cloud is countable instead of a haze of specks;
+  the head/tailwind half tints are a touch fainter, and the hover rings on a ride's sibling
+  segments use the text colour (white vanished on the light theme). The per-ride ⋯ menu now uses the same menu
+  vocabulary as the app's ⋯ menu (borderless items on one surface, hover fill) instead of a
+  stack of bordered buttons. Toasts sit top-centre over the content column, clear of every
+  map's corner controls (they used to land on the very button just clicked). Wind-rose captions
+  reworded: "hours sampled", "share of hours per direction".
+- **Why:** A pass through the states the first sweeps skipped — selections and their menus,
+  the tag/confirm dialogs, the full ride map, area-select on the heatmap, the scatter with real
+  data, rose hover/month focus, all-lines forecast, toasts — in both themes; these were the
+  spots that still read as rough or inconsistent.
+
+## polish: full-screen review pass (both themes, desktop + phone)
+- **What:** The wind-rose loaded-history bands now sit ON the year rail (same height, a muted
+  accent/track blend under the full-accent selected window) instead of as a second line below
+  it, and the loaded hint reads "Drag the window · updates live". The docked activity card
+  keeps only its spinner + progress bar whenever the sidebar is an icon rail — including the
+  auto-rail at 769–1099px, which previously clipped the card — and carries the live job text as
+  its tooltip. "Pull from Beeline" is a secondary (ghost) top-bar button, not a primary on every
+  screen. The forecast "Displayed data" chips use the neutral raised-chip look when checked
+  (seven enabled measures were a wall of accent). The forecast guidance/readout line lost its
+  boxed panel. On phones the Wind vs speed scatter keeps a fixed 56vh share (it collapsed to a
+  sliver with the gate card spilling over the date window).
+- **Why:** A sweep of every view, dialog and state at 1440/390 px in dark and light turned up
+  these as the last loud or broken spots; everything else read as one consistent product.
+
+## feat: forecast — themed charts, collapsible map, hover-synced weather on the map
+- **What:** The hand-rolled forecast charts now read every piece of chrome from `--fc-*`
+  tokens (cursor line, readout card, lane dimming, day stripe, cloud wash), so the light
+  theme no longer paints dark cards and grey bands; each lane carries a caption ("WIND",
+  "DIRECTION", "RAIN"…) in its corner. The map can be hidden behind a one-line location strip
+  (persisted; "Show map" brings it back; the combined chart grows to ~80% of the viewport
+  when collapsed) — you only ever care about a handful of points, the charts are the work.
+  Hovering an hour on the chart now mirrors it on the map: a wind-arrow marker at the point
+  (direction of travel, speed label, rotation animates between hours) and a canvas overlay of
+  drifting wind streaks whose pace and heading follow the forecast, with falling rain when the
+  hour is wet (`src/forecast-fx.ts`; static under `prefers-reduced-motion`). With the map
+  collapsed, the strip shows the same live readout (arrow · speed · from · mm).
+- **Why:** The screen is about *feeling* the next days' wind for a ride start; the map is a
+  picker, not the point. Syncing the hovered hour onto the map turns a dense chart into
+  something you can read at a glance, and tokenising the chart chrome was the only honest way
+  to make the light theme work.
+
+## feat: wind-vs-speed segmentation explainer
+- **What:** A "How are segments cut?" link beside the Segment extraction knobs summons a live
+  explainer (hidden by default — it costs no space until asked for): a small synthetic ride
+  (a long straight, bends, a slow jittery path, a stop at the lights, a hairpin) is chopped by
+  the real `segmentRide()` with the current look-ahead and turn tolerance and drawn as an inline
+  SVG — each kept segment in its own colour with end dots, dropped stretches left as the faint
+  dashed track — with a caption ("5 segments · 88% of its distance kept"). It re-renders on every
+  slider tick while shown. `WindSeg` now carries `startIdx`/`endIdx` so a segment can be drawn.
+  The view itself now fits the viewport like Stats: the Settings accordion starts collapsed, the
+  scatter takes whatever height is left, and the date window is always on screen.
+- **Why:** "Look-ahead 15 m" and "turn tolerance 35°" meant nothing without seeing what they
+  cut; watching the sample ride split and merge as you drag explains the knobs better than any
+  tooltip, and the same geometry is what the scatter is built from.
+
+## polish: review pass over every screen in both themes
+- **What:** Explore chart: wide gradient bars on a baseline with horizontal labels and dense
+  modes (values hide past 20 buckets, labels thin past 40). Monospace dropped from numerals,
+  ride meta, slider outputs and KPI figures in favour of the text face with tabular figures.
+  Sidebar brand aligned as logo | wordmark / version; the footer connection state is a dot +
+  short text ("Beeline · signed out") with the full story in the title. Segmented controls are a
+  recessed pill with a neutral raised active chip (equal weights so toggling never shifts the
+  layout; a clashing option is disabled, not hidden). Sliders: hollow accent-ringed thumb with a
+  soft hover/focus halo. The floating blue job pill is gone: the activity card docks at the top
+  of the sidebar footer (an in-flow card, spinner-only in the icon rail) and rides above the
+  bottom nav on phones; toasts moved to the top-right under the top bar (bottom on phones), the
+  redundant "Resolving wind…" start toast was dropped. Stats fits the viewport (KPI rows compact,
+  the heatmap takes the rest; thickness lives in the section heading). Forecast map height
+  clamped so the chart gets the room. Wind rose loaded-range bands became a thin quiet line under
+  the rail. Wind vs speed: duplicate heading dropped, empty KPI row hidden until analysed, the
+  gate leads with the first useful step as its primary action. The phone More sheet closes on
+  any choice and the Forecast / Wind rose switch replaces the title on phones.
+- **Why:** The first shell pass exposed a long tail of small frictions (overlaps, jumps, loud
+  colours, tiny text) that together read as unfinished; this is the sweep that makes it feel
+  like one calm product.
+
+## feat: wind-rose window shows loaded history and re-aggregates live
+- **What:** The wind-rose year window now paints the cell's loaded history on its rail (a faint
+  band for years fully cached on disk, a stronger one for years already in memory) and, while
+  you drag, re-aggregates the rose instantly whenever every year under the window is in memory —
+  no fetch, no IndexedDB read. A hint under the slider says what a release would load ("Release
+  to fetch 2 years from Open-Meteo (+3 cached)"); after each fetch the view warms every other
+  cached year for that cell in the background, nearest the window first. A "Pin to compare"
+  control freezes the current rose (window · hour · month) and ghosts its sector outlines over
+  the live rose, both scaled by share-of-hours so a 5-year window compares fairly with a
+  20-year one; the summary line reports the pinned prevailing direction / mean / steadiness.
+  The controller gained `cachedWindYears(lat, lon)` (a synchronous cache-index probe) and the
+  top bar shows the dataset · cell · pooled years as the view's subtitle.
+- **Why:** Comparing periods (a decade vs. the last five years, one year vs. another) was a
+  release-and-wait loop with no sense of what was already on disk; showing the loaded ranges
+  and following the drag turns it into direct manipulation, and the pinned outline makes the
+  difference visible instead of remembered.
+
+## feat: sidebar shell, light theme, type floor
+- **What:** Replaced the header + seven-tab strip with an app shell: a grouped left sidebar
+  (Rides / Weather / Research, collapsible to an icon rail, auto-rail on mid widths) whose footer
+  holds the connection state, Sources and Settings; a slim per-view top bar (title + Pull /
+  Filters / ⋯); and on phones a five-slot bottom nav (Explore, Map, Stats, Weather, More) where
+  Weather remembers the last-used forecast/wind-rose view (a top-bar switch flips between them)
+  and More is a bottom sheet that *re-parents* the sidebar's Research group + footer — one set
+  of nav nodes, never two. Content now fills the width beside the sidebar (the `.view-wide`
+  breakout and 940px column are gone; Explore keeps a 980px measure). Added a light theme: the
+  palette's 120-odd hex literals became semantic tokens (`--ok/--info/--err/--accent-soft/--job/
+  --src-*`, `--tile-filter`), the light theme is one `html[data-theme="light"]` block, a pre-paint
+  boot script applies the stored preference (dark / light / system, Settings → Theme) with no
+  flash, and canvas charts redraw on `themechange`. Raised the type floor (no 8.5–10px text:
+  forecast table/legend/axes, KPI captions, mini-rose captions; KPI numerals 27→30px; control
+  font 13→13.5px) and capped the Stats KPI grid so it no longer stretches across 1200px.
+- **Why:** Seven tabs in a 940px column wasted a third of a wide screen and clipped on phones;
+  the sidebar groups views by intent and gives maps/charts the room they need, and the bottom
+  nav keeps every view two taps away on a phone. A light theme was requested; tokenising first
+  means every future surface is themed for free. The tiny captions were the top readability
+  complaint.
+
 ## feat: turn the forecast table into a metric matrix
 - **What:** Replaced each hour's repeated weather text stack with a persisted measure picker and
   one aligned value per model/hour cell; average wind keeps gust as a small secondary value. The

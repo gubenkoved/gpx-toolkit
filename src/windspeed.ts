@@ -53,6 +53,10 @@ export interface WindSeg {
    *  when elevation was unknown for the segment's endpoints (so the Flat-only filter
    *  can tell "flat" from "unknown"). */
   netGradePct: number;
+  /** Index of the segment's first track point (inclusive) — for drawing it. */
+  startIdx: number;
+  /** Index of the segment's last track point (inclusive). */
+  endIdx: number;
 }
 
 /** Smallest signed angle a − b in degrees, in (−180, 180]. */
@@ -107,6 +111,8 @@ export function segmentRide(
   let refBrg: number | null = null;
   let startEle: number | null = null;
   let endEle: number | null = null;
+  let segStart = 0;
+  let segEnd = 0;
 
   const flush = (): void => {
     if (segKm >= minKm && segSec >= minSec) {
@@ -123,6 +129,8 @@ export function segmentRide(
         distanceKm: segKm,
         movingSec: segSec,
         netGradePct: grade,
+        startIdx: segStart,
+        endIdx: segEnd,
       });
     }
     segKm = 0;
@@ -162,7 +170,9 @@ export function segmentRide(
     if (refBrg == null) {
       refBrg = headBrg;
       startEle = eles[i] ?? null;
+      segStart = i;
     }
+    segEnd = i + 1;
     segKm += hopKm;
     segSec += dtSec;
     segAlongKm += a * hopKm;

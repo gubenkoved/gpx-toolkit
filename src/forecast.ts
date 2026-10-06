@@ -35,6 +35,11 @@ export const DEFAULT_FORECAST_METRICS: readonly ForecastMetric[] = [
   "cloudCover",
 ];
 
+/** A regional model's domain as a lat/lon box (degrees): [latMin, latMax, lonMin, lonMax].
+ *  Approximate — a point just inside an edge may still come back empty, which the
+ *  auto selection then swaps out (see `recommendForecastModels`). */
+export type ModelCoverage = readonly [number, number, number, number];
+
 export interface ForecastModel {
   id: string;
   provider: string;
@@ -43,6 +48,11 @@ export interface ForecastModel {
   nativeHours: number;
   updateHours: number;
   horizonDays: number;
+  /** Regional domain; absent = global. */
+  coverage?: ModelCoverage;
+  /** The same model at another resolution / sub-domain (e.g. AROME France and AROME
+   *  France HD): the auto selection takes at most one per family. */
+  family?: string;
 }
 
 export interface HourlyForecast {
@@ -87,14 +97,100 @@ export interface ForecastProviderAdapter {
   ): Promise<ForecastBatch>;
 }
 
-/** Diverse, high-value defaults for Europe/NL, with one global model for wider coverage. */
-export const DEFAULT_FORECAST_MODEL_IDS: readonly string[] = [
-  "knmi_harmonie_arome_netherlands",
-  "dmi_harmonie_arome_europe",
-  "ecmwf_ifs",
-  "icon_eu",
-  "ncep_gfs_global",
-];
+/** The grid spacing in km (the finer figure of a "11–25 km" range). */
+export function modelResolutionKm(model: ForecastModel): number {
+  const n = Number.parseFloat(model.resolution.replace(",", "."));
+  return Number.isFinite(n) ? n : 100;
+}
+
+/** Whether a model's domain holds the point (global models hold every point). */
+export function modelCovers(model: ForecastModel, lat: number, lon: number): boolean {
+  const c = model.coverage;
+  if (!c) return true;
+  return lat >= c[0] && lat <= c[1] && lon >= c[2] && lon <= c[3];
+}
+
+export interface RecommendOptions {
+  /** Models to leave out — those that came back without data for this point. */
+  exclude?: ReadonlySet<string>;
+  /** At most this many regional models (default 6). */
+  maxRegional?: number;
+  /** At most this many models in all (default 10). */
+  max?: number;
+}
+
+/**
+ * The best models for a point, 3–10 of them, chosen for the place rather than from a
+ * fixed list:
+ *
+ *  1. every regional model whose domain covers the point, finest grid first (ties:
+ *     more frequent updates, longer horizon), at most one per family and two per
+ *     provider, up to `maxRegional`;
+ *  2. then global models until the set holds the regionals + 3 (at least 5, at most
+ *     `max`): ECMWF IFS first (the best-verified global model), then the "home"
+ *     providers' globals — a provider whose regional model covers the point, with an
+ *     hourly ≤ 15 km global (GFS in the Americas, ICON in central Europe) — then the
+ *     rest by native cadence, grid and update frequency. At most one global
+ *     per family and three models per provider overall.
+ *
+ * Pure: the view passes the ids that returned no data so they are swapped out.
+ */
+export function recommendForecastModels(
+  models: readonly ForecastModel[],
+  point: { lat: number; lon: number },
+  opts: RecommendOptions = {},
+): string[] {
+  const exclude = opts.exclude ?? new Set<string>();
+  const maxRegional = opts.maxRegional ?? 6;
+  const max = opts.max ?? 10;
+  const covering = models.filter(
+    (m) => !exclude.has(m.id) && modelCovers(m, point.lat, point.lon),
+  );
+  const byQuality = (a: ForecastModel, b: ForecastModel): number =>
+    modelResolutionKm(a) - modelResolutionKm(b) ||
+    a.updateHours - b.updateHours ||
+    b.horizonDays - a.horizonDays;
+  const picked: ForecastModel[] = [];
+  const families = new Set<string>();
+  const perProvider = new Map<string, number>();
+  const take = (m: ForecastModel, providerCap: number): boolean => {
+    const fam = m.family ?? m.id;
+    if (families.has(fam)) return false;
+    if ((perProvider.get(m.provider) ?? 0) >= providerCap) return false;
+    picked.push(m);
+    families.add(fam);
+    perProvider.set(m.provider, (perProvider.get(m.provider) ?? 0) + 1);
+    return true;
+  };
+  const regional = covering.filter((m) => m.coverage).sort(byQuality);
+  for (const m of regional) {
+    if (picked.length >= maxRegional) break;
+    take(m, 2);
+  }
+  const homeProviders = new Set(regional.map((m) => m.provider));
+  const globals = covering
+    .filter((m) => !m.coverage)
+    .sort(
+      (a, b) =>
+        globalRank(a, homeProviders) - globalRank(b, homeProviders) ||
+        a.nativeHours - b.nativeHours ||
+        byQuality(a, b),
+    );
+  const target = Math.min(max, Math.max(5, picked.length + 3));
+  for (const m of globals) {
+    if (picked.length >= target) break;
+    take(m, 3);
+  }
+  return picked.map((m) => m.id);
+}
+
+function globalRank(m: ForecastModel, home: ReadonlySet<string>): number {
+  if (m.id === "ecmwf_ifs") return 0;
+  // A home provider's global earns its place only when it is an hourly, ≤ 15 km product
+  // (GFS, ICON Global, UKMO Global) — not a 3-hourly 15 km one over a finer rival.
+  if (home.has(m.provider) && m.nativeHours <= 1 && modelResolutionKm(m) <= 15) return 1;
+  return 2;
+}
 
 /** Toggle a provider/model group while retaining catalog order. */
 export function toggleModelGroupSelection(
@@ -185,6 +281,8 @@ const m = (
   nativeHours: number,
   updateHours: number,
   horizonDays: number,
+  coverage?: ModelCoverage,
+  family?: string,
 ): ForecastModel => ({
   id,
   provider,
@@ -193,7 +291,32 @@ const m = (
   nativeHours,
   updateHours,
   horizonDays,
+  ...(coverage ? { coverage } : {}),
+  ...(family ? { family } : {}),
 });
+
+// Regional domains as lat/lon boxes (approximate; see ModelCoverage).
+const NL: ModelCoverage = [49, 56, 0, 11];
+const KNMI_EU: ModelCoverage = [39, 63, -25, 40];
+const DINI: ModelCoverage = [45, 75, -30, 45];
+const ICON_EU: ModelCoverage = [29.5, 70.5, -23.5, 62.5];
+const ICON_D2: ModelCoverage = [43.2, 58.1, -3.9, 20.3];
+const CONUS: ModelCoverage = [21, 53, -134, -60];
+const ARPEGE_EU: ModelCoverage = [20, 72, -32, 42];
+const AROME_FR: ModelCoverage = [38, 53, -8, 12];
+const AROME_FR_HD: ModelCoverage = [37.5, 55.4, -12, 16];
+const UKV: ModelCoverage = [48, 61.5, -12, 4];
+const RDPS: ModelCoverage = [20, 80, -170, -30];
+const HRDPS: ModelCoverage = [40, 72, -152, -50];
+const HRDPS_WEST: ModelCoverage = [45, 62, -140, -108];
+const MSM: ModelCoverage = [22.4, 47.6, 120, 150];
+const LDPS: ModelCoverage = [32, 43, 121, 132];
+const NORDIC: ModelCoverage = [53, 73, -8, 35];
+const ALPS: ModelCoverage = [43, 50, 1, 16];
+const AUSTRIA: ModelCoverage = [43.5, 50.5, 6, 20];
+const ITALY: ModelCoverage = [34, 49, 4, 22];
+const CENTRAL_EU: ModelCoverage = [43, 55, 5, 26];
+const CZ: ModelCoverage = [47.5, 52, 10.5, 20];
 
 /** Native deterministic Forecast API products. Seamless and ensemble products are excluded. */
 export const OPEN_METEO_MODELS: readonly ForecastModel[] = [
@@ -205,25 +328,66 @@ export const OPEN_METEO_MODELS: readonly ForecastModel[] = [
     1,
     1,
     2.5,
+    NL,
   ),
-  m("knmi_harmonie_arome_europe", "KNMI", "HARMONIE AROME Europe", "5.5 km", 1, 1, 3),
-  m("dmi_harmonie_arome_europe", "DMI", "HARMONIE AROME Europe", "2 km", 1, 3, 2.5),
-  m("ecmwf_ifs", "ECMWF", "IFS HRES", "9 km", 1, 6, 15),
-  m("ecmwf_ifs025", "ECMWF", "IFS Open Data", "25 km", 3, 6, 15),
+  m("knmi_harmonie_arome_europe", "KNMI", "HARMONIE AROME Europe", "5.5 km", 1, 1, 3, KNMI_EU),
+  m("dmi_harmonie_arome_europe", "DMI", "HARMONIE AROME Europe", "2 km", 1, 3, 2.5, DINI),
+  m("ecmwf_ifs", "ECMWF", "IFS HRES", "9 km", 1, 6, 15, undefined, "ifs"),
+  m("ecmwf_ifs025", "ECMWF", "IFS Open Data", "25 km", 3, 6, 15, undefined, "ifs"),
   m("ecmwf_aifs025_single", "ECMWF", "AIFS Single", "28 km", 6, 6, 15),
-  m("icon_eu", "DWD", "ICON EU", "7 km", 1, 3, 7.5),
+  m("icon_eu", "DWD", "ICON EU", "7 km", 1, 3, 7.5, ICON_EU),
   m("icon_global", "DWD", "ICON Global", "11 km", 1, 3, 7.5),
-  m("icon_d2", "DWD", "ICON D2", "2 km", 1, 3, 2),
+  m("icon_d2", "DWD", "ICON D2", "2 km", 1, 3, 2, ICON_D2),
   m("ncep_gfs_global", "NOAA", "GFS Global", "11–25 km", 1, 6, 16),
   m("ncep_gfs_graphcast025", "NOAA", "GraphCast GFS", "25 km", 6, 6, 10),
   m("ncep_aigfs025", "NOAA", "AIGFS", "25 km", 6, 6, 15),
-  m("ncep_hrrr_conus", "NOAA", "HRRR CONUS", "3 km", 1, 1, 2),
-  m("ncep_nbm_conus", "NOAA", "NBM CONUS", "3 km", 1, 1, 11),
-  m("ncep_nam_conus", "NOAA", "NAM CONUS", "5 km", 1, 6, 3.5),
-  m("meteofrance_arpege_europe", "Météo-France", "ARPEGE Europe", "10 km", 1, 1, 4),
-  m("meteofrance_arpege_world", "Météo-France", "ARPEGE World", "25 km", 1, 1, 4),
-  m("meteofrance_arome_france", "Météo-France", "AROME France", "2.5 km", 1, 1, 2),
-  m("meteofrance_arome_france_hd", "Météo-France", "AROME France HD", "1.3 km", 1, 1, 2),
+  m("ncep_hrrr_conus", "NOAA", "HRRR CONUS", "3 km", 1, 1, 2, CONUS),
+  m("ncep_nbm_conus", "NOAA", "NBM CONUS", "3 km", 1, 1, 11, CONUS),
+  m("ncep_nam_conus", "NOAA", "NAM CONUS", "5 km", 1, 6, 3.5, CONUS),
+  m(
+    "meteofrance_arpege_europe",
+    "Météo-France",
+    "ARPEGE Europe",
+    "10 km",
+    1,
+    1,
+    4,
+    ARPEGE_EU,
+    "arpege",
+  ),
+  m(
+    "meteofrance_arpege_world",
+    "Météo-France",
+    "ARPEGE World",
+    "25 km",
+    1,
+    1,
+    4,
+    undefined,
+    "arpege",
+  ),
+  m(
+    "meteofrance_arome_france",
+    "Météo-France",
+    "AROME France",
+    "2.5 km",
+    1,
+    1,
+    2,
+    AROME_FR,
+    "arome_fr",
+  ),
+  m(
+    "meteofrance_arome_france_hd",
+    "Météo-France",
+    "AROME France HD",
+    "1.3 km",
+    1,
+    1,
+    2,
+    AROME_FR_HD,
+    "arome_fr",
+  ),
   m(
     "ukmo_global_deterministic_10km",
     "UK Met Office",
@@ -233,24 +397,53 @@ export const OPEN_METEO_MODELS: readonly ForecastModel[] = [
     6,
     7,
   ),
-  m("ukmo_uk_deterministic_2km", "UK Met Office", "UK Deterministic", "2 km", 1, 1, 2),
+  m("ukmo_uk_deterministic_2km", "UK Met Office", "UK Deterministic", "2 km", 1, 1, 2, UKV),
   m("cmc_gem_gdps", "Environment Canada", "GEM Global", "15 km", 3, 12, 10),
-  m("cmc_gem_rdps", "Environment Canada", "GEM Regional", "10 km", 1, 6, 3.5),
-  m("cmc_gem_hrdps", "Environment Canada", "HRDPS", "2.5 km", 1, 6, 2),
-  m("cmc_gem_hrdps_west", "Environment Canada", "HRDPS West", "2.5 km", 1, 6, 2),
+  m("cmc_gem_rdps", "Environment Canada", "GEM Regional", "10 km", 1, 6, 3.5, RDPS),
+  m("cmc_gem_hrdps", "Environment Canada", "HRDPS", "2.5 km", 1, 6, 2, HRDPS, "hrdps"),
+  m(
+    "cmc_gem_hrdps_west",
+    "Environment Canada",
+    "HRDPS West",
+    "2.5 km",
+    1,
+    6,
+    2,
+    HRDPS_WEST,
+    "hrdps",
+  ),
   m("jma_gsm", "JMA", "GSM", "55 km", 6, 6, 11),
-  m("jma_msm", "JMA", "MSM", "5 km", 1, 3, 3.5),
+  m("jma_msm", "JMA", "MSM", "5 km", 1, 3, 3.5, MSM),
   m("kma_gdps", "KMA", "GDPS", "13 km", 3, 6, 12),
-  m("kma_ldps", "KMA", "LDPS", "1.5 km", 1, 6, 2),
+  m("kma_ldps", "KMA", "LDPS", "1.5 km", 1, 6, 2, LDPS),
   m("bom_access_global", "BOM", "ACCESS Global", "15 km", 3, 6, 10),
   m("cma_grapes_global", "CMA", "GRAPES Global", "15 km", 3, 6, 10),
-  m("metno_nordic", "MET Norway", "Nordic", "1 km", 1, 1, 2.5),
-  m("meteoswiss_icon_ch1", "MeteoSwiss", "ICON CH1", "1 km", 1, 3, 1.5),
-  m("meteoswiss_icon_ch2", "MeteoSwiss", "ICON CH2", "2 km", 1, 6, 5),
-  m("geosphere_arome_austria", "GeoSphere Austria", "AROME Austria", "2.5 km", 1, 3, 2.5),
-  m("italia_meteo_arpae_icon_2i", "ItaliaMeteo", "ICON 2I", "2 km", 1, 12, 5),
-  m("chmi_aladin_central_europe_2km", "CHMI", "ALADIN Central Europe", "2 km", 1, 6, 3),
-  m("chmi_aladin_cz_1km", "CHMI", "ALADIN Czechia", "1 km", 1, 6, 2),
+  m("metno_nordic", "MET Norway", "Nordic", "1 km", 1, 1, 2.5, NORDIC),
+  m("meteoswiss_icon_ch1", "MeteoSwiss", "ICON CH1", "1 km", 1, 3, 1.5, ALPS, "icon_ch"),
+  m("meteoswiss_icon_ch2", "MeteoSwiss", "ICON CH2", "2 km", 1, 6, 5, ALPS, "icon_ch"),
+  m(
+    "geosphere_arome_austria",
+    "GeoSphere Austria",
+    "AROME Austria",
+    "2.5 km",
+    1,
+    3,
+    2.5,
+    AUSTRIA,
+  ),
+  m("italia_meteo_arpae_icon_2i", "ItaliaMeteo", "ICON 2I", "2 km", 1, 12, 5, ITALY),
+  m(
+    "chmi_aladin_central_europe_2km",
+    "CHMI",
+    "ALADIN Central Europe",
+    "2 km",
+    1,
+    6,
+    3,
+    CENTRAL_EU,
+    "aladin",
+  ),
+  m("chmi_aladin_cz_1km", "CHMI", "ALADIN Czechia", "1 km", 1, 6, 2, CZ, "aladin"),
 ];
 
 const VARS = [

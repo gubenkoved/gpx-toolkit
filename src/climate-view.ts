@@ -16,9 +16,11 @@
  */
 
 import L from "leaflet";
+import { icon } from "./icons";
 import { createLocate, type Locate } from "./locate";
 import { createLocationPointIcon } from "./map-core";
 import { type RoutePoint, sameRoutePoint, validRoutePoint } from "./router";
+import { setViewSubtitle } from "./shell";
 import { setSliderFill } from "./slider";
 import { statNum } from "./ui";
 import type { CellDayWind } from "./weather";
@@ -48,6 +50,10 @@ export interface ClimateDeps {
     endYear: number,
     onStage?: (msg: string) => void,
   ) => Promise<{ cell: { lat: number; lon: number; gridKm: number }; days: CellDayWind[] }>;
+  /** Which ERA5 years are fully cached on disk for the cell serving a point (a
+   *  synchronous index probe) — paints the slider's loaded bands and decides which
+   *  windows need no network. */
+  cachedYears: (lat: number, lon: number) => number[];
   /** Transient bottom toast; `err` lengthens + styles it as an error. */
   toast: (msg: string, err?: boolean) => void;
   /** OSM tile attribution credit string. */
@@ -97,6 +103,27 @@ let bigRose: WindRose | null = null;
 let loading = false;
 /** Bumped on each fetch so a superseded in-flight request discards its result. */
 let loadToken = 0;
+/** Per-year cell-days held in memory for the current cell — the pool the year window
+ *  re-aggregates from while dragging, without touching the cache or the network. */
+let yearDays = new Map<number, CellDayWind[]>();
+/** Years fully present in the on-disk wind cache for the current cell. */
+let cachedYears = new Set<number>();
+/** Bumped per point/fetch so a superseded background warm-up stops. */
+let warmToken = 0;
+/** A frozen rose to compare the live one against: where and when it was taken, plus
+ *  its monthly small-multiples (ghosted over the live ones). It survives a point
+ *  change — that is how two places compare — and a reload (persisted in prefs). */
+interface Pinned {
+  rose: WindRose;
+  monthly: WindRose[];
+  point: { lat: number; lon: number };
+  cell: { lat: number; lon: number; gridKm: number } | null;
+  startYear: number;
+  endYear: number;
+  hour: number | "all";
+  month: number | null;
+}
+let pinned: Pinned | null = null;
 
 // -- Settings (persisted) --------------------------------------------------- //
 /** Earliest ERA5 year the window slider exposes. */
@@ -131,6 +158,7 @@ function loadPrefs(): void {
       hour?: number;
       selectedMonth?: number;
       months?: number[];
+      pinned?: Pinned;
     };
     if (
       typeof p.lat === "number" &&
@@ -146,6 +174,18 @@ function loadPrefs(): void {
     // Single-month focus; migrate the old multi-select array to its first entry.
     const m = typeof p.selectedMonth === "number" ? p.selectedMonth : p.months?.[0];
     selectedMonth = typeof m === "number" && m >= 1 && m <= 12 ? m : null;
+    const pin = p.pinned;
+    if (
+      pin &&
+      Array.isArray(pin.rose?.counts) &&
+      pin.rose.counts.length === 16 &&
+      Array.isArray(pin.monthly) &&
+      pin.monthly.length === 12 &&
+      pin.point &&
+      validRoutePoint(pin.point)
+    ) {
+      pinned = pin;
+    }
   } catch {
     /* private mode / corrupt — ignore */
   }
@@ -162,6 +202,7 @@ function savePrefs(): void {
         endYear,
         hour: hour === "all" ? -1 : hour,
         selectedMonth,
+        pinned: pinned ?? undefined,
       }),
     );
   } catch {
@@ -216,6 +257,7 @@ export function leaveClimateView(): void {
   mounted = false;
   loadToken += 1;
   loading = false;
+  setViewSubtitle("");
   if (document.body.classList.contains("climate-expanded")) setExpanded(false);
   if (locate?.isActive()) locate.setActive(false);
 }
@@ -229,6 +271,9 @@ export function setClimateRoutePoint(next: RoutePoint | null): void {
   cellInfo = null;
   days = [];
   samples = [];
+  yearDays = new Map();
+  cachedYears = new Set();
+  warmToken += 1;
   savePrefs();
   if (!mounted) return;
   map?.setView([next.lat, next.lon], Math.max(map.getZoom(), 7));
@@ -300,11 +345,13 @@ async function fetchPoint(opts: { fit: boolean }): Promise<void> {
     });
     if (token !== loadToken) return; // a newer pick/refetch superseded this one
     cellInfo = res.cell;
-    days = res.days;
-    samples = flattenSamples(days, cellInfo.lon);
+    storeYearDays(res.days);
+    cachedYears = new Set(deps.cachedYears(picked.lat, picked.lon));
+    rebuildWindow();
     loading = false;
     setBanner("");
     renderAll({ fit: opts.fit });
+    void warmCachedYears();
   } catch (e) {
     if (token !== loadToken) return;
     loading = false;
@@ -312,6 +359,154 @@ async function fetchPoint(opts: { fit: boolean }): Promise<void> {
     deps.toast(`Couldn't load wind history: ${(e as Error)?.message ?? e}`, true);
     renderAll({ fit: false });
   }
+}
+
+/** File fetched cell-days into the per-year pool. A year that comes back again
+ *  (a window re-fetched because a neighbour was missing) REPLACES its entry, so
+ *  the pool never holds a day twice. */
+function storeYearDays(list: CellDayWind[]): void {
+  const byYear = new Map<number, CellDayWind[]>();
+  for (const d of list) {
+    const y = Number(d.dayISO.slice(0, 4));
+    let arr = byYear.get(y);
+    if (!arr) {
+      arr = [];
+      byYear.set(y, arr);
+    }
+    arr.push(d);
+  }
+  for (const [y, arr] of byYear) yearDays.set(y, arr);
+}
+
+/** True when every year of the current window is already in memory. */
+function windowInMemory(): boolean {
+  for (let y = startYear; y <= endYear; y++) if (!yearDays.has(y)) return false;
+  return true;
+}
+
+/** Re-pool `days` + `samples` for [startYear, endYear] from the in-memory years. */
+function rebuildWindow(): void {
+  const pool: CellDayWind[] = [];
+  for (let y = startYear; y <= endYear; y++) {
+    const arr = yearDays.get(y);
+    if (arr) pool.push(...arr);
+  }
+  days = pool;
+  samples = cellInfo ? flattenSamples(days, cellInfo.lon) : [];
+}
+
+/** Pull every other cached year for this cell into memory in the background,
+ *  nearest the window first, so dragging the window over loaded history
+ *  re-aggregates instantly. Cache reads only — a year qualifies only when it is
+ *  fully cached, so this never hits the network. */
+async function warmCachedYears(): Promise<void> {
+  if (!picked) return;
+  const mine = ++warmToken;
+  const point = picked;
+  const distance = (y: number): number =>
+    y < startYear ? startYear - y : y > endYear ? y - endYear : 0;
+  const todo = [...cachedYears]
+    .filter((y) => !yearDays.has(y))
+    .sort((a, b) => distance(a) - distance(b));
+  for (const y of todo) {
+    if (mine !== warmToken) return;
+    try {
+      const res = await deps.getPointWind(point.lat, point.lon, y, y);
+      if (mine !== warmToken) return;
+      storeYearDays(res.days);
+    } catch {
+      return; // the next explicit window change reports its own error
+    }
+    paintYearRail();
+  }
+}
+
+/** While the window is being dragged: re-aggregate instantly when every year in
+ *  it is already in memory; otherwise the rail hint says what a release will load. */
+let previewRaf = 0;
+function previewWindow(): void {
+  if (!picked || !windowInMemory() || previewRaf) return;
+  previewRaf = requestAnimationFrame(() => {
+    previewRaf = 0;
+    rebuildWindow();
+    renderPanels();
+    drawMapMarker();
+  });
+}
+
+/** "2019–2023 · 08:00 · Jul" — a window + hour + month, for the comparison. */
+function whenLabel(s: {
+  startYear: number;
+  endYear: number;
+  hour: number | "all";
+  month: number | null;
+}): string {
+  const h = s.hour === "all" ? "All day" : `${String(s.hour).padStart(2, "0")}:00`;
+  const m = s.month ? MONTH_ABBR[s.month - 1] : "all months";
+  return `${s.startYear}–${s.endYear} · ${h} · ${m}`;
+}
+const placeLabel = (p: { lat: number; lon: number }): string =>
+  `${p.lat.toFixed(2)}°, ${p.lon.toFixed(2)}°`;
+const sameCell = (
+  a: { lat: number; lon: number } | null,
+  b: { lat: number; lon: number } | null,
+): boolean => !!a && !!b && Math.abs(a.lat - b.lat) < 1e-6 && Math.abs(a.lon - b.lon) < 1e-6;
+/** The pinned snapshot describes the same ERA5 cell the live rose is drawn from. */
+function pinnedSamePlace(): boolean {
+  return !!pinned && (sameRoutePoint(picked, pinned.point) || sameCell(cellInfo, pinned.cell));
+}
+
+/** Freeze the live rose (and its twelve monthly roses) with where + when it came from. */
+function makeSnapshot(): Pinned | null {
+  if (!picked || samples.length === 0) return null;
+  return {
+    rose: currentRose(),
+    monthly: monthlyRoses(samples, hour),
+    point: { lat: picked.lat, lon: picked.lon },
+    cell: cellInfo ? { ...cellInfo } : null,
+    startYear,
+    endYear,
+    hour,
+    month: selectedMonth,
+  };
+}
+
+/** Swap sides: the live rose becomes the pin, and the view moves to the pinned
+ *  place + window (in memory when it is the same cell, else a fetch — cached). */
+function swapPinned(): void {
+  if (!pinned) return;
+  const next = makeSnapshot();
+  if (!next) return;
+  const target = pinned;
+  // Decide "same place" against the OLD pin, before the live rose replaces it.
+  const samePlace = sameRoutePoint(picked, target.point) || sameCell(cellInfo, target.cell);
+  pinned = next;
+  startYear = target.startYear;
+  endYear = target.endYear;
+  hour = target.hour;
+  selectedMonth = target.month;
+  picked = { lat: target.point.lat, lon: target.point.lon };
+  savePrefs();
+  deps.onPointChange?.(picked);
+  loadToken += 1;
+  loading = false;
+  warmToken += 1;
+  if (!samePlace) {
+    cellInfo = null;
+    days = [];
+    samples = [];
+    yearDays = new Map();
+    cachedYears = new Set();
+    map?.setView([picked.lat, picked.lon], Math.max(map.getZoom(), 7));
+  }
+  if (samePlace && windowInMemory()) {
+    rebuildWindow();
+    renderAll({ fit: false });
+    void warmCachedYears();
+    return;
+  }
+  renderAll({ fit: false });
+  void fetchPoint({ fit: false });
 }
 
 /** The rose for the current hour + month filter (instant; no refetch). */
@@ -327,6 +522,7 @@ function setBanner(msg: string): void {
   if (!b) return;
   b.textContent = msg;
   b.classList.toggle("hidden", msg === "");
+  b.classList.toggle("busy", msg !== ""); // the banner only ever says what is loading
 }
 
 // --------------------------------------------------------------------------- //
@@ -335,6 +531,22 @@ function setBanner(msg: string): void {
 function onClick(e: Event): void {
   const t = (e.target as HTMLElement)?.closest("[data-cl]") as HTMLElement | null;
   if (!t) return;
+  if (t.dataset.cl === "pin") {
+    pinned = makeSnapshot();
+    savePrefs();
+    renderAll({ fit: false });
+    return;
+  }
+  if (t.dataset.cl === "unpin") {
+    pinned = null;
+    savePrefs();
+    renderAll({ fit: false });
+    return;
+  }
+  if (t.dataset.cl === "swap") {
+    swapPinned();
+    return;
+  }
   if (t.dataset.cl !== "month") return;
   const m = Number(t.dataset.m);
   // Click a month's mini-rose to focus it; click the focused one again for all months.
@@ -356,6 +568,7 @@ function onInput(e: Event): void {
   } else if (el.id === "clYearLo" || el.id === "clYearHi") {
     readYearInputs(el.id);
     updateYearUI();
+    previewWindow();
   }
 }
 
@@ -390,10 +603,75 @@ function readYearInputs(activeId: string): void {
   hi.value = String(endYear - MIN_YEAR);
 }
 
-/** Persist + refetch when the year window settles (thumb release or window drag end). */
+/** Persist when the year window settles (thumb release or window drag end); a
+ *  window already in memory just re-aggregates, anything else refetches. */
 function commitYears(): void {
   savePrefs();
+  if (picked && windowInMemory()) {
+    rebuildWindow();
+    renderAll({ fit: false });
+    return;
+  }
   void fetchPoint({ fit: false });
+}
+
+/** Paint the loaded-history bands under the year window (cached on disk vs. in
+ *  memory) and the hint saying what releasing the window would load. */
+function paintYearRail(): void {
+  const host = document.getElementById("clYearRuns");
+  const hint = document.getElementById("clYearHint");
+  if (!host || !hint) return;
+  const span = NOW_YEAR - MIN_YEAR || 1;
+  // Year y owns the half-step either side of its thumb position on the rail.
+  const pct = (idx: number): number => Math.max(0, Math.min(100, (idx / span) * 100));
+  let html = "";
+  let runStart = -1;
+  let runKind = "";
+  const flush = (end: number): void => {
+    if (runStart < 0 || !runKind) return;
+    const left = pct(runStart - MIN_YEAR - 0.5);
+    const width = pct(end - MIN_YEAR + 0.5) - left;
+    const what =
+      runKind === "ready"
+        ? "loaded — drag the window over it for instant updates"
+        : "cached — loads without network";
+    html +=
+      `<i class="rf-run rf-run-${runKind}" style="left:${left.toFixed(2)}%;` +
+      `width:${width.toFixed(2)}%" title="${runStart}–${end}: ${what}"></i>`;
+  };
+  for (let y = MIN_YEAR; y <= NOW_YEAR; y++) {
+    const kind = yearDays.has(y) ? "ready" : cachedYears.has(y) ? "cached" : "";
+    if (kind !== runKind) {
+      flush(y - 1);
+      runStart = y;
+      runKind = kind;
+    }
+  }
+  flush(NOW_YEAR);
+  host.innerHTML = html;
+
+  if (!picked) {
+    hint.textContent = "";
+    hint.classList.remove("pending");
+    return;
+  }
+  const missing: number[] = [];
+  for (let y = startYear; y <= endYear; y++) if (!yearDays.has(y)) missing.push(y);
+  if (missing.length === 0) {
+    hint.textContent = pinned
+      ? "Comparing · move the window, or pick another spot on the map"
+      : "Drag the window · updates live";
+    hint.classList.remove("pending");
+    return;
+  }
+  const fromCache = missing.filter((y) => cachedYears.has(y)).length;
+  const net = missing.length - fromCache;
+  const yrs = (n: number): string => `${n} year${n === 1 ? "" : "s"}`;
+  hint.textContent =
+    net > 0
+      ? `Release to fetch ${yrs(net)} from Open-Meteo${fromCache ? ` (+${fromCache} cached)` : ""}`
+      : `Release to load ${yrs(missing.length)} from the cache`;
+  hint.classList.add("pending");
 }
 
 /** Refresh the year slider's edge labels + accent fill from startYear/endYear. */
@@ -408,6 +686,7 @@ function updateYearUI(): void {
   const to = document.getElementById("clYearTo");
   if (from) from.textContent = String(startYear);
   if (to) to.textContent = String(endYear);
+  paintYearRail();
 }
 
 /** Wire the draggable middle of the year window (slide the whole span at once). */
@@ -423,7 +702,7 @@ function onYearWindowDrag(win: HTMLElement, e: PointerEvent): void {
   const hi = document.getElementById("clYearHi") as HTMLInputElement | null;
   const total = NOW_YEAR - MIN_YEAR;
   if (!track || !lo || !hi || total <= 0) return;
-  const usablePx = track.getBoundingClientRect().width - 15; // track width minus one thumb
+  const usablePx = track.getBoundingClientRect().width - 16; // track width minus one thumb (--rf-thumb)
   if (usablePx <= 0) return;
   const startX = e.clientX;
   const startLo = startYear - MIN_YEAR;
@@ -442,6 +721,7 @@ function onYearWindowDrag(win: HTMLElement, e: PointerEvent): void {
     lo.value = String(newLo);
     hi.value = String(newLo + span);
     updateYearUI();
+    previewWindow();
     ev.preventDefault();
   };
   const endDrag = (): void => {
@@ -509,16 +789,19 @@ function yearSliderHtml(): string {
     `<div class="range-filter cl-years" ` +
     `title="Drag the thumbs to choose a span (max ${MAX_SPAN_YEARS} yr), or the middle to slide it">` +
     `<span class="rf-edge" id="clYearFrom">${startYear}</span>` +
-    `<div class="rf-track">${inp("lo", startYear, "Start year")}${inp("hi", endYear, "End year")}` +
+    `<div class="rf-track"><div class="rf-cached" id="clYearRuns" aria-hidden="true"></div>` +
+    `${inp("lo", startYear, "Start year")}${inp("hi", endYear, "End year")}` +
     `<div class="rf-window" id="clYearWin" aria-hidden="true"></div></div>` +
     `<span class="rf-edge" id="clYearTo">${endYear}</span>` +
-    `</div>`
+    `</div>` +
+    `<div class="cl-year-meta"><span class="cl-year-hint" id="clYearHint"></span></div>`
   );
 }
 
 function renderPanels(): void {
   const side = document.getElementById("clSide");
   if (!side) return;
+  setViewSubtitle(picked && cellInfo ? subtitleText() : "");
   if (!picked) {
     side.innerHTML =
       `<div class="cl-hint"><b>Pick a point.</b> Click anywhere on the map to pull ` +
@@ -541,13 +824,19 @@ function renderPanels(): void {
   const monthly = monthlyRoses(samples, hour);
   const roseSub = selectedMonth ? MONTH_ABBR[selectedMonth - 1] : "all months";
   bigRose = rose;
+  const pinBtn = pinned
+    ? ""
+    : `<button type="button" class="small ghost cl-pinbtn" data-cl="pin" ` +
+      `title="Freeze this rose, then move the window — or pick another spot on the map — to compare against it">` +
+      `${icon("tack")}Pin to compare</button>`;
   side.innerHTML =
     summaryHtml(rose) +
-    `<section class="cl-sec"><h3 class="cl-h">Wind rose` +
-    `<span class="cl-sub">${roseSub} · ${hourLabel()}</span></h3>` +
-    `<div class="cl-rose">${roseSvg(rose, BIG_ROSE_SIZE, { labels: true, hover: true })}` +
+    `<section class="cl-sec"><div class="cl-head"><h3 class="cl-h">Wind rose` +
+    `<span class="cl-sub">${roseSub} · ${hourLabel()}</span></h3>${pinBtn}</div>` +
+    `<div class="cl-rose">${roseSvg(rose, BIG_ROSE_SIZE, { labels: true, hover: true, ghost: pinned?.rose })}` +
     `<div class="cl-rose-tip hidden" id="clRoseTip"></div></div>` +
     legendHtml(rose) +
+    compareHtml(rose) +
     `</section>` +
     `<section class="cl-sec"><h3 class="cl-h">By month` +
     `<span class="cl-sub">${selectedMonth ? "click again for all" : "click one to focus"}</span></h3>` +
@@ -555,21 +844,88 @@ function renderPanels(): void {
       .map((r, i) => miniRoseHtml(r, i + 1))
       .join("")}</div></section>` +
     `<section class="cl-sec"><h3 class="cl-h">Direction by month` +
-    `<span class="cl-sub">how often wind comes from each way</span></h3>` +
+    `<span class="cl-sub">share of hours per direction</span></h3>` +
     heatmapHtml(monthly) +
     `</section>`;
 }
 
-function summaryHtml(rose: WindRose): string {
+/** Prevailing sector + directional steadiness of a rose. Steadiness is the
+ *  resultant (vector-mean) speed as a fraction of the scalar-mean speed: ~100% =
+ *  wind almost always from one way; low = very variable. Far more telling than
+ *  "calm" (sub-1 km/h hours are vanishingly rare). */
+function roseStats(rose: WindRose): { prevail: string; steadiness: number } {
   const prevail = COMPASS_16[Math.round(rose.meanVector.fromDeg / 22.5) % 16];
-  // Directional steadiness: the resultant (vector-mean) speed as a fraction of the
-  // scalar-mean speed. ~100% = wind almost always from one way; low = very variable.
-  // Far more telling than "calm" (sub-1 km/h hours are vanishingly rare).
   const steadiness =
     rose.meanSpeedKmh > 0
       ? Math.round((rose.meanVector.speedKmh / rose.meanSpeedKmh) * 100)
       : 0;
-  const monthTxt = selectedMonth ? MONTH_ABBR[selectedMonth - 1] : "all months";
+  return { prevail, steadiness };
+}
+
+/** Top-bar subtitle: dataset · cell · the years actually pooled. */
+function subtitleText(): string {
+  const st = datasetStats();
+  const coords = cellInfo ? `${cellInfo.lat.toFixed(2)}°, ${cellInfo.lon.toFixed(2)}°` : "";
+  const span = st.hours > 0 ? `${st.minY}–${st.maxY}` : `${startYear}–${endYear}`;
+  return `ERA5 25 km${coords ? ` · ${coords}` : ""} · ${span}`;
+}
+
+/** The comparison card under the rose: pinned vs live, side by side, with the
+ *  differences spelled out — where, when, prevailing direction, mean speed,
+ *  steadiness, calm share. Swap trades sides; × drops the pin. */
+function compareHtml(rose: WindRose): string {
+  if (!pinned || !picked) return "";
+  const a = roseStats(pinned.rose);
+  const b = roseStats(rose);
+  const samePlace = pinnedSamePlace();
+  const pinWhen = whenLabel(pinned);
+  const nowWhen = whenLabel({ startYear, endYear, hour, month: selectedMonth });
+  const sameWhen = pinWhen === nowWhen;
+  const kind = samePlace ? "periods" : sameWhen ? "places" : "places &amp; periods";
+  const same = (what: string): string =>
+    `<td colspan="2" class="cl-cmp-same">same ${what}</td>`;
+  const delta = (d: number, digits: number, unit = ""): string => {
+    const r = Number(d.toFixed(digits));
+    if (r === 0) return `<i class="cl-cmp-d zero">±0</i>`;
+    return `<i class="cl-cmp-d">${r > 0 ? "+" : "−"}${Math.abs(r).toFixed(digits)}${unit}</i>`;
+  };
+  const row = (label: string, pin: string, now: string, d = ""): string =>
+    `<tr><th scope="row">${label}</th><td>${pin}</td><td>${now}${d}</td></tr>`;
+  const calm = (r: WindRose): number => (r.n > 0 ? (r.calm / r.n) * 100 : 0);
+  return (
+    `<div class="cl-cmp"><div class="cl-cmp-head"><b>${icon("tack")}Comparing ${kind}</b>` +
+    `<button type="button" class="small ghost" data-cl="swap" title="Trade sides: pin the live rose and move the view to the pinned place and window">${icon("swap")}Swap</button>` +
+    `<button type="button" class="cl-pinned-x" data-cl="unpin" aria-label="Unpin" title="Unpin">` +
+    `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>` +
+    `<table class="cl-cmp-t"><thead><tr><td></td>` +
+    `<th scope="col"><i class="cl-sw-pin"></i>Pinned</th><th scope="col"><i class="cl-sw-now"></i>Now</th></tr></thead><tbody>` +
+    `<tr><th scope="row">Where</th>${samePlace ? same("spot") : `<td>${placeLabel(pinned.point)}</td><td>${placeLabel(picked)}</td>`}</tr>` +
+    `<tr><th scope="row">When</th>${sameWhen ? same("window") : `<td>${pinWhen}</td><td>${nowWhen}</td>`}</tr>` +
+    row("From", a.prevail, b.prevail) +
+    row(
+      "Mean",
+      `${pinned.rose.meanSpeedKmh.toFixed(1)} km/h`,
+      `${rose.meanSpeedKmh.toFixed(1)} km/h`,
+      delta(rose.meanSpeedKmh - pinned.rose.meanSpeedKmh, 1),
+    ) +
+    row(
+      "Steady",
+      `${a.steadiness}%`,
+      `${b.steadiness}%`,
+      delta(b.steadiness - a.steadiness, 0, " pts"),
+    ) +
+    row(
+      "Calm",
+      `${calm(pinned.rose).toFixed(1)}%`,
+      `${calm(rose).toFixed(1)}%`,
+      delta(calm(rose) - calm(pinned.rose), 1, " pts"),
+    ) +
+    `</tbody></table></div>`
+  );
+}
+
+function summaryHtml(rose: WindRose): string {
+  const { prevail, steadiness } = roseStats(rose);
   const card = (val: string, label: string, title = ""): string =>
     statNum({ value: val, label, title: title || undefined, small: true });
   const st = datasetStats();
@@ -587,11 +943,11 @@ function summaryHtml(rose: WindRose): string {
       "steadiness",
       "How consistently the wind comes from one direction — 100% = always the same way, low = variable.",
     ) +
-    card(`${rose.n.toLocaleString()}`, "hours (filter)") +
+    card(`${rose.n.toLocaleString()}`, "hours sampled") +
     `</div>` +
-    `<div class="cl-prov">ERA5 25 km${coords ? ` · ${coords}` : ""} · ${span} · ` +
-    `${hourLabel()} · ${monthTxt}</div>` +
-    `<div class="cl-prov cl-prov-2">${prov2}</div>`
+    // Dataset · cell · years live in the top bar's subtitle — repeated here only where
+    // that subtitle is hidden (phones; see .cl-prov-dup). Hour + month head the rose.
+    `<div class="cl-prov"><span class="cl-prov-dup">ERA5 25 km${coords ? ` · ${coords}` : ""} · ${span} · </span>${prov2}</div>`
   );
 }
 
@@ -668,15 +1024,26 @@ const BIG_ROSE_SIZE = 280;
 function roseSvg(
   rose: WindRose,
   size: number,
-  opts: { labels: boolean; hover?: boolean },
+  opts: { labels: boolean; hover?: boolean; ghost?: WindRose; ghostMini?: boolean },
 ): string {
   const cx = size / 2;
   const cy = size / 2;
   const pad = opts.labels ? 22 : 4;
   const rMax = size / 2 - pad;
   const calmR = Math.max(opts.labels ? 14 : 4, rMax * 0.12);
-  const maxCount = roseMaxSector(rose) || 1;
-  const scale = (count: number): number => calmR + (rMax - calmR) * (count / maxCount);
+  // Radius scales with a sector's share of hours. Alone, that is count/maxCount;
+  // with a ghost rose both share the larger of the two peak shares, so a 5-year
+  // window compares fairly against a pinned 20-year one.
+  const share = (r: WindRose, count: number): number => (r.n > 0 ? count / r.n : 0);
+  const ghost = opts.ghost;
+  const peak =
+    Math.max(
+      share(rose, roseMaxSector(rose)),
+      ghost ? share(ghost, roseMaxSector(ghost)) : 0,
+    ) || 1;
+  const scaleOf = (r: WindRose, count: number): number =>
+    calmR + (rMax - calmR) * (share(r, count) / peak);
+  const scale = (count: number): number => scaleOf(rose, count);
 
   let rings = "";
   if (opts.labels) {
@@ -702,6 +1069,17 @@ function roseSvg(
       wedges += `<path d="${wedge(cx, cy, r0, r1, a0, a1)}" fill="${SPEED_COLORS[b]}"/>`;
     }
   }
+  let ghostPaths = "";
+  if (ghost) {
+    for (let i = 0; i < 16; i++) {
+      let total = 0;
+      for (const c of ghost.counts[i]) total += c;
+      if (total <= 0) continue;
+      const aCenter = i * 22.5;
+      const d = wedge(cx, cy, calmR, scaleOf(ghost, total), aCenter - 9, aCenter + 9);
+      ghostPaths += `<path d="${d}" class="cl-ghost${opts.ghostMini ? " cl-ghost-mini" : ""}"/>`;
+    }
+  }
 
   let labels = "";
   if (opts.labels) {
@@ -725,6 +1103,7 @@ function roseSvg(
     rings +
     `<circle cx="${cx}" cy="${cy}" r="${calmR.toFixed(1)}" class="cl-calm"/>` +
     wedges +
+    ghostPaths +
     (opts.hover ? `<g class="cl-rose-hov"></g>` : "") +
     labels +
     `</svg>`
@@ -828,7 +1207,7 @@ function miniRoseHtml(rose: WindRose, monthNum: number): string {
   return (
     `<button type="button" class="cl-mini${empty}${on ? " cl-mini-sel" : ""}" ` +
     `data-cl="month" data-m="${monthNum}" aria-pressed="${on}" title="${title}">` +
-    `${roseSvg(rose, 72, { labels: false })}` +
+    `${roseSvg(rose, 72, { labels: false, ghost: pinned?.monthly[monthNum - 1], ghostMini: true })}` +
     `<span class="cl-mini-cap">${label}<small>${compact(rose.n)}</small></span></button>`
   );
 }
@@ -896,6 +1275,40 @@ function drawMapMarker(): void {
       fillOpacity: 0.05,
       interactive: false,
     }).addTo(markerLayer);
+  }
+
+  // The pinned place, when it is a different one: its cell and a hollow dashed
+  // marker in the compare colour, labelled so the two never get confused.
+  if (pinned && !pinnedSamePlace()) {
+    const cmp =
+      getComputedStyle(document.documentElement).getPropertyValue("--cmp").trim() || "#dfe6f1";
+    if (pinned.cell) {
+      L.rectangle(cellBounds(pinned.cell.lat, pinned.cell.lon, pinned.cell.gridKm), {
+        color: cmp,
+        weight: 1,
+        opacity: 0.55,
+        dashArray: "3 4",
+        fill: false,
+        interactive: false,
+      }).addTo(markerLayer);
+    }
+    L.marker([pinned.point.lat, pinned.point.lon], {
+      icon: L.divIcon({
+        html: '<span class="cl-pin-dot" aria-hidden="true"></span>',
+        className: "cl-pin-marker",
+        iconSize: [18, 18],
+        iconAnchor: [9, 9],
+      }),
+      interactive: false,
+      keyboard: false,
+    })
+      .bindTooltip("Pinned", {
+        permanent: true,
+        direction: "right",
+        offset: [10, 0],
+        className: "cl-pin-tip",
+      })
+      .addTo(markerLayer);
   }
 
   // The exact point the user picked: the same shared analysis-point marker used

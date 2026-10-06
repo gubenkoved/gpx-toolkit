@@ -19,11 +19,12 @@
 import L from "leaflet";
 import { type AreaSelect, createAreaSelect } from "./areaselect";
 import type { RideView } from "./controller";
+import { runInSlices } from "./idle";
 import { createLocate, type Locate } from "./locate";
 import { CLICK_PX, createInteractiveMap, HOT_TRACK, makeExpandToggle } from "./map-core";
 import { type DateRange, type RideTrack, ridesWithTracks } from "./mapview";
 import { compareRidesByDateDesc, rideShortLabel } from "./parsing";
-import { escHtml } from "./ui";
+import { escHtml, paneLoader } from "./ui";
 
 /** What the view needs from the app (injected once via `initMapView`). */
 export interface MapViewDeps {
@@ -67,6 +68,10 @@ let currentMissing = 0;
 let hotKeys: string[] = []; // ride highlighted by hovering its side-panel row (ephemeral)
 let selectedKeys: string[] = []; // rides selected by a click or area-drag (persist until next selection)
 let lastTrackSig = "";
+/** Cancels an in-progress sliced draw (a new track set supersedes it). */
+let drawCancel: (() => void) | null = null;
+/** Above this many tracks the draw is sliced through idle callbacks behind a loader. */
+const SLICED_DRAW_FROM = 300;
 
 const sameKeys = (a: string[], b: string[]): boolean =>
   a.length === b.length && a.every((k, i) => k === b[i]);
@@ -214,19 +219,37 @@ export function mountMapView(opts: { fit?: boolean } = {}): void {
   if (sig !== lastTrackSig) {
     lastTrackSig = sig;
     hotKeys = [];
+    drawCancel?.();
+    drawCancel = null;
     allRidesLayer!.clearLayers();
     trackLines.clear();
     const all: L.LatLngExpression[] = [];
-    for (const t of tracks) {
+    for (const t of tracks) for (const p of t.points) all.push(p as L.LatLngExpression);
+    const addTrack = (t: RideTrack): void => {
       const line = L.polyline(t.points as L.LatLngExpression[], {
         ...BASE_TRACK,
         className: "track-line",
       }).addTo(allRidesLayer!);
       trackLines.set(t.key, line);
-      for (const p of t.points) all.push(p as L.LatLngExpression);
+    };
+    // Thousands of tracks are drawn in idle slices behind a loader so the switch to
+    // this view never freezes; a small set draws at once.
+    const pane = host.parentElement;
+    if (tracks.length > SLICED_DRAW_FROM) {
+      paneLoader(pane, `Drawing ${tracks.length.toLocaleString()} routes…`);
+      drawCancel = runInSlices(tracks, addTrack, {
+        onDone: () => {
+          drawCancel = null;
+          paneLoader(pane, null);
+          paintEmphasis();
+        },
+      });
+    } else {
+      for (const t of tracks) addTrack(t);
     }
     // Drop any selected rides whose track is no longer drawn (e.g. deleted/re-scanned).
-    selectedKeys = selectedKeys.filter((k) => trackLines.has(k));
+    const drawn = new Set(tracks.map((t) => t.key));
+    selectedKeys = selectedKeys.filter((k) => drawn.has(k));
     // Frame the tracks only when explicitly asked (fit:true) or on the first draw
     // (fit undefined, not yet framed). A background data update (fit undefined,
     // already framed) refreshes the lines but leaves the user's pan/zoom alone.

@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   DEFAULT_FORECAST_METRICS,
-  DEFAULT_FORECAST_MODEL_IDS,
   FORECAST_HISTORY_HOURS,
   type ForecastModel,
   type HourlyForecast,
@@ -223,7 +222,6 @@ describe("forecast chart geometry", () => {
       "dwd-a",
     ]);
     expect(toggleModelGroupSelection(all, knmi, ["ecmwf-a", "dwd-a"])).toEqual(all);
-    expect(DEFAULT_FORECAST_MODEL_IDS).toHaveLength(5);
   });
 
   it("uses meteorological from-direction and a clamped hourly cursor", () => {

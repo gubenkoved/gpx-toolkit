@@ -63,3 +63,86 @@ export function statNum(o: StatNumOpts): string {
     `<span class="stat-num-l">${escHtml(o.label)}</span>${sub}</div>`
   );
 }
+
+/**
+ * A responsive loader over a pane (`.map-main`, `.freq-main`, …) while heavy work
+ * is sliced through idle callbacks: a ring + one line of text, removed with
+ * `text = null`. The pane must be `position: relative`. Better a visible loader
+ * than a frozen page — see src/idle.ts.
+ */
+const loaderHide = new WeakMap<HTMLElement, number>();
+export function paneLoader(host: HTMLElement | null, text: string | null): void {
+  if (!host) return;
+  const pending = loaderHide.get(host);
+  if (pending) {
+    clearTimeout(pending);
+    loaderHide.delete(host);
+  }
+  let el = host.querySelector<HTMLElement>(":scope > .pane-loader");
+  if (text === null) {
+    // Hide after a short grace: a build that immediately follows (a fit → moveend
+    // rebuild) reuses the element, so the ring keeps spinning instead of restarting.
+    if (el)
+      loaderHide.set(
+        host,
+        window.setTimeout(() => el?.remove(), 160),
+      );
+    return;
+  }
+  if (!el) {
+    el = document.createElement("div");
+    el.className = "pane-loader";
+    el.setAttribute("role", "status");
+    el.setAttribute("aria-live", "polite");
+    el.innerHTML = `<span class="spin"></span><span class="pane-loader-text"></span>`;
+    host.appendChild(el);
+  }
+  const t = el.querySelector<HTMLElement>(".pane-loader-text");
+  if (t && t.textContent !== text) t.textContent = text;
+}
+
+/**
+ * Wire a panel's collapse chevron: the button toggles `cls` on `target`, mirrors the
+ * state on `aria-expanded` + its title, remembers it under `key`, and reports each
+ * change. The chevron glyph is injected once. Returns the current collapsed state.
+ */
+export function initCollapse(
+  btn: HTMLElement | null,
+  target: HTMLElement | null,
+  key: string,
+  titles: { open: string; closed: string },
+  cls = "collapsed",
+  onChange?: (collapsed: boolean) => void,
+): boolean {
+  if (!btn || !target) return false;
+  if (!btn.querySelector("svg")) {
+    btn.insertAdjacentHTML(
+      "afterbegin",
+      '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m6 15 6-6 6 6"/></svg>',
+    );
+  }
+  let collapsed = false;
+  try {
+    collapsed = localStorage.getItem(key) === "1";
+  } catch {
+    /* non-fatal */
+  }
+  const apply = (): void => {
+    target.classList.toggle(cls, collapsed);
+    btn.setAttribute("aria-expanded", String(!collapsed));
+    btn.title = collapsed ? titles.closed : titles.open;
+    btn.setAttribute("aria-label", collapsed ? titles.closed : titles.open);
+  };
+  apply();
+  btn.addEventListener("click", () => {
+    collapsed = !collapsed;
+    try {
+      localStorage.setItem(key, collapsed ? "1" : "0");
+    } catch {
+      /* non-fatal */
+    }
+    apply();
+    onChange?.(collapsed);
+  });
+  return collapsed;
+}

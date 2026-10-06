@@ -125,7 +125,9 @@ export function drawDotHighlights(
   const colAccent = cssVar("--accent", "#f97316");
   // Soft rings on every sibling segment of the focused ride.
   ctx.lineWidth = 1.5;
-  ctx.strokeStyle = "rgba(255,255,255,0.85)";
+  // Sibling rings in the text colour so they read on both themes (white vanished on light).
+  ctx.strokeStyle = cssVar("--text", "#e8edf2");
+  ctx.globalAlpha = 0.85;
   for (const d of dots) {
     if (d.seg.uid !== focusUid || d.seg === focusSeg) continue;
     ctx.beginPath();
@@ -138,7 +140,8 @@ export function drawDotHighlights(
     ctx.beginPath();
     ctx.arc(f.x, f.y, f.r + 4, 0, Math.PI * 2);
     ctx.lineWidth = 4;
-    ctx.strokeStyle = "rgba(0,0,0,0.55)";
+    ctx.globalAlpha = 1;
+    ctx.strokeStyle = cssVar("--panel", "#14171d");
     ctx.stroke();
     ctx.beginPath();
     ctx.arc(f.x, f.y, f.r + 4, 0, Math.PI * 2);
@@ -207,14 +210,14 @@ export function drawWindSpeedChart(
   // Head/tail tinted halves — only meaningful for the signed (head/tailwind) axis.
   const mid = sx(0);
   if (xSigned) {
-    ctx.fillStyle = "rgba(239,68,68,0.06)"; // headwind (left)
+    ctx.fillStyle = "rgba(239,68,68,0.045)"; // headwind (left)
     ctx.fillRect(x0, y1, mid - x0, y0 - y1);
-    ctx.fillStyle = "rgba(34,197,94,0.06)"; // tailwind (right)
+    ctx.fillStyle = "rgba(34,197,94,0.045)"; // tailwind (right)
     ctx.fillRect(mid, y1, x1 - mid, y0 - y1);
   }
 
   // Gridlines + tick labels.
-  ctx.font = "11px system-ui, sans-serif";
+  ctx.font = "12px Ubuntu, system-ui, sans-serif";
   ctx.textBaseline = "middle";
   ctx.strokeStyle = colLine;
   ctx.lineWidth = 1;
@@ -260,27 +263,32 @@ export function drawWindSpeedChart(
   ctx.lineTo(x1, y0);
   ctx.stroke();
 
-  // Scatter — radius by sqrt(distance), clamped 2..7 px. Kept calm (low alpha) so
-  // the regression line reads on top of the cloud rather than blending into it. When
-  // a per-dot colour is given (crosswind tint) each dot is filled individually at a
-  // slightly higher alpha so the hue reads.
+  // Scatter — radius by sqrt(distance), clamped 3..8 px, each dot cased in the
+  // panel colour so overlapping dots stay countable. Translucent so the cloud's
+  // density reads and the regression line stays on top; a per-dot colour (the
+  // crosswind tint) is drawn more opaque so the hue reads.
   const { dotColor } = opts;
   const dots: ChartDot[] = [];
+  const colPanel = cssVar("--panel", "#14171d");
   ctx.save();
   ctx.beginPath();
   ctx.rect(x0, y1, x1 - x0, y0 - y1);
   ctx.clip();
-  ctx.globalAlpha = dotColor ? 0.8 : 0.38;
+  ctx.lineWidth = 1;
+  ctx.strokeStyle = colPanel;
   if (!dotColor) ctx.fillStyle = colAccent;
   for (const s of segs) {
-    const r = Math.max(2, Math.min(7, Math.sqrt(s.distanceKm) * 1.6));
+    const r = Math.max(3, Math.min(8, 1.2 + Math.sqrt(s.distanceKm) * 2.2));
     const cx = sx(xValue(s));
     const cy = sy(s.avgSpeedKmh);
     dots.push({ seg: s, x: cx, y: cy, r });
     if (dotColor) ctx.fillStyle = dotColor(s);
     ctx.beginPath();
     ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.globalAlpha = dotColor ? 0.85 : 0.62;
     ctx.fill();
+    ctx.globalAlpha = 0.9;
+    ctx.stroke();
   }
   ctx.globalAlpha = 1;
 

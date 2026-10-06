@@ -74,12 +74,71 @@
   --glass: rgba(20, 23, 29, 0.92); /* translucent header/popover backdrop */
   --glass-strong: rgba(20, 23, 29, 0.94); /* more opaque glass variant */
   --track: #2a313c; /* slider / progress-bar rail fill */
+  --seg-on: #2d3444; /* the raised active segment of a .seg */
+  /* Text fields: a filled well, a hairline, an accent ring on focus. */
+  --field-bg: #0d1015;
+  --field-border: #2a313d;
+  --field-border-hover: #3a4454;
+  --field-ring: rgba(252, 82, 0, 0.28);
+  --field-placeholder: #6b7384;
+  --marker-ink: #101319; /* the dark casing around accent map markers */
+  --star: #ffd166; /* a pinned favourite */
+  --grad-cool: #22d3ee; /* the timeline's cool → warm history gradient */
+  --grad-warm: #f97316;
   /* --- danger / accent fills --- */
   --danger-border: #5a2420;
   --accent-tint: rgba(252, 82, 0, 0.1); /* subtle accent wash */
   --accent-tint-strong: rgba(252, 82, 0, 0.12); /* stronger accent wash */
   --accent-ink: #1a1206; /* text/ink on accent-filled controls */
   --scrim: rgba(5, 7, 10, 0.78); /* modal / overlay backdrop */
+  /* --- semantic status families (text / bg / border) — the light theme re-tints
+     every one of these, so status chrome never hard-codes a literal --- */
+  --ok-bg: #0e2014;
+  --ok-border: #1c3d24;
+  --info-bg: #11192b;
+  --info-border: #2a3550;
+  --err-text: #ff6a6a;
+  --err-text-strong: #ffd9d2;
+  --err-text-soft: #e7b8b0;
+  --err-bg: #2a1413;
+  --err-bg-2: #3a1c19;
+  --err-border: #6e2c27;
+  --accent-soft-text: #ff7a33; /* button.accent — soft accent without a full fill */
+  --cmp: #dfe6f1; /* the "pinned" side of a comparison — never a data hue */
+  --cmp-fill: rgba(223, 230, 241, 0.1);
+  --accent-soft-bg: #221308;
+  --accent-soft-border: #5a2a12;
+  --accent-wash: #2a1a10; /* warm "hot/matched" row wash */
+  --accent-wash-soft: #1c130c;
+  --surface-soft: #161a21; /* the quietest row hover */
+  --line-strong: #3a4554; /* field underline */
+  --line-stronger: #55687d; /* …focused */
+  --muted-2: #3a4250; /* out-of-month calendar days */
+  --src-gpx: #d8a657;
+  --src-beeline: #6aa3d8;
+  --wind-text: #7fc8e8;
+  /* Every basemap shares one tile treatment (dark, desaturated) so coloured tracks
+     pop; the light theme swaps it for a gentle wash instead of darkening. */
+  --tile-filter: grayscale(85%) brightness(0.6) contrast(1.1);
+  /* --- forecast chart chrome (read by forecast-chart.ts at draw time) --- */
+  --fc-dim: rgba(6, 8, 12, 0.28); /* recede the lanes that aren't focused */
+  --fc-tip-bg: rgba(11, 13, 17, 0.95); /* cursor readout card */
+  --fc-tip-line: rgba(255, 255, 255, 0.12);
+  --fc-cursor: rgba(255, 255, 255, 0.8); /* the hovered-hour line */
+  --fc-zebra: rgba(255, 255, 255, 0.025); /* alternate-day stripe + focus tint */
+  --fc-cloud: 155, 176, 196; /* rgb triplet behind the cloud-cover wash */
+  --fc-direction: #b8c9d9; /* the wind-direction line + its legend swatch */
+  --fc-now: #ff7a33; /* the current-moment rule + its "now" tag */
+  /* Timetable cell tints (rgb triplets; the cell sets the alpha from its value). */
+  --fc-heat-wind: 252, 82, 0;
+  --fc-heat-rain: 76, 141, 255;
+  --fc-heat-warm: 255, 122, 51;
+  --fc-heat-cold: 76, 141, 255;
+  --fc-heat-cloud: 155, 176, 196;
+  /* --- shell geometry --- */
+  --sb-w: 232px; /* expanded sidebar */
+  --sb-rail-w: 60px; /* collapsed icon rail */
+  --chrome-h: 96px; /* top bar + main padding: what a viewport-tall view subtracts */
   /* --- elevation (drop-shadow scale) --- */
   --shadow-thumb: 0 1px 4px rgba(0, 0, 0, 0.5); /* slider thumbs */
   --shadow-float: 0 2px 10px rgba(0, 0, 0, 0.35); /* floating buttons / banners */
@@ -94,8 +153,8 @@
      13px row control (base button, .fchip, .seg, .custom, tag chips); sm = the
      compact 12.5px variant (button.small + dense rows). Converge new controls onto
      these tokens — never hard-code a one-off height/padding/radius. */
-  --ctrl-font: 13px;
-  --ctrl-font-sm: 12.5px;
+  --ctrl-font: 13.5px;
+  --ctrl-font-sm: 13px;
   --ctrl-pad-y: 6px;
   --ctrl-pad-x: 12px;
   --ctrl-pad-y-sm: 4px;
@@ -110,6 +169,90 @@
   /* Render native controls (checkboxes, range sliders, scrollbars) dark so the
      unchecked checkbox isn't a white box against the dark UI. */
   color-scheme: dark;
+}
+
+/* ---------------------------------------------------------------------------
+   LIGHT THEME — one override block; src/theme.ts stamps html[data-theme] from
+   the stored preference (dark / light / system). Everything else in this sheet
+   reads tokens, so a surface that looks wrong in light means a literal crept in.
+   --------------------------------------------------------------------------- */
+:root[data-theme="light"] {
+  --bg: #f3f4f7;
+  --panel: #ffffff;
+  --panel2: #f1f3f6;
+  --line: #dfe3ea;
+  --text: #171a21;
+  --muted: #5d6675;
+  --accent: #e64a00; /* a notch deeper than the brand orange for contrast on white */
+  --accent-dim: #f3b391;
+  --green: #1f8a3a;
+  --amber: #b07d00;
+  --blue: #2563eb;
+  --surface-hover: #eceff3;
+  --border-hover: #c9d0da;
+  --map-bg: #e6e8ec;
+  --glass: rgba(255, 255, 255, 0.9);
+  --glass-strong: rgba(255, 255, 255, 0.95);
+  --track: #d9dee6;
+  --seg-on: #ffffff;
+  --field-bg: #ffffff;
+  --field-border: #c9d0da;
+  --field-border-hover: #a9b3c1;
+  --field-ring: rgba(252, 82, 0, 0.22);
+  --field-placeholder: #8a93a3;
+  --marker-ink: #101319;
+  --star: #d9a400;
+  --grad-cool: #0891b2;
+  --grad-warm: #ea580c;
+  --danger-border: #f1b0aa;
+  --accent-tint: rgba(230, 74, 0, 0.09);
+  --accent-tint-strong: rgba(230, 74, 0, 0.13);
+  --scrim: rgba(23, 26, 33, 0.45);
+  --shadow-thumb: 0 1px 4px rgba(0, 0, 0, 0.25);
+  --shadow-float: 0 2px 10px rgba(0, 0, 0, 0.14);
+  --shadow-bar: 0 2px 12px rgba(0, 0, 0, 0.12);
+  --shadow-pop: 0 4px 16px rgba(0, 0, 0, 0.16);
+  --shadow-menu: 0 8px 24px rgba(0, 0, 0, 0.16);
+  --shadow-modal: 0 20px 60px rgba(0, 0, 0, 0.22);
+  --ok-bg: #e7f6ea;
+  --ok-border: #b7e1c1;
+  --info-bg: #e9f0fe;
+  --info-border: #bcd0f5;
+  --err-text: #c62828;
+  --err-text-strong: #8e1c1c;
+  --err-text-soft: #a3433b;
+  --err-bg: #fdecea;
+  --err-bg-2: #f9dcd8;
+  --err-border: #f1b0aa;
+  --accent-soft-text: #c94000;
+  --cmp: #1f2a3a;
+  --cmp-fill: rgba(31, 42, 58, 0.08);
+  --accent-soft-bg: #fff1e8;
+  --accent-soft-border: #f3c6ad;
+  --accent-wash: #fff0e8;
+  --accent-wash-soft: #fff7f2;
+  --surface-soft: #f3f5f8;
+  --line-strong: #c9d0da;
+  --line-stronger: #9aa5b5;
+  --muted-2: #b8bfca;
+  --src-gpx: #a8761a;
+  --src-beeline: #2f6fb8;
+  --wind-text: #1d7fa8;
+  --tile-filter: grayscale(55%) contrast(0.92) brightness(1.03);
+  --fc-dim: rgba(255, 255, 255, 0.62);
+  --fc-tip-bg: rgba(255, 255, 255, 0.97);
+  --fc-tip-line: rgba(0, 0, 0, 0.1);
+  --fc-cursor: rgba(23, 26, 33, 0.7);
+  --fc-zebra: rgba(0, 0, 0, 0.03);
+  --fc-cloud: 110, 125, 145;
+  --fc-direction: #4f6078;
+  --fc-now: #d94500;
+  --fc-heat-wind: 252, 82, 0;
+  --fc-heat-rain: 37, 99, 235;
+  --fc-heat-warm: 234, 88, 12;
+  --fc-heat-cold: 37, 99, 235;
+  --fc-heat-cloud: 100, 116, 139;
+  color-scheme: light;
 }
 * {
   box-sizing: border-box;
@@ -139,7 +282,7 @@ body {
 /* scrollbars — slim, themed, fade-friendly */
 * {
   scrollbar-width: thin;
-  scrollbar-color: #2c3340 transparent;
+  scrollbar-color: var(--track) transparent;
 }
 ::-webkit-scrollbar {
   width: 10px;
@@ -149,13 +292,13 @@ body {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: #2c3340;
+  background: var(--track);
   border-radius: 10px;
   border: 2px solid var(--bg);
   background-clip: padding-box;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #3b4555;
+  background: var(--border-hover);
   background-clip: padding-box;
 }
 ::-webkit-scrollbar-corner {
@@ -166,9 +309,12 @@ header {
   top: 0;
   z-index: 10;
   backdrop-filter: blur(12px);
-  background: rgba(11, 13, 17, 0.82);
+  background: var(--glass);
   border-bottom: 1px solid var(--line);
-  padding: 12px 20px;
+  padding: 10px 22px;
+  min-height: 54px;
+  display: flex;
+  align-items: center;
 }
 .row {
   display: flex;
@@ -223,44 +369,287 @@ header {
 }
 .brand .ver {
   color: var(--muted);
-  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
   font-size: 11.5px;
   letter-spacing: 0.2px;
   cursor: default;
 }
-.totals {
-  color: var(--muted);
-  font-size: 12.5px;
+/* Selection toolbar: when rides are selected it appears in the top bar — an
+   accent-tinted strip with the count, a clear ×, and every batch action as an
+   icon + label button (labels fold to icons under 1700px; the full label stays in
+   the tooltip). Prominent by design: a selection is a mode. */
+.selbar {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 10px;
+  padding: 4px 6px 4px 4px;
+  background: var(--accent-tint);
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--line));
+  border-radius: 10px;
+  overflow-x: auto;
+  scrollbar-width: none;
 }
-/* The "N selected ✕" chip in the header totals: a compact accent pill that
-   clears the selection on click. Reuses the .fchip.on accent tint so it reads as
-   "active state you can dismiss", inline with the muted totals text. */
-.selchip {
-  font: inherit;
-  font-size: 12px;
-  font-weight: 600;
-  padding: 1px 9px;
-  border-radius: 20px;
-  border: 1px solid var(--accent);
-  background: var(--accent-tint-strong);
-  color: var(--accent);
-  cursor: pointer;
-  white-space: nowrap;
-  vertical-align: baseline;
+.selbar::-webkit-scrollbar {
+  display: none;
+}
+.selbar.hidden {
+  display: none;
+}
+.selbar-x {
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  padding: 0;
   display: inline-flex;
   align-items: center;
+  justify-content: center;
+  border-radius: 7px;
+  background: transparent;
+  border-color: transparent;
+  color: var(--text);
+}
+.selbar-x > .bi {
+  width: 15px;
+  height: 15px;
+}
+.selbar-count {
+  flex: 0 0 auto;
+  margin: 0 8px 0 2px;
+  font-size: 13px;
+  color: var(--accent);
+  white-space: nowrap;
+}
+/* The range hint: only where there is a keyboard + pointer to use it, and only
+   while exactly one ride is picked (see renderSelectionBar). */
+.selbar-hint {
+  display: none;
+  flex: 0 0 auto;
+  margin-right: 8px;
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+@media (hover: hover) and (pointer: fine) and (min-width: 1100px) {
+  .selbar-hint {
+    display: inline;
+  }
+  .selbar-hint.hidden {
+    display: none;
+  }
+}
+.selbar .btn-label {
+  display: inline;
+}
+/* The action buttons sit inline (labelled) where there is room… */
+.selbar-acts {
+  display: contents;
+}
+.selbar-acts > button.small {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  background: transparent;
+  border-color: transparent;
+  color: var(--text);
+}
+.selbar-acts > button.small:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  border-color: transparent;
+}
+.selbar-acts > button.small.danger {
+  color: var(--err-text);
+}
+.selbar-acts > button.small.danger:hover:not(:disabled) {
+  background: var(--err-bg);
+}
+.selbar-more {
+  display: none;
+  flex: 0 0 auto;
+  align-items: center;
   gap: 5px;
+  margin-left: auto;
+  background: var(--panel);
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--line));
+  color: var(--text);
+  font-weight: 600;
 }
-.selchip svg {
-  width: 11px;
-  height: 11px;
-  display: block;
+.selbar-caret {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition: transform 0.15s ease;
 }
-.selchip:hover {
-  background: rgba(252, 82, 0, 0.22);
+.selbar.menu-open .selbar-caret {
+  transform: rotate(180deg);
+}
+/* …and below 1700px they fold into the Actions menu: the same buttons, as labelled
+   rows in a dropdown — never a strip of look-alike icons. */
+@media (max-width: 1699px) {
+  .selbar {
+    position: relative;
+    overflow: visible;
+  }
+  .selbar-more {
+    display: inline-flex;
+  }
+  .selbar-acts {
+    display: none;
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 0;
+    z-index: 60;
+    flex-direction: column;
+    min-width: 248px;
+    padding: 5px;
+    background: var(--panel2);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    box-shadow: var(--shadow-menu);
+  }
+  .selbar.menu-open .selbar-acts {
+    display: flex;
+  }
+  .selbar-acts > button.small {
+    justify-content: flex-start;
+    gap: 10px;
+    width: 100%;
+    padding: 9px 11px;
+    border-radius: 7px;
+    font-size: 13px;
+    text-align: left;
+  }
+  .selbar-acts > button.small:hover:not(:disabled) {
+    background: var(--surface-hover);
+  }
 }
 .spacer {
   flex: 1;
+}
+/* A panel's collapse control: a small round chevron; it points up while the panel is
+   open and down once collapsed (aria-expanded drives it). */
+button.collapse-btn {
+  flex: 0 0 auto;
+  width: 26px;
+  height: 26px;
+  min-width: 26px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: transparent;
+  border-color: transparent;
+  color: var(--muted);
+}
+.collapse-btn:hover:not(:disabled) {
+  color: var(--text);
+}
+.collapse-btn > svg {
+  flex: 0 0 auto;
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition: transform 0.16s ease;
+}
+.collapse-btn[aria-expanded="false"] > svg {
+  transform: rotate(180deg);
+}
+/* Explore chart: collapsed, the panel is one line — the title and the figures. */
+.stats-panel.collapsed .sp-metric,
+.stats-panel.collapsed .sp-gran,
+.stats-panel.collapsed .sp-trim,
+.stats-panel.collapsed .sp-note,
+.stats-panel.collapsed .chart {
+  display: none;
+}
+.stats-panel.collapsed {
+  padding-top: 9px;
+  padding-bottom: 9px;
+}
+.stats-panel.collapsed .sp-head {
+  margin-bottom: 0;
+}
+/* The chevron has its own column at the head's top-right; it lines up with the
+   first row (the 34px control height) whatever the rest wraps into. */
+.sp-collapse {
+  align-self: start;
+  margin-top: 4px;
+}
+/* Stats totals + records: compact, they become one line of value · label pairs. */
+.stats-kpis {
+  position: relative;
+}
+.stats-kpis-collapse {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+}
+.stats-kpis.collapsed {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 26px;
+  padding-right: 30px;
+}
+.stats-kpis.collapsed .stats-section {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+}
+.stats-kpis.collapsed .stats-h {
+  margin: 0;
+}
+.stats-kpis.collapsed .stats-cards {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+}
+.stats-kpis.collapsed .stat-num {
+  flex-direction: row;
+  align-items: baseline;
+  gap: 5px;
+}
+.stats-kpis.collapsed .stat-num-v {
+  font-size: 14px;
+  padding: 0;
+  border: 0;
+}
+.stats-kpis.collapsed .stat-num-v::after {
+  display: none;
+}
+.stats-kpis.collapsed .stat-num-l {
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+}
+.stats-kpis.collapsed .stat-num-s {
+  display: none;
+}
+/* Forecast: the legend rows fold away behind the toolbar's chevron. */
+#forecastView.legend-collapsed .fc-legend,
+#forecastView.legend-collapsed .fc-model-legend {
+  display: none;
+}
+/* Ride map: the toolbar, summary and wind line fold into the title bar. */
+.ridemap.slim .ridemap-tools,
+.ridemap.slim .ridemap-summary,
+.ridemap.slim .ridemap-wind {
+  display: none;
+}
+.ridemap-collapse {
+  margin-left: auto;
+}
+.ridemap-collapse + .ridemap-close {
+  margin-left: 0;
 }
 
 button {
@@ -308,19 +697,19 @@ button.ghost {
   background: transparent;
 }
 button.danger {
-  color: #f8736a;
+  color: var(--err-text);
   border-color: var(--danger-border);
 }
 button.danger:hover:not(:disabled) {
-  background: #2a1413;
-  border-color: #7a2c27;
+  background: var(--err-bg);
+  border-color: var(--err-border);
 }
 /* Softer accent: signals the primary action of a group without a full orange fill,
    so a long list of rides doesn't become a wall of orange. Fills on hover. */
 button.accent {
-  color: #ff7a33;
-  border-color: #5a2a12;
-  background: #221308;
+  color: var(--accent-soft-text);
+  border-color: var(--accent-soft-border);
+  background: var(--accent-soft-bg);
   font-weight: 600;
 }
 button.accent:hover:not(:disabled) {
@@ -340,55 +729,112 @@ button.small {
   flex-wrap: wrap;
   gap: 8px;
 }
+/* Connection state: a muted caption under the Sources label with a leading
+   dot — green connected, blue demo, grey offline. Never red: being signed out is
+   the designed resting state (the password is deliberately not stored). */
 .cstate {
-  font-size: 12px;
-  padding: 2px 9px;
-  border-radius: 20px;
-  border: 1px solid var(--line);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  font-weight: 500;
   color: var(--muted);
   white-space: nowrap;
+  line-height: 1.2;
 }
-.cstate.on {
-  color: var(--green);
-  border-color: #1c3d24;
-  background: #0e2014;
+.cstate::before {
+  content: "";
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--muted);
+  opacity: 0.7;
 }
-.cstate.demo {
-  color: var(--blue);
-  border-color: #2a3550;
-  background: #11192b;
+.cstate.on::before {
+  background: var(--green);
+  opacity: 1;
 }
-.cstate.off {
-  color: var(--muted);
-}
-.cstate.err {
-  color: #ff6a6a;
-  border-color: #5a2330;
-  background: #2a1117;
+.cstate.demo::before {
+  background: var(--blue);
+  opacity: 1;
 }
 
+/* Segmented control: a recessed pill with the active option raised as a chip.
+   Neutral by design — the accent is reserved for primary actions and the active
+   nav item, so a row of toggles never turns into a wall of orange. */
 .seg {
   display: inline-flex;
+  gap: 2px;
+  padding: 3px;
   background: var(--panel2);
   border: var(--ctrl-border) solid var(--line);
   border-radius: var(--ctrl-radius);
-  overflow: hidden;
 }
 .seg button {
   border: 0;
-  border-radius: 0;
+  border-radius: calc(var(--ctrl-radius) - 3px);
   background: transparent;
-  padding: var(--ctrl-pad-y) var(--ctrl-pad-x);
+  padding: calc(var(--ctrl-pad-y) - 2px) var(--ctrl-pad-x);
   color: var(--muted);
   font-size: var(--ctrl-font);
+  font-weight: 600; /* same weight as the active chip — toggling never shifts widths */
+  line-height: 1.3;
+}
+.seg button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.seg button:hover:not(.active):not(:disabled) {
+  background: var(--surface-hover);
+  color: var(--text);
 }
 .seg button.active {
-  background: var(--accent);
-  color: #fff;
+  background: var(--seg-on);
+  color: var(--text);
   font-weight: 600;
+  box-shadow: var(--shadow-thumb);
 }
-.seg button:not(:last-child) {
-  border-right: 1px solid var(--line);
+/* The sliding thumb (src/seg.ts): a raised pill that glides to the active button.
+   Once a seg has one, the active button itself goes flat and the thumb carries the
+   fill + shadow beneath it. */
+.seg {
+  position: relative;
+  isolation: isolate;
+}
+.seg > button {
+  position: relative;
+  z-index: 1;
+}
+.seg-thumb {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 0;
+  border-radius: calc(var(--ctrl-radius) - 3px);
+  background: var(--seg-on);
+  box-shadow: var(--shadow-thumb);
+  pointer-events: none;
+  transition:
+    transform 0.24s cubic-bezier(0.2, 0.7, 0.2, 1),
+    width 0.24s cubic-bezier(0.2, 0.7, 0.2, 1),
+    height 0.24s cubic-bezier(0.2, 0.7, 0.2, 1),
+    opacity 0.15s ease;
+}
+.seg-thumb.no-anim {
+  transition: none;
+}
+.seg-thumb.off {
+  opacity: 0;
+}
+.seg:has(> .seg-thumb:not(.off)) > button.active {
+  background: transparent;
+  box-shadow: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .seg-thumb {
+    transition: none;
+  }
 }
 .custom {
   display: inline-flex;
@@ -422,7 +868,7 @@ button.small {
   color: var(--text);
   /* Underline so the blank reads as a fillable field, not static label text. */
   border: 0;
-  border-bottom: 1.5px solid #3a4554;
+  border-bottom: 1.5px solid var(--line-strong);
   padding: 0 0 1px;
   font: inherit;
   font-weight: 600;
@@ -437,7 +883,7 @@ button.small {
   margin: 0;
 }
 .custom input:hover {
-  border-bottom-color: #55687d;
+  border-bottom-color: var(--line-stronger);
 }
 .custom input:focus {
   outline: none;
@@ -456,7 +902,7 @@ button.small {
 .fadded-btn {
   background: transparent;
   border: 0;
-  border-bottom: 1.5px solid #3a4554;
+  border-bottom: 1.5px solid var(--line-strong);
   border-radius: 0;
   padding: 0 1px 1px;
   font: inherit;
@@ -466,7 +912,7 @@ button.small {
   transition: border-color 0.12s ease;
 }
 .fadded-btn:hover {
-  border-bottom-color: #55687d;
+  border-bottom-color: var(--line-stronger);
 }
 .fadded-btn.placeholder {
   color: var(--muted);
@@ -807,8 +1253,14 @@ button.small {
 }
 
 main {
-  padding: 18px 20px 60px;
-  max-width: 940px;
+  flex: 1;
+  min-width: 0;
+  padding: 16px 22px 40px;
+}
+/* The ride list is the one text-dense view: cap it at a readable measure and
+   centre it; every map/chart view uses the full content width. */
+#exploreView {
+  max-width: 1600px;
   margin: 0 auto;
 }
 
@@ -866,25 +1318,66 @@ details.help kbd {
    shifts the page layout when it appears or disappears. Given an elevated, blue
    accent-lit surface so it clearly reads as a live overlay, distinct from the
    app's flat dark panels. */
+/* -- The thread: the app's ONE loading form -------------------------------------
+   A 2px hairline that either fills with progress (`<i>` width) or, when the total is
+   unknown, runs an accent segment along it (`.indet`). It edges the job strip and
+   its minimized pill, underlines a working ride, and sits under the pane loader and
+   the map banner — the same quiet motion everywhere, never a spinner or a veil. */
+.thread {
+  position: relative;
+  display: block;
+  height: 2px;
+  overflow: hidden;
+  background: var(--track);
+}
+.thread > i {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 0;
+  border-radius: inherit;
+  background: var(--accent);
+  transition: width 0.3s ease;
+}
+.thread.indet > i {
+  width: 34%;
+  animation: thread-run 1.5s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+}
+@keyframes thread-run {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(295%);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .thread.indet > i {
+    animation: none;
+    width: 100%;
+    opacity: 0.55;
+  }
+}
+
+/* Live activity: one lean strip along the bottom of the main pane (phones float it
+   above the bottom nav). The thread runs along its top edge; the row reads
+   "Downloading GPX  2 / 3  Oct 5, 10:05…" then its controls. */
 .job {
   position: fixed;
-  left: 50%;
-  bottom: calc(22px + var(--vv-bottom, 0px) + env(safe-area-inset-bottom, 0px));
+  left: calc(var(--sb-w) + 16px);
+  right: 16px;
+  bottom: 14px;
   z-index: 50;
-  width: min(680px, calc(100% - 40px));
   display: flex;
   flex-direction: column;
-  background: linear-gradient(180deg, #243047, #1a2233);
-  border: 1px solid #3a5a8c;
-  border-radius: var(--radius);
-  padding: 0;
-  box-shadow:
-    0 14px 40px rgba(0, 0, 0, 0.55),
-    0 0 0 1px rgba(76, 141, 255, 0.18),
-    0 0 24px rgba(76, 141, 255, 0.28);
+  background: var(--glass-strong);
+  backdrop-filter: blur(10px);
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  box-shadow: var(--shadow-menu);
+  overflow: hidden;
   opacity: 0;
   pointer-events: none;
-  transform: translateX(-50%) translateY(14px) scale(0.98);
+  transform: translateY(10px);
   transition:
     opacity 0.18s ease,
     transform 0.18s ease;
@@ -892,103 +1385,114 @@ details.help kbd {
 .job.show {
   opacity: 1;
   pointer-events: auto;
-  transform: translateX(-50%) translateY(0) scale(1);
-  animation: jobGlow 2.4s ease-in-out infinite;
+  transform: translateY(0);
 }
-/* In the Map view the date filter (.basemap-filter) sits at the bottom of the map
-   column, near the same bottom-centre slot the fixed status pill occupies. Lift
-   the pill clear of the filter bar — and above it in the stack — so both stay
-   readable. Scoped to when the filter is shown, leaving Explore/Stats untouched. */
-body:has(#mapFilter:not(.hidden)) .job {
-  bottom: calc(74px + var(--vv-bottom, 0px) + env(safe-area-inset-bottom, 0px));
-  z-index: 501;
+.job-bar {
+  order: -1; /* the top edge, above the Up-next list and the row */
 }
-/* Minimized handle: when the user hides the pill mid-run, it collapses to this
-   small spinner+count chip in the same bottom-centre slot. Click to restore the
-   full pill. Shares the pill's elevated blue surface so it still reads as live
-   work, and rides the same basemap-filter lift so it never sits under the filter. */
+/* Minimized: a small pill in the pane's corner, its thread along the bottom edge. */
 .job-handle {
   position: fixed;
-  left: 50%;
-  bottom: calc(22px + var(--vv-bottom, 0px) + env(safe-area-inset-bottom, 0px));
+  right: 16px;
+  bottom: 14px;
   z-index: 50;
   display: none;
-  align-items: center;
-  gap: 9px;
-  padding: 7px 15px 7px 12px;
-  background: linear-gradient(180deg, #243047, #1a2233);
-  border: 1px solid #3a5a8c;
-  border-radius: 22px;
-  color: #eaf1ff;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
+  background: var(--glass-strong);
+  backdrop-filter: blur(10px);
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  color: var(--text);
   font-size: 12.5px;
   font-weight: 600;
-  box-shadow:
-    0 14px 40px rgba(0, 0, 0, 0.55),
-    0 0 0 1px rgba(76, 141, 255, 0.18),
-    0 0 24px rgba(76, 141, 255, 0.28);
+  box-shadow: var(--shadow-float);
   opacity: 0;
   pointer-events: none;
   cursor: pointer;
-  transform: translateX(-50%) translateY(14px) scale(0.98);
+  transform: translateY(10px);
   transition:
     opacity 0.18s ease,
     transform 0.18s ease;
+}
+.job-handle > span:first-child {
+  padding: 7px 13px 6px;
 }
 .job-handle.show {
   display: inline-flex;
   opacity: 1;
   pointer-events: auto;
-  transform: translateX(-50%) translateY(0) scale(1);
+  transform: translateY(0);
 }
 .job-handle:hover {
-  border-color: #4c8dff;
+  border-color: var(--border-hover);
 }
-body:has(#mapFilter:not(.hidden)) .job-handle {
-  bottom: calc(74px + var(--vv-bottom, 0px) + env(safe-area-inset-bottom, 0px));
-  z-index: 501;
-}
-@keyframes jobGlow {
-  50% {
-    box-shadow:
-      0 14px 40px rgba(0, 0, 0, 0.55),
-      0 0 0 1px rgba(76, 141, 255, 0.3),
-      0 0 34px rgba(76, 141, 255, 0.45);
-  }
+/* While a job runs, the scrolling views keep their last rows clear of the strip. */
+body.job-active main {
+  padding-bottom: 72px;
 }
 .job-head {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 10px 8px 10px 16px;
-}
-.job .spin,
-.job-handle .spin {
-  width: 17px;
-  height: 17px;
-  border-radius: 50%;
-  flex: 0 0 auto;
-  border: 2px solid rgba(76, 141, 255, 0.25);
-  border-top-color: var(--blue);
-  animation: spin 0.8s linear infinite;
-}
-/* Determinate progress ring (minimized handle): the spinner becomes a ring that
-   FILLS clockwise to --p (0..1), so the tiny pill shows real progress instead of an
-   endless spin. A conic gradient draws the arc; a radial mask cuts the centre to a
-   ring. Falls back to the spinner above when --p is unknown. */
-.job-handle .spin.det {
-  border: 0;
-  animation: none;
-  background: conic-gradient(
-    var(--blue) calc(var(--p, 0) * 360deg),
-    rgba(76, 141, 255, 0.22) 0
-  );
-  -webkit-mask: radial-gradient(closest-side, transparent 62%, #000 64%);
-  mask: radial-gradient(closest-side, transparent 62%, #000 64%);
-  transition: background 0.3s ease;
+  gap: 6px;
+  padding: 6px 8px 6px 16px;
+  min-height: 44px;
 }
 @keyframes spin {
   to {
     transform: rotate(360deg);
+  }
+}
+/* Pane loader (ui.paneLoader): a small glass chip at the top of the pane with the
+   thread along its bottom edge — the pane stays visible and usable underneath. */
+.pane-loader {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  z-index: 700;
+  transform: translateX(-50%);
+  display: inline-flex;
+  align-items: center;
+  padding: 7px 14px 8px;
+  overflow: hidden;
+  background: var(--glass-strong);
+  backdrop-filter: blur(8px);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: var(--shadow-float);
+  color: var(--text);
+  font-size: 12.5px;
+  font-weight: 500;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.pane-loader .spin {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  overflow: hidden;
+  background: var(--track);
+}
+.pane-loader .spin::after {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: var(--accent);
+}
+.pane-loader .spin::after {
+  width: 34%;
+  animation: thread-run 1.5s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .pane-loader .spin::after {
+    animation: none;
+    width: 100%;
+    opacity: 0.55;
   }
 }
 /* current activity: a bold title ("Checking 3 of 12 rides") over a muted live
@@ -997,11 +1501,21 @@ body:has(#mapFilter:not(.hidden)) .job-handle {
   flex: 1;
   min-width: 0;
   display: flex;
-  flex-direction: column;
-  gap: 1px;
+  align-items: baseline;
+  gap: 8px;
+}
+.job-count {
+  flex: 0 0 auto;
+  color: var(--accent-soft-text);
+  font-size: 12.5px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+.job-count:empty {
+  display: none;
 }
 .job-title {
-  color: #eaf1ff;
+  color: var(--text);
   font-size: 13px;
   font-weight: 600;
   min-width: 0;
@@ -1015,26 +1529,13 @@ body:has(#mapFilter:not(.hidden)) .job-handle {
    doesn't grow it — the panel keeps a stable shape as the text rapidly changes,
    instead of jumping between one- and two-line heights (jarring to read). */
 .job .msg {
-  color: #adc2e8;
-  font-size: 12px;
+  color: var(--muted);
+  font-size: 12.5px;
   min-width: 0;
-  line-height: 1.35;
-  min-height: 2.7em; /* exactly two lines at this line-height */
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-.qcount {
-  font-size: 12px;
-  color: #cfe0ff;
-  background: rgba(76, 141, 255, 0.16);
-  border: 1px solid rgba(76, 141, 255, 0.35);
-  border-radius: 20px;
-  padding: 2px 9px;
-  flex: 0 0 auto;
+  flex: 1 1 auto;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 /* the still-queued disclosure arrow, centered with the label and rotated on expand.
    Drawn with CSS borders rather than a font glyph: the `\25B8` "small triangle"
@@ -1059,12 +1560,12 @@ body:has(#mapFilter:not(.hidden)) .job-handle {
   transform: rotate(90deg);
 }
 .job button {
-  background: rgba(255, 255, 255, 0.06);
-  border-color: rgba(255, 255, 255, 0.14);
+  background: transparent;
+  border-color: transparent;
 }
 .job button:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.12);
-  border-color: rgba(255, 255, 255, 0.22);
+  background: var(--surface-hover);
+  border-color: var(--border-hover);
 }
 /* Secondary controls (Clear queue, Hide) collapse to square icon buttons so the
    verbose message keeps the row's width instead of competing with text labels.
@@ -1085,28 +1586,14 @@ body:has(#mapFilter:not(.hidden)) .job-handle {
 /* Stop is the one destructive control in the bar, so it stays a labelled,
    red-tinted button — easy to find and hard to misfire — rather than an icon. */
 .job #btnCancel {
-  color: #ff8079;
-  background: rgba(255, 80, 70, 0.12);
-  border-color: rgba(255, 80, 70, 0.4);
+  color: var(--err-text);
+  background: transparent;
+  border-color: transparent;
   font-weight: 600;
 }
 .job #btnCancel:hover:not(:disabled) {
   background: rgba(255, 80, 70, 0.22);
   border-color: rgba(255, 80, 70, 0.55);
-}
-/* determinate progress bar pinned to the pill's bottom edge (known totals only) */
-.job-bar {
-  height: 3px;
-  margin: 0 2px 2px;
-  border-radius: 3px;
-  background: rgba(255, 255, 255, 0.08);
-  overflow: hidden;
-}
-.job-bar-fill {
-  height: 100%;
-  width: 0;
-  background: linear-gradient(90deg, var(--blue), #7db1ff);
-  transition: width 0.25s ease;
 }
 /* "Up next": the still-queued items, so the whole pipeline is visible at a glance */
 .job-list {
@@ -1116,7 +1603,7 @@ body:has(#mapFilter:not(.hidden)) .job-handle {
   padding: 8px 10px 4px;
   max-height: 168px;
   overflow: auto;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  border-bottom: 1px solid var(--line);
 }
 .job-list.show {
   display: flex;
@@ -1127,7 +1614,7 @@ body:has(#mapFilter:not(.hidden)) .job-handle {
   gap: 9px;
   padding: 5px 6px;
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--surface-soft);
 }
 .ji-dot {
   width: 7px;
@@ -1140,7 +1627,7 @@ body:has(#mapFilter:not(.hidden)) .job-handle {
 .ji-text {
   flex: 1;
   min-width: 0;
-  color: #dbe6f7;
+  color: var(--muted);
   font-size: 12.5px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1153,16 +1640,16 @@ body:has(#mapFilter:not(.hidden)) .job-handle {
   line-height: 1;
   padding: 0;
   border-radius: 6px;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  color: #cdd9ec;
+  background: var(--surface-soft);
+  border: 1px solid var(--line);
+  color: var(--muted);
   font-size: 15px;
   cursor: pointer;
 }
 .ji-x:hover {
   background: rgba(255, 90, 80, 0.18);
-  border-color: #6e2c27;
-  color: #ffd9d2;
+  border-color: var(--err-border);
+  color: var(--err-text-strong);
 }
 
 .errbar {
@@ -1172,9 +1659,9 @@ body:has(#mapFilter:not(.hidden)) .job-handle {
   margin: 0 0 16px;
   padding: 10px 13px;
   border-radius: var(--radius);
-  background: #2a1513;
+  background: var(--err-bg);
   border: 1px solid var(--danger-border);
-  color: #ffd9d2;
+  color: var(--err-text-strong);
 }
 .errbar.show {
   display: flex;
@@ -1209,11 +1696,11 @@ body:has(#mapFilter:not(.hidden)) .job-handle {
 }
 .errbar .etext b {
   font-size: 13px;
-  color: #ffb4a8;
+  color: var(--err-text-strong);
 }
 .errbar .etext span {
   font-size: 12.5px;
-  color: #e7b8b0;
+  color: var(--err-text-soft);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1221,12 +1708,12 @@ body:has(#mapFilter:not(.hidden)) .job-handle {
 }
 .errbar button {
   border-color: var(--danger-border);
-  color: #ffd9d2;
+  color: var(--err-text-strong);
   background: transparent;
 }
 .errbar button:hover {
-  background: #3a1c19;
-  border-color: #6e2c27;
+  background: var(--err-bg-2);
+  border-color: var(--err-border);
 }
 .errfull {
   display: none;
@@ -1234,10 +1721,10 @@ body:has(#mapFilter:not(.hidden)) .job-handle {
   padding: 10px 12px;
   max-height: 180px;
   overflow: auto;
-  background: #1a0e0d;
+  background: var(--err-bg-2);
   border: 1px solid var(--danger-border);
   border-radius: 9px;
-  color: #e7b8b0;
+  color: var(--err-text-soft);
   font-family: var(--mono);
   font-size: 11.5px;
   white-space: pre-wrap;
@@ -1261,7 +1748,7 @@ body:has(#mapFilter:not(.hidden)) .job-handle {
   margin-bottom: 10px;
 }
 .yhead:hover .ytitle {
-  color: #fff;
+  color: var(--text);
 }
 /* Fixed-width title column so the progress bar + meta line up across sibling
    year rows regardless of label length (see .mtitle for the month rationale). */
@@ -1286,12 +1773,143 @@ body:has(#mapFilter:not(.hidden)) .job-handle {
   margin: 0;
 }
 
+/* Month boxes: a two-line header (title + "N rides · km", the volume bar
+   beneath). Narrow screens keep the ride rows inside the box; from 1100px the
+   boxes form a tree on the left and the open months' rows fill the right pane. */
+.ybody {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 4px;
+}
 .month {
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  margin: 0 0 10px 18px;
+  margin: 0;
   overflow: hidden;
   background: var(--panel);
+  min-width: 0;
+}
+/* Stacked layout: an open month's header just sits on the quiet surface and gets a
+   rule beneath it — no stripe, no tint. */
+.month.open > .mhead {
+  background: var(--surface-soft);
+  border-bottom: 1px solid var(--line);
+}
+/* -- Explore contents + continuous list (≥1100px) ----------------------------- */
+.explore-split.split {
+  display: grid;
+  grid-template-columns: 300px minmax(0, 1fr);
+  gap: 28px;
+  align-items: start;
+}
+/* The tree: a flat table of contents. Months lose their box; the one in view
+   carries a 2px rule on the left and the accent on its name — nothing curved,
+   nothing thick. */
+.explore-split.split #months {
+  position: sticky;
+  top: 70px;
+  max-height: calc(100vh - 86px);
+  overflow-y: auto;
+  /* Reaching the end of the tree never scrolls the page behind it. */
+  overscroll-behavior: contain;
+  padding-right: 4px;
+}
+.explore-split.split .year {
+  margin-bottom: 8px;
+}
+.explore-split.split .yhead {
+  padding: 8px 4px 8px 0;
+  margin-bottom: 4px;
+}
+.explore-split.split .ybody {
+  gap: 0;
+}
+.explore-split.split .month {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+.explore-split.split .mhead {
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+  column-gap: 10px;
+  row-gap: 5px;
+  padding: 7px 8px 8px 10px;
+  border-left: 2px solid transparent;
+}
+.explore-split.split .mhead > .caret {
+  display: none;
+}
+.explore-split.split .mhead > .bars {
+  grid-column: 2 / span 2;
+  max-width: none;
+  height: 4px;
+}
+.explore-split.split .mhead > .mmeta {
+  grid-column: 3;
+  font-size: 12px;
+}
+.explore-split.split .mhead:hover {
+  background: var(--surface-soft);
+}
+.explore-split.split .month.cur > .mhead {
+  border-left-color: var(--accent);
+  background: var(--surface-soft);
+}
+.explore-split.split .month.cur .mtitle {
+  color: var(--accent);
+}
+/* The list: one continuous column of rides with hairline rules; a month heading
+   (sticky under the top bar) and a heavier year heading are the only structure. */
+.ride-pane {
+  display: none;
+  min-width: 0;
+}
+.explore-split.split .ride-pane {
+  display: block;
+}
+.rp-year {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 18px 2px 8px;
+  margin-top: 14px;
+  border-bottom: 2px solid var(--line-strong);
+  scroll-margin-top: 64px;
+}
+.rp-year:first-child {
+  margin-top: 0;
+  padding-top: 4px;
+}
+.rp-year > b {
+  font-size: 19px;
+  font-weight: 700;
+}
+.rp-month {
+  scroll-margin-top: 64px;
+  /* Off-screen months skip layout and paint entirely; the intrinsic size keeps the
+     scrollbar honest until they are rendered. */
+  content-visibility: auto;
+  contain-intrinsic-size: auto 600px;
+}
+.rp-head {
+  position: sticky;
+  top: 54px;
+  z-index: 3;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 12px 2px 7px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--line);
+}
+.rp-head > b {
+  font-size: 14px;
+}
+.rp-month .rows.open > .rrow {
+  border-top: 0;
+  border-bottom: 1px solid var(--line);
+  padding: 10px 6px;
 }
 /* When this month holds the open per-ride "⋮" menu, let the dropdown escape the
    box instead of being clipped by `overflow: hidden`. Only one menu is open at a
@@ -1300,15 +1918,35 @@ body:has(#mapFilter:not(.hidden)) .job-handle {
   overflow: visible;
 }
 .mhead {
-  display: flex;
+  display: grid;
+  grid-template-columns: 10px 16px minmax(0, 1fr) auto;
+  grid-template-rows: auto auto;
+  column-gap: 11px;
+  row-gap: 7px;
   align-items: center;
-  gap: 11px;
-  padding: 12px 15px;
+  padding: 11px 14px 12px;
   cursor: pointer;
   user-select: none;
 }
+.mhead > .caret,
+.mhead > .selall {
+  grid-row: 1;
+}
+.mhead > .bars {
+  grid-column: 3 / span 2;
+  grid-row: 2;
+  width: 100%;
+  max-width: 360px;
+  margin: 0;
+}
+.mhead > .mmeta {
+  grid-column: 4;
+  grid-row: 1;
+  justify-self: end;
+  white-space: nowrap;
+}
 .mhead:hover {
-  background: #161a21;
+  background: var(--surface-soft);
 }
 /* Year/month disclosure chevron. Drawn from two borders (like the .split caret)
    rather than a "▾"/"▸" font glyph, which renders off-baseline/blurry across
@@ -1343,9 +1981,10 @@ span.caret.open::before {
    Sized for the widest English label so every bar starts at the same x. */
 .mtitle {
   font-weight: 600;
-  flex: 0 0 auto;
-  min-width: 132px;
+  min-width: 0;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .mmeta {
   color: var(--muted);
@@ -1388,15 +2027,32 @@ span.caret.open::before {
   display: none;
 }
 .sp-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  column-gap: 8px;
+  margin-bottom: 4px;
+}
+.sp-head-main {
   display: flex;
   align-items: center;
   gap: 14px;
   flex-wrap: wrap;
-  margin-bottom: 4px;
+  min-width: 0;
 }
+.sp-head-main > .sp-title {
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+}
+/* The title flips between "Distance per month" and "Average speed per month" as
+   the toggles change; reserve the longest form's width so the controls beside it
+   never shift. */
 .sp-title {
   font-weight: 650;
   font-size: 14px;
+  flex: 0 0 auto;
+  min-width: 13em;
+  white-space: nowrap;
 }
 .sp-gran button {
   padding: 4px 10px;
@@ -1444,7 +2100,7 @@ span.caret.open::before {
   width: 120px;
 }
 .sp-trim .trim output {
-  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
   font-size: 12px;
   color: var(--text);
   min-width: 3.4ch;
@@ -1456,48 +2112,60 @@ span.caret.open::before {
   align-items: flex-end;
 }
 .kpi b {
-  font-size: 16px;
+  font-size: 17px;
   font-weight: 700;
-  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
 }
 .kpi span {
   color: var(--muted);
   font-size: 11.5px;
 }
 .chart {
+  position: relative;
   display: flex;
   align-items: flex-end;
-  gap: 6px;
-  margin-top: 14px;
-  padding-top: 6px;
-  padding-bottom: 4px;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 4px 14px 0; /* room for the first/last label's overhang on a dense axis */
   overflow-x: auto;
   overflow-y: hidden;
+}
+/* Baseline the bars stand on (labels hang below it). */
+.chart::after {
+  content: "";
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  bottom: 27px;
+  border-top: 1px solid var(--line);
+}
+/* Crowded charts (many days/weeks) drop the per-bar value; the renderer labels
+   every Nth bar (`.nolab` on the rest) so the axis never collides. */
+.chart.dense .cval {
+  display: none;
+}
+.col.nolab .clab {
+  visibility: hidden;
 }
 .col {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 6px;
-  flex: 1 0 28px;
-  min-width: 28px;
-}
-.col .plot {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 6px;
-  width: 100%;
-  height: 116px;
+  gap: 5px;
+  flex: 1 1 0;
+  min-width: 22px;
 }
 .col .bar {
   width: 100%;
-  max-width: 38px;
-  border-radius: 5px 5px 0 0;
-  background: linear-gradient(180deg, var(--accent), #b53b00);
+  max-width: 76px;
+  border-radius: 6px 6px 2px 2px;
+  background: linear-gradient(
+    180deg,
+    var(--accent) 0%,
+    color-mix(in srgb, var(--accent) 62%, var(--panel)) 100%
+  );
   transition: height 0.25s ease;
-  min-height: 2px;
+  min-height: 3px;
   position: relative;
 }
 .col .bar:hover {
@@ -1511,37 +2179,35 @@ span.caret.open::before {
   padding: 0;
 }
 .col .cval {
-  font-size: 10.5px;
-  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
   white-space: nowrap;
-  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
 }
 .col .clab {
-  font-size: 10.5px;
+  font-size: 12px;
   color: var(--muted);
   white-space: nowrap;
-  transform: rotate(-35deg);
-  transform-origin: center;
-  height: 30px;
+  height: 22px;
+  line-height: 22px;
 }
 
 .badge {
-  font-size: 11px;
-  padding: 2px 8px;
-  border-radius: 20px;
-  border: 1px solid var(--line);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  line-height: 1.5;
+  padding: 1px 7px;
+  border-radius: 5px;
+  border: 0;
+  background: color-mix(in srgb, var(--text) 8%, transparent);
   color: var(--muted);
   white-space: nowrap;
 }
-.badge.queued {
-  color: var(--blue);
-  border-color: #2a3550;
-  background: #11192b;
-}
 .badge.deleted {
-  color: #ff8f84;
-  border-color: var(--danger-border);
-  background: #2a1513;
+  color: var(--err-text);
+  background: var(--err-bg);
 }
 /* Per-ride source marker — a tiny icon at the start of the ride title (cloud =
    Beeline, file = GPX) so the source reads at a glance. Icon-only and source-tinted;
@@ -1558,18 +2224,16 @@ span.caret.open::before {
   display: block;
 }
 .src-mark.src-gpx {
-  color: #d8a657;
+  color: var(--src-gpx);
 }
 .src-mark.src-beeline {
-  color: #6aa3d8;
+  color: var(--src-beeline);
 }
 /* "Full GPX cached" — deliberately quiet: muted text + a small green "ready
    offline" dot, so it reads as a subtle availability hint rather than another loud
    status pill. Distinct from `.gps` (which only means the route preview exists). */
 .badge.cached {
   color: var(--muted);
-  border-color: var(--line);
-  background: transparent;
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -1580,7 +2244,7 @@ span.caret.open::before {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: #2ec27e;
+  background: var(--green);
   flex: 0 0 auto;
 }
 /* "Wind resolved" — an icon-only breeze glyph, deliberately quiet (no pill/border),
@@ -1591,27 +2255,61 @@ span.caret.open::before {
   background: transparent;
   display: inline-flex;
   align-items: center;
-  color: #7fc8e8;
+  color: var(--wind-text);
 }
 .badge.wind svg {
   width: 15px;
   height: 15px;
   display: block;
 }
-.badge.working {
-  color: var(--blue);
-  border-color: #16324a;
-  background: #0c1d2e;
+/* A ride a job is touching: a small ring at its title — spinning in the accent
+   while being worked on, dotted and still while queued — and, on the busy row, a
+   faint light sweep. No words, no pill; the motion says it. */
+.rtitle-main {
+  display: contents; /* the title's parts stay direct flex items of .rtitle */
 }
-.badge.working::before {
+/* A ride a job touches gets a thread along its bottom edge: running while it is
+   being worked on, a static dotted line while it waits its turn. The element is
+   persistent (class flips only — applyJobUpdate), so the motion never restarts. */
+.rring {
+  display: none;
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 2px;
+  overflow: hidden;
+  pointer-events: none;
+}
+.rring.working {
+  display: block;
+  background: var(--track);
+}
+.rring.working::after {
   content: "";
-  display: inline-block;
-  width: 7px;
-  height: 7px;
-  margin-right: 5px;
-  border-radius: 50%;
-  background: var(--blue);
-  animation: pulse 1s ease-in-out infinite;
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 34%;
+  background: var(--accent);
+  animation: thread-run 1.5s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+}
+.rring.queued {
+  display: block;
+  background: repeating-linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--accent) 45%, transparent) 0 4px,
+    transparent 4px 9px
+  );
+}
+.rrow {
+  position: relative;
+}
+@media (prefers-reduced-motion: reduce) {
+  .rring.working::after {
+    animation: none;
+    width: 100%;
+    opacity: 0.55;
+  }
 }
 @keyframes pulse {
   50% {
@@ -1637,7 +2335,7 @@ span.caret.open::before {
   scroll-margin-top: 96px;
 }
 .rrow:hover {
-  background: #161a21;
+  background: var(--surface-soft);
 }
 /* Selected rows: an accent inset stripe + faint tint (matching the .fchip.on
    tint) so a multi-ride selection reads at a glance. Inset shadow, not a left
@@ -1706,7 +2404,7 @@ span.caret.open::before {
   color: var(--muted);
   font-size: 12px;
   margin-top: 2px;
-  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
 }
 /* Per-ride tag pills, inline on the title row right after the name (before the
    predefined GPX/wind badges): compact, quiet, accent-tinted pills reusing the chip
@@ -1721,10 +2419,10 @@ span.caret.open::before {
 .rtag {
   font-family: var(--font);
   font-size: 11px;
-  line-height: 1.4;
-  padding: 1px 8px;
-  border-radius: 20px;
-  border: 1px solid var(--accent-dim);
+  line-height: 1.5;
+  padding: 1px 7px;
+  border-radius: 5px;
+  border: 0;
   background: var(--accent-tint);
   color: var(--text);
   white-space: nowrap;
@@ -1800,6 +2498,8 @@ span.caret.open::before {
   padding: var(--ctrl-pad-y-sm);
   aspect-ratio: 1;
 }
+/* The row menu is the same menu vocabulary as the app's ⋯ menu (.splitmenu):
+   borderless items on one surface, hover fill — not a stack of loose buttons. */
 .rbtns .ovr-items {
   display: none;
   position: absolute;
@@ -1807,9 +2507,9 @@ span.caret.open::before {
   right: 0;
   z-index: 30;
   flex-direction: column;
-  gap: 4px;
+  gap: 1px;
   min-width: 184px;
-  padding: 6px;
+  padding: 4px;
   background: var(--panel2);
   border: 1px solid var(--line);
   border-radius: 9px;
@@ -1822,6 +2522,16 @@ span.caret.open::before {
   width: 100%;
   justify-content: flex-start;
   text-align: left;
+  border-color: transparent;
+  background: transparent;
+  border-radius: 6px;
+}
+.rbtns .ovr-items > button:hover:not(:disabled) {
+  background: var(--surface-hover);
+  border-color: transparent;
+}
+.rbtns .ovr-items > button.danger:hover:not(:disabled) {
+  background: var(--err-bg);
 }
 
 /* Split button: a primary action fused with a caret that reveals a dropdown of related
@@ -1955,10 +2665,10 @@ span.caret.open::before {
   border-color: transparent;
 }
 .splitmenu button.danger {
-  color: #f8736a;
+  color: var(--err-text);
 }
 .splitmenu button.danger:hover:not(:disabled) {
-  background: #2a1413;
+  background: var(--err-bg);
 }
 /* Section caption inside the consolidated ⋯ menu ("Selected", "App data"): a small
    muted uppercase label that groups the rows beneath it without heavy divider lines. */
@@ -2102,7 +2812,7 @@ span.caret.open::before {
    whole tile pane (not per-tile) so it applies regardless of when individual
    tiles finish loading. */
 .rmap .leaflet-tile-pane {
-  filter: grayscale(85%) brightness(0.6) contrast(1.1);
+  filter: var(--tile-filter);
 }
 .gpxinfo {
   display: block;
@@ -2176,7 +2886,7 @@ span.caret.open::before {
 .wind-arrow-badge {
   width: 18px;
   height: 18px;
-  color: #7fd4ff;
+  color: var(--wind-text);
   flex: 0 0 auto;
 }
 /* Map arrows (Leaflet divIcon): the chosen wind-direction marker. ITERATION: finalist
@@ -2192,7 +2902,7 @@ span.caret.open::before {
   overflow: visible;
 }
 .wa-pick .wa-casing {
-  stroke: #0b1722;
+  stroke: var(--marker-ink);
   stroke-width: 4.6;
   opacity: 0.9;
 }
@@ -2226,40 +2936,17 @@ body.ridemap-open {
   display: flex;
   align-items: center;
   gap: 14px;
-  padding: 10px 14px;
+  padding: 9px 14px;
   background: var(--panel);
   border-bottom: 1px solid var(--line);
-  /* A floor only — the bar's true height is governed by its tallest child (the toolbar
-     control row), which scrub mode keeps occupying its full height (see below) so the
-     box never changes size between resting and scrubbing. */
-  min-height: 51px;
+  min-height: 48px;
 }
-/* "Scrub" / discovery mode: while you actively follow the track (desktop hover) or drag
-   the profile, the header strips down to just the live readout + the right-pinned wind
-   dial, giving the data the whole bar width. It's transient — restored the instant the
-   pointer leaves the route (desktop) or lifts (touch) — so you reach the full toolbar
-   again simply by stopping. The readout brightens from its muted resting state to take
-   centre stage. */
+/* "Scrub" mode: while you follow the track (desktop hover, or a finger on the
+   profile) the title steps aside so the live readout gets the bar; the toolbar
+   below is untouched — the controls never vanish under you. */
 .ridemap.scrubbing .ridemap-title,
-.ridemap.scrubbing .ridemap-est,
-.ridemap.scrubbing #btnRideMapClose {
+.ridemap.scrubbing .ridemap-est {
   display: none;
-}
-/* The toolbar is the bar's TALLEST child, so it — not the shorter readout — must keep
-   defining the bar height while scrubbing; removing it from layout (display:none) let
-   the bar collapse by a few px every time you started hovering the track (a visible,
-   jerky jump, made worse by the resize re-triggering the icon-fold). Instead collapse
-   it to zero width and hide it: it still occupies its full height (so the bar box is
-   byte-for-byte identical resting vs scrubbing — no jump, no fold churn), while the
-   freed width lets the live readout take centre stage. */
-.ridemap.scrubbing .ridemap-tools {
-  visibility: hidden;
-  flex: 0 0 0;
-  width: 0;
-  min-width: 0;
-  padding: 0;
-  margin: 0;
-  overflow: hidden;
 }
 .ridemap.scrubbing .ridemap-hover {
   color: var(--text);
@@ -2322,8 +3009,8 @@ body.ridemap-open {
   overflow: visible;
 }
 .rmh-dial .rd-ring {
-  fill: rgba(11, 23, 34, 0.45);
-  stroke: rgba(255, 255, 255, 0.22);
+  fill: var(--panel2);
+  stroke: var(--line-strong);
   stroke-width: 1;
 }
 .rmh-dial .rd-fwd {
@@ -2373,9 +3060,21 @@ body.ridemap-open {
 .ridemap-est.hidden {
   display: none;
 }
+/* The map pane: the Leaflet canvas plus the weather readout pinned to its corner. */
+.ridemap-map {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+}
 .ridemap-canvas {
   flex: 1 1 auto;
   min-height: 0;
+  min-width: 0;
+}
+/* The weather readout: above the effects canvas (650) and the Leaflet panes. */
+.ridemap-weather {
+  z-index: 700;
 }
 .ridemap-canvas .leaflet-container {
   height: 100%;
@@ -2384,21 +3083,19 @@ body.ridemap-open {
 }
 /* Same dark, desaturated basemap treatment as the other maps so the orange track pops. */
 .ridemap-canvas .leaflet-tile-pane {
-  filter: grayscale(85%) brightness(0.6) contrast(1.1);
+  filter: var(--tile-filter);
 }
-/* Cluster of full-track controls (status / fetch / recolour / hide profile). The
-   bar's overflow valve: it may shrink below its content and scroll horizontally as a
-   LAST resort (after the JS has already folded every control to icon-only), so the
-   pinned Close button and the title are never pushed off the bar on a phone-narrow
-   viewport. `min-width: 0` lets a flex item shrink past its content; the hidden
-   scrollbar keeps the measurement (scrollWidth vs clientWidth, used by
-   syncRideMapBarCompact) honest and the strip clean. */
+/* The toolbar: its own row under the title, as labelled groups ("Colour route by",
+   "Weather", "Graph", "Track") so every control says what it does. It scrolls
+   sideways as a last resort once the JS has folded the controls to icons. */
 .ridemap-tools {
-  flex: 0 1 auto;
-  min-width: 0;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: flex-end;
+  gap: 8px 22px;
+  padding: 7px 14px 9px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
   scrollbar-width: none;
@@ -2409,14 +3106,74 @@ body.ridemap-open {
 .ridemap-tools .hidden {
   display: none;
 }
-/* The controls must NOT shrink: a shrinking button (or seg, which clips via its own
-   overflow:hidden) would squeeze its label to fit, so the cluster never reports
-   overflow and syncRideMapBarCompact's scrollWidth>clientWidth fold never fires —
-   you'd get clipped half-labels ("Elev", "Dist") instead of icons. Keeping them at
-   natural width makes the cluster honestly overflow → fold to icons first, then
-   scroll. Only the status text may shrink (it ellipsises). */
-.ridemap-tools > .rmb,
-.ridemap-tools > .seg {
+.rmt-group {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 5px;
+}
+.rmt-group > b {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+/* The group's controls sit in one row (the caption is the first child). */
+.rmt-group > b ~ * {
+  display: inline-flex;
+}
+.rmt-group > b ~ .hidden {
+  display: none;
+}
+.rmt-group {
+  flex-wrap: wrap;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+}
+.rmt-group > b {
+  flex: 1 0 100%;
+}
+/* A toggle carries its own on/off mark — a small box that fills with a tick when
+   pressed — so "Profile" or "Rain & wind" never needs a verb that flips. */
+.rmb-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+.rmb-toggle::before {
+  content: "";
+  flex: 0 0 auto;
+  width: 15px;
+  height: 15px;
+  box-sizing: border-box;
+  border: 1.6px solid currentColor;
+  border-radius: 4px;
+  opacity: 0.75;
+}
+.rmb-toggle[aria-pressed="true"]::before {
+  opacity: 1;
+  border-color: #fff;
+  background:
+    #fff
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='m5 12.5 4.2 4.2L19 7' fill='none' stroke='%23fc5200' stroke-width='3.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")
+    center / 12px no-repeat;
+}
+/* Standalone toolbar buttons match the segmented controls' height, so a row of
+   mixed controls sits on one line. */
+.rmt-group > .rmb {
+  min-height: 32px;
+  padding-top: 5px;
+  padding-bottom: 5px;
+}
+/* Controls keep their natural width: a shrinking button would squeeze its label and
+   the overflow test (scrollWidth > clientWidth) that folds the row to icons would
+   never fire. Only the status text may shrink (it ellipsises). */
+.ridemap-tools .rmb,
+.ridemap-tools .seg {
   flex: 0 0 auto;
 }
 /* Close always stays put — it's anchored after the (scrollable) tools cluster and may
@@ -2429,7 +3186,8 @@ body.ridemap-open {
    JS adds `.compact` and we flip to icon-only (meaning kept in title/aria-label),
    reclaiming width without dropping any control — same icon-only vocabulary as the
    floating map buttons. */
-.ridemap-bar .rmb-ico {
+.ridemap-bar .rmb-ico,
+.ridemap-tools .rmb-ico {
   display: none;
   width: 16px;
   height: 16px;
@@ -2442,39 +3200,65 @@ body.ridemap-open {
 /* A standalone bar toggle (Wind, Hide stops) signals its ON state with the same accent
    fill the segmented controls (`.seg button.active`) use, so an active toggle reads the
    same everywhere in the bar. The icon stroke is `currentColor`, so it whitens too. */
-.ridemap-tools > .rmb.active {
+.ridemap-tools .rmb.active {
   background: var(--accent);
   border-color: var(--accent);
   color: #fff;
 }
-.ridemap-tools > .rmb.active:hover:not(:disabled) {
+.ridemap-tools .seg-thumb {
+  background: var(--accent);
+}
+.ridemap-tools .rmb.active:hover:not(:disabled) {
   background: var(--accent);
   border-color: var(--accent);
   filter: brightness(1.08);
 }
-.ridemap-bar.compact .rmb .lbl {
+.ridemap-tools.compact .rmb .lbl,
+.ridemap-tools.compact .rmt-group > b {
   display: none;
 }
-.ridemap-bar.compact .rmb-ico {
+/* The toolbar's actions and segment pillars show icon + label, like the rest of the
+   app; a toggle's box is its mark, so it shows its icon only once folded. */
+.ridemap-tools .rmb-ico {
   display: block;
+}
+.ridemap-tools .rmb {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.ridemap-tools .rmb-toggle .rmb-ico {
+  display: none;
+}
+.ridemap-tools.compact .rmb-toggle .rmb-ico {
+  display: block;
+}
+.ridemap-tools.compact .rmb-toggle {
+  gap: 5px;
 }
 /* In compact mode the labelled push-buttons and seg buttons become square icon
    tiles so the row reads as a tidy strip of icons. */
-.ridemap-bar.compact .rmb {
-  display: inline-grid;
-  place-items: center;
+.ridemap-tools.compact .rmb {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   padding: 6px;
   min-width: 30px;
 }
-.ridemap-bar.compact .seg button.rmb {
+.ridemap-tools.compact .seg button.rmb {
   padding: 6px 9px;
 }
 /* A hidden control stays hidden in compact mode too: the `.compact .rmb` rule above
    outranks the plain `.hidden` utility, so re-assert the hide with higher specificity.
    Without this, a button the JS hid (e.g. Fetch full track / Resolve wind once both
    the track and wind are already loaded) would wrongly reappear as an icon. */
-.ridemap-bar.compact .rmb.hidden {
+.ridemap-tools.compact .rmb.hidden {
   display: none;
+}
+/* Close is in the title bar: always a labelled button, never folded. */
+.ridemap-close {
+  flex: 0 0 auto;
+  margin-left: auto;
 }
 .ridemap-color button {
   cursor: pointer;
@@ -2494,16 +3278,25 @@ body.ridemap-open {
   display: none;
 }
 .ridemap-status.busy::before {
-  /* tiny spinner reusing the app's accent so "working" reads at a glance */
+  /* tiny arc spinner in the app's accent so "working" reads at a glance */
   content: "";
   display: inline-block;
   width: 11px;
   height: 11px;
   margin-right: 6px;
   vertical-align: -1px;
-  border: 2px solid var(--line);
-  border-top-color: var(--accent);
   border-radius: 50%;
+  background: conic-gradient(from 0deg, transparent 0 55%, var(--accent) 100%);
+  -webkit-mask: radial-gradient(
+    farthest-side,
+    transparent calc(100% - 1.4px),
+    #000 calc(100% - 1.4px)
+  );
+  mask: radial-gradient(
+    farthest-side,
+    transparent calc(100% - 1.4px),
+    #000 calc(100% - 1.4px)
+  );
   animation: spin 0.7s linear infinite;
 }
 /* The elevation profile drawn below the map from the full recorded track. Fixed
@@ -2557,12 +3350,43 @@ body.ridemap-open {
   color: var(--muted);
   font-weight: 500;
 }
+.ridemap-profile {
+  position: relative;
+}
 .ridemap-profile svg {
   width: 100%;
   height: 100%;
   display: block;
   overflow: visible;
   cursor: crosshair;
+}
+/* The graph stretches to the strip (preserveAspectRatio: none); strokes keep their
+   width and the axis labels live outside the SVG so neither is distorted. */
+.ridemap-profile .rp-line,
+.ridemap-profile .rp-cursor,
+.ridemap-profile .rp-cut,
+.ridemap-profile .rp-stop-top {
+  vector-effect: non-scaling-stroke;
+}
+.ridemap-profile .rp-lbl {
+  position: absolute;
+  color: var(--muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  pointer-events: none;
+}
+.ridemap-profile .rp-lbl-hi {
+  top: 7px;
+  left: 14px;
+}
+.ridemap-profile .rp-lbl-lo {
+  bottom: 9px;
+  left: 14px;
+}
+.ridemap-profile .rp-lbl-ext {
+  bottom: 9px;
+  right: 14px;
 }
 .ridemap-profile .rp-area {
   fill: rgba(252, 82, 0, 0.16);
@@ -2598,7 +3422,7 @@ body.ridemap-open {
   font-variant-numeric: tabular-nums;
 }
 .ridemap-profile .rp-cursor {
-  stroke: #fff;
+  stroke: var(--text);
   stroke-width: 1;
   opacity: 0.7;
 }
@@ -2622,50 +3446,6 @@ body.ridemap-open {
   color: var(--text);
 }
 
-/* -- view tabs (Explore / Map / Stats) ------------------------------------ */
-/* A real tab bar, not a row of loose buttons: the tabs sit on one shared
-   underline rail and the active view is marked by an accent underline that
-   merges into that rail. This reads unmistakably as "switch between sections"
-   and stays visually distinct from the small segmented `.seg` toggles used
-   inside the toolbars. */
-.viewtabs {
-  display: flex;
-  align-items: flex-end;
-  gap: 2px;
-  margin: 4px 0 16px;
-  border-bottom: 1px solid var(--line);
-  /* Scroll horizontally instead of wrapping/crushing when the tabs overflow a
-     narrow (mobile) viewport. Momentum scroll on touch; the scrollbar is hidden
-     so it reads as a clean tab strip. */
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
-  scrollbar-width: none;
-}
-.viewtabs::-webkit-scrollbar {
-  display: none;
-}
-.vtab {
-  flex: 0 0 auto;
-  white-space: nowrap;
-  background: transparent;
-  border: 0;
-  border-bottom: 2px solid transparent;
-  /* pull the 2px underline down so it sits on top of the container's rail */
-  margin-bottom: -1px;
-  color: var(--muted);
-  border-radius: 8px 8px 0 0;
-  padding: 9px 18px;
-  font-size: 13.5px;
-  font-weight: 600;
-}
-.vtab:hover:not(.active) {
-  color: var(--text);
-  background: #181c23;
-}
-.vtab.active {
-  color: var(--accent);
-  border-bottom-color: var(--accent);
-}
 #mapView.hidden,
 #exploreView.hidden,
 #statsView.hidden,
@@ -2678,9 +3458,94 @@ body.ridemap-open {
 
 /* -- live forecast comparison -------------------------------------------- */
 .fc-top {
-  --fc-map-height: clamp(400px, 48vh, 540px);
+  --fc-map-height: clamp(220px, 34vh, 380px);
+  position: relative;
   min-height: var(--fc-map-height);
   margin-bottom: 12px;
+}
+.fc-map-hide {
+  top: 90px;
+}
+.fc-map-hide .mi {
+  width: 17px;
+  height: 17px;
+  pointer-events: none;
+}
+/* Map collapsed: a one-line location strip; the charts take the room. */
+.fc-strip {
+  display: none;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  min-height: 46px;
+}
+.fc-top.collapsed {
+  min-height: 0;
+}
+.fc-top.collapsed .fc-map-wrap {
+  display: none;
+}
+.fc-top.collapsed .fc-strip {
+  display: flex;
+}
+.fc-top.collapsed .fc-controls {
+  top: calc(100% + 6px);
+  right: 0;
+  max-height: min(70vh, 520px);
+}
+.fc-strip-pin {
+  width: 18px;
+  height: 18px;
+  color: var(--accent);
+  flex: 0 0 auto;
+}
+.fc-strip-label {
+  font-size: 14px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.fc-strip-wind {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin-left: 6px;
+  font-size: 13px;
+  color: var(--muted);
+  white-space: nowrap;
+  min-height: 24px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.fc-strip-wind:empty {
+  flex: 1 1 auto;
+}
+/* Hover-synced weather on the map: the wind arrow marker + the effects canvas. */
+.fc-fx {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 650; /* over tiles + markers, under Leaflet's controls (1000) */
+}
+:root {
+  --fx-streak: 255, 255, 255;
+  --fx-rain: 150, 195, 255;
+  --fx-drop-fill: 190, 215, 255; /* raindrop-on-glass body tint + wet trail */
+  --fx-drop-edge: 8, 14, 26; /* …its soft dark edge */
+  --fx-drop-glint: 255, 255, 255; /* …its refracted crescent + specular glint */
+}
+:root[data-theme="light"] {
+  --fx-streak: 80, 95, 125; /* wind streaks: a mid grey-blue, not black slashes */
+  --fx-rain: 40, 110, 220;
+  --fx-drop-fill: 80, 130, 200;
+  --fx-drop-edge: 40, 60, 95;
+  --fx-drop-glint: 255, 255, 255;
 }
 .fc-map-wrap {
   position: relative;
@@ -2756,7 +3621,7 @@ body.ridemap-open {
   background: var(--map-bg);
 }
 #forecastMap .leaflet-tile-pane {
-  filter: grayscale(85%) brightness(0.6) contrast(1.1);
+  filter: var(--tile-filter);
 }
 .map-location-marker {
   border: 0;
@@ -2777,12 +3642,12 @@ body.ridemap-open {
 }
 .map-location-dot-core {
   fill: var(--accent);
-  stroke: #101319;
+  stroke: var(--marker-ink);
   stroke-width: 1.75;
 }
 .map-location-dot-crosshair {
   fill: none;
-  stroke: #101319;
+  stroke: var(--marker-ink);
   stroke-width: 2;
   stroke-linecap: round;
 }
@@ -3043,12 +3908,18 @@ body.ridemap-open {
 }
 .fc-pin {
   flex: 0 0 auto;
-  padding: 3px 8px;
+  padding: 6px;
   color: var(--muted);
-  font-size: 19px;
+}
+.fc-pin > .bi {
+  width: 18px;
+  height: 18px;
 }
 .fc-pin.active {
-  color: #ffd166;
+  color: var(--star);
+}
+.fc-pin.active > .bi {
+  fill: currentColor;
 }
 .fc-options {
   margin-bottom: 16px;
@@ -3057,7 +3928,15 @@ body.ridemap-open {
 .fc-option-row {
   display: flex;
   align-items: flex-end;
-  gap: 24px;
+  gap: 12px 18px;
+  container-type: inline-size;
+}
+/* Below ~800px the "Updated …" text folds into the refresh button's title so the
+   action cluster stays on the first line instead of wrapping under empty space. */
+@container (max-width: 800px) {
+  .fc-fetched-at {
+    display: none;
+  }
 }
 .fc-option-actions {
   display: flex;
@@ -3066,6 +3945,7 @@ body.ridemap-open {
   margin-left: auto;
 }
 .fc-fetched-at {
+  margin-right: 6px; /* text leads the cluster; the buttons sit together after it */
   color: var(--muted);
   font-size: 11px;
   font-variant-numeric: tabular-nums;
@@ -3135,6 +4015,7 @@ body.ridemap-open {
 .fc-settings-card #forecastModelsList {
   max-height: min(380px, 40dvh);
 }
+/* Displayed data: a two-column list of plain checkboxes (switches, not filter chips). */
 .fc-metric-list {
   min-width: 0;
   margin: 0;
@@ -3150,46 +4031,35 @@ body.ridemap-open {
   letter-spacing: 0.05em;
   text-transform: uppercase;
 }
+.fc-metric-list .fc-metric-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px 14px;
+}
 .fc-metric-list label {
-  position: relative;
-  display: inline-flex;
-  margin: 0 4px 6px 0;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  margin: 0;
+  padding: 3px 0;
   cursor: pointer;
+  color: var(--text);
+  font-size: 13px;
 }
 .fc-metric-list input {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  opacity: 0;
-  pointer-events: none;
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--accent);
 }
 .fc-metric-list label span {
-  padding: 6px 8px;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  background: var(--bg);
-  color: var(--muted);
-  font-size: 11px;
-  font-weight: 600;
-  line-height: 1;
-  transition:
-    border-color 0.15s ease,
-    background 0.15s ease,
-    color 0.15s ease;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.fc-metric-list label:hover span {
-  border-color: var(--muted);
-  color: var(--text);
-}
-.fc-metric-list label:has(input:checked) span {
-  border-color: color-mix(in srgb, var(--accent) 70%, var(--line));
-  background: color-mix(in srgb, var(--accent) 16%, var(--bg));
-  color: var(--text);
-}
-.fc-metric-list label:has(input:focus-visible) span {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-}
+
 .fc-models {
   margin-top: 8px;
   padding-top: 10px;
@@ -3324,7 +4194,7 @@ body.ridemap-open {
 }
 .fc-model-group small {
   color: var(--muted);
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 500;
   letter-spacing: 0;
   text-transform: none;
@@ -3368,29 +4238,30 @@ body.ridemap-open {
 .fc-model-opt small {
   display: block;
   color: var(--muted);
-  font-size: 9px;
+  font-size: 11px;
 }
 .fc-comparison {
   min-width: 0;
 }
+/* Guidance / live readout: a quiet line, not a boxed panel — it is a hint. */
 .fc-readout {
+  flex: 0 0 auto; /* never shrunk by a height-bound column (overflow:hidden would let it) */
   display: flex;
   align-items: baseline;
-  flex-wrap: wrap;
+  flex-wrap: nowrap; /* one line, always the same height: a hover must never move the chart */
   gap: 7px 14px;
-  min-height: 36px;
-  margin-bottom: 8px;
-  padding: 8px 10px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--panel);
+  height: 24px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  margin: 0 0 8px;
+  padding: 0 2px;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
 }
 .fc-readout > b {
   color: var(--text);
 }
-.fc-comparison:has(.fc-charts.compare-mode) .fc-readout,
 .fc-a11y-values {
   position: absolute;
   width: 1px;
@@ -3401,18 +4272,28 @@ body.ridemap-open {
   white-space: nowrap;
   border: 0;
 }
+/* Metric legend: readable type, swatches that mirror each line's style on the
+   chart (solid / dashed / arrow / bar / wash) in the exact data colour. */
 .fc-legend {
   display: flex;
-  gap: 12px;
+  gap: 6px 18px;
   flex-wrap: wrap;
-  padding: 8px 2px;
+  align-items: center;
+  padding: 8px 2px 4px;
   color: var(--muted);
-  font-size: 10px;
+  font-size: 12.5px;
+}
+.fc-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  white-space: nowrap;
 }
 .fc-legend.table-hidden {
   display: none;
 }
 .fc-table-controls {
+  flex: 0 0 auto; /* a column-flex child with overflow would shrink under the tall table */
   display: flex;
   align-items: center;
   gap: 8px;
@@ -3450,53 +4331,34 @@ body.ridemap-open {
 }
 .fc-model-legend {
   display: flex;
-  gap: 5px 14px;
+  gap: 6px 12px;
   align-items: center;
-  min-height: 29px;
-  padding: 5px 2px;
+  min-height: 36px;
+  padding: 4px 2px 8px;
   overflow-x: auto;
   color: var(--muted);
-  font-size: 9px;
+  font-size: 12.5px;
   scrollbar-width: thin;
   white-space: nowrap;
 }
 .fc-model-legend.hidden {
   display: none;
 }
+/* The Consensus / All lines switch is a plain .seg; it only adds stickiness so it
+   stays put while the model chips scroll sideways on a phone. */
 .fc-compare-style {
   position: sticky;
   z-index: 2;
   left: 0;
-  display: inline-flex;
   flex: 0 0 auto;
-  padding: 2px;
-  border: 1px solid var(--line);
-  border-radius: 7px;
   background: var(--panel);
-}
-.fc-compare-style button {
-  padding: 3px 7px;
-  border: 0;
-  border-radius: 5px;
-  background: transparent;
-  color: var(--muted);
-  font: inherit;
-}
-.fc-compare-style button:hover,
-.fc-compare-style button:focus-visible {
-  color: var(--text);
-}
-.fc-compare-style button.active {
-  background: var(--surface-hover);
-  color: var(--text);
-  box-shadow: inset 0 0 0 1px var(--line-strong);
 }
 .fc-track-toggle {
   display: inline-flex;
-  gap: 5px;
+  gap: 7px;
   align-items: center;
   flex: 0 0 auto;
-  padding: 4px 6px;
+  padding: 5px 8px;
   border: 1px solid transparent;
   border-radius: 6px;
   background: transparent;
@@ -3522,12 +4384,129 @@ body.ridemap-open {
   text-decoration-thickness: 1px;
 }
 .fc-track-toggle i {
-  width: 9px;
-  height: 9px;
+  width: 10px;
+  height: 10px;
   flex: 0 0 auto;
   border: 2px solid var(--model-color);
   border-radius: 50%;
   background: color-mix(in srgb, var(--model-color) 25%, transparent);
+}
+/* The hovered hour's figures beside each model. The slot is always laid out (empty =
+   invisible) so the legend never reflows when figures appear; each item is a fixed
+   three-column grid — dot · name · figures — so the figures line up as a table. */
+/* The legend is a grid of equal cells (as many per row as fit): a cell's width comes
+   from the grid, never from its content, so the figures appearing on hover trim the
+   model's name inside the cell instead of re-flowing the rows — the chart below
+   never moves. At rest the names fill their cells; no space is held empty. */
+.fc-model-legend {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
+  gap: 2px 10px;
+  align-items: center;
+}
+.fc-model-legend .fc-track-toggle {
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr) auto;
+  align-items: center;
+  min-width: 0;
+  text-align: left;
+}
+.fc-model-legend .fc-track-toggle > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fc-track-val {
+  margin-left: 2px;
+  padding-left: 7px;
+  border-left: 1px solid var(--line);
+  color: var(--text);
+  font-style: normal;
+  font-variant-numeric: tabular-nums;
+  font-weight: 650;
+  text-align: right;
+  white-space: nowrap;
+}
+.fc-track-val:empty {
+  visibility: hidden;
+}
+.fc-track-toggle:not(.active) .fc-track-val {
+  visibility: hidden;
+}
+.fc-model-legend .fc-compare-style {
+  justify-self: start;
+}
+.fc-model-legend .fc-tracks-reset {
+  justify-self: start;
+}
+/* The model list is a wrapper only (it is rebuilt without touching the seg); its
+   items lay out as the legend's own flex children. */
+.fc-model-list {
+  display: contents;
+}
+.fc-models-peek {
+  display: none;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  font-size: 12.5px;
+}
+.fc-peek-dots {
+  display: inline-flex;
+}
+.fc-peek-dots > i {
+  width: 10px;
+  height: 10px;
+  margin-left: -3px;
+  border-radius: 50%;
+  border: 1.5px solid var(--panel);
+  background: var(--model-color);
+}
+.fc-peek-dots > i:first-child {
+  margin-left: 0;
+}
+.fc-peek-dots > i.off {
+  opacity: 0.3;
+}
+.fc-peek-caret {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition: transform 0.15s ease;
+}
+.fc-model-legend.open .fc-peek-caret {
+  transform: rotate(180deg);
+}
+.fc-readout .fc-ro-lane {
+  color: var(--text);
+  font-weight: 650;
+}
+.fc-readout .fc-ro-col {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  font-variant-numeric: tabular-nums;
+}
+.fc-readout .fc-ro-col small {
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.fc-readout .fc-ro-col b {
+  color: var(--text);
+}
+.fc-readout .fc-ro-hint {
+  color: var(--muted);
+  font-size: 11.5px;
 }
 .fc-tracks-reset {
   flex: 0 0 auto;
@@ -3545,22 +4524,24 @@ body.ridemap-open {
 .fc-legend span::before {
   content: "";
   display: inline-block;
-  width: 16px;
+  width: 22px;
   height: 3px;
-  margin-right: 4px;
-  vertical-align: middle;
+  border-radius: 2px;
   background: var(--accent);
 }
 .fc-legend .fc-gust::before {
-  background: #f5a45d;
+  background: repeating-linear-gradient(90deg, #f5a45d 0 5px, transparent 5px 8px);
 }
 .fc-legend .fc-direction::before {
   height: 12px;
-  background: #b8c9d9;
+  background: var(--fc-direction);
   clip-path: polygon(0 42%, 59% 42%, 59% 15%, 100% 50%, 59% 85%, 59% 58%, 0 58%);
 }
 .fc-legend .fc-rain::before {
-  background: #42a5f5;
+  height: 10px;
+  width: 14px;
+  background: repeating-linear-gradient(90deg, #42a5f5 0 4px, transparent 4px 5px);
+  opacity: 0.85;
 }
 .fc-legend .fc-temp::before {
   background: #ef6c6c;
@@ -3569,12 +4550,14 @@ body.ridemap-open {
   background: #72b7d2;
 }
 .fc-legend .fc-cloud::before {
-  height: 9px;
-  background: rgba(155, 176, 196, 0.24);
+  height: 10px;
+  width: 18px;
+  border-radius: 2px;
+  background: rgba(155, 176, 196, 0.3);
 }
 .fc-charts {
   max-width: 100%;
-  max-height: calc(100vh - 170px);
+  max-height: calc(100vh - var(--chrome-h) - 74px);
   overflow: auto;
   border: 1px solid var(--line);
   border-radius: var(--radius);
@@ -3582,6 +4565,182 @@ body.ridemap-open {
 }
 .fc-charts:focus {
   outline: none;
+}
+/* -- Table mode: the timetable (hours down, models across) ------------------------ */
+.fc-tt {
+  display: grid;
+  grid-template-columns: max-content repeat(var(--cols, 1), minmax(80px, 1fr));
+  width: 100%;
+  font-variant-numeric: tabular-nums;
+}
+.fc-tt-head,
+.fc-tt-row {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
+}
+.fc-tt-head {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line-strong);
+}
+.fc-tt-corner,
+.fc-tt-time {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  background: var(--panel);
+  border-right: 1px solid var(--line);
+}
+.fc-tt-corner {
+  z-index: 6;
+  display: flex;
+  align-items: flex-end;
+  padding: 8px 10px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.fc-tt-col {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  padding: 8px 10px 7px;
+  border-right: 1px solid var(--line);
+  /* The model's colour from the charts, as a short rule — the same key everywhere. */
+  box-shadow: inset 0 3px 0 var(--mc, transparent);
+}
+.fc-tt-col > b,
+.fc-tt-col > span,
+.fc-tt-col > small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fc-tt-col > b {
+  font-size: 12px;
+}
+.fc-tt-col > span {
+  color: var(--text);
+  font-size: 11.5px;
+}
+.fc-tt-col > small {
+  color: var(--muted);
+  font-size: 10.5px;
+}
+.fc-tt-col.cons {
+  background: var(--surface-soft);
+  box-shadow: inset 0 3px 0 var(--text);
+}
+.fc-tt-info.fc-model-reveal .mi {
+  right: 4px;
+  bottom: 4px;
+}
+.fc-tt-day {
+  position: sticky;
+  top: var(--tt-head, 58px); /* measured from the header after each render */
+  z-index: 4;
+  grid-column: 1 / -1;
+  padding: 7px 10px 5px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 650;
+}
+.fc-tt-row {
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 55%, transparent);
+  cursor: pointer;
+}
+.fc-tt-row:hover .fc-tt-cell,
+.fc-tt-row:hover .fc-tt-time {
+  filter: brightness(1.12);
+}
+.fc-tt-row.past {
+  opacity: 0.55;
+}
+.fc-tt-row.selected .fc-tt-time {
+  color: var(--accent);
+}
+.fc-tt-row.selected {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 60%, transparent);
+}
+.fc-tt-time {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  padding: 0 10px;
+  color: var(--muted);
+  font-size: 11.5px;
+}
+/* The current hour: an accent bar on the time cell and a small "now" tag. */
+.fc-tt-row.current .fc-tt-time {
+  color: var(--text);
+  font-weight: 650;
+  box-shadow: inset 3px 0 0 var(--fc-now);
+}
+.fc-tt-row.current .fc-tt-time::before {
+  content: "now";
+  margin-right: auto;
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: var(--fc-now);
+  color: #fff;
+  font-size: 9.5px;
+  font-weight: 650;
+  line-height: 1.3;
+}
+.fc-tt-cell {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 5px;
+  min-height: 30px;
+  padding: 0 10px;
+  border-right: 1px solid color-mix(in srgb, var(--line) 55%, transparent);
+  background: rgba(var(--heat, 0, 0, 0), var(--h, 0));
+  color: var(--text);
+  font-size: 12.5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.fc-tt-cell.cons {
+  background:
+    linear-gradient(
+      rgba(var(--heat, 0, 0, 0), var(--h, 0)),
+      rgba(var(--heat, 0, 0, 0), var(--h, 0))
+    ),
+    var(--surface-soft);
+  font-weight: 700;
+}
+.fc-tt-cell.quiet {
+  color: var(--muted);
+  font-weight: 500;
+}
+.fc-tt-cell.empty {
+  color: color-mix(in srgb, var(--muted) 50%, transparent);
+  font-weight: 400;
+}
+/* The wind arrow: one mask, tinted by the text colour, rotated per cell. */
+.fc-tt-arrow {
+  flex: 0 0 auto;
+  width: 11px;
+  height: 11px;
+  background: currentColor;
+  opacity: 0.8;
+  -webkit-mask:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 21V3M5 10l7-7 7 7' fill='none' stroke='%23000' stroke-width='3.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")
+    center / contain no-repeat;
+  mask:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 21V3M5 10l7-7 7 7' fill='none' stroke='%23000' stroke-width='3.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")
+    center / contain no-repeat;
 }
 .fc-charts:focus-visible {
   border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
@@ -3824,7 +4983,7 @@ button.fc-model-reveal[aria-pressed="true"] {
 }
 .fc-detail-models thead th {
   color: var(--muted);
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 600;
   text-transform: uppercase;
 }
@@ -3854,203 +5013,6 @@ button.fc-model-reveal[aria-pressed="true"] {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-.fc-hourly-grid {
-  display: grid;
-  align-items: stretch;
-  background: var(--bg);
-}
-.fc-hourly-heading-row {
-  position: sticky;
-  z-index: 4;
-  top: 0;
-  display: grid;
-  grid-template-columns: 180px max-content;
-  min-width: max-content;
-  border-bottom: 1px solid var(--line);
-  background: var(--panel);
-}
-.fc-hourly-corner {
-  position: sticky;
-  z-index: 5;
-  left: 0;
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  width: 180px;
-  padding: 0 12px;
-  border-right: 1px solid var(--line);
-  background: var(--panel);
-  color: var(--muted);
-  text-align: right;
-  font-size: 9px;
-  font-weight: 650;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-.fc-hourly-headings {
-  background: var(--panel);
-}
-.fc-hour-heading {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 4px;
-  min-height: 28px;
-  padding: 5px 7px;
-  border-right: 1px solid var(--line);
-  color: var(--muted);
-  font-size: 9px;
-  cursor: crosshair;
-}
-.fc-hour-heading b {
-  margin-right: auto;
-  color: var(--text);
-  font-size: 9px;
-}
-.fc-hour-heading.current {
-  background: color-mix(in srgb, var(--accent) 5%, transparent);
-}
-.fc-hour-heading.selected {
-  background: var(--accent-tint);
-}
-.fc-hour-cell {
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  gap: 2px;
-  min-height: 43px;
-  padding: 6px 7px;
-  overflow: hidden;
-  border-right: 1px solid var(--line);
-  color: var(--muted);
-  font-size: 9px;
-  line-height: 1.25;
-  text-align: right;
-  cursor: crosshair;
-}
-.fc-hour-cell span {
-  display: block;
-  white-space: nowrap;
-}
-.fc-hour-cell .fc-hour-primary {
-  color: var(--text);
-  font-size: 12px;
-  font-weight: 650;
-}
-.fc-hour-cell .fc-hour-secondary {
-  color: var(--muted);
-  font-size: 9px;
-}
-.fc-hour-cell .wind {
-  color: var(--accent);
-}
-.fc-hour-cell .gust {
-  color: #f5a45d;
-}
-.fc-hour-cell .rain {
-  color: #42a5f5;
-}
-.fc-hour-cell .temp {
-  color: #ef6c6c;
-}
-.fc-hour-cell .pressure {
-  color: #72b7d2;
-}
-.fc-hour-cell .cloud {
-  color: var(--text);
-}
-.fc-hour-cell .direction {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 3px;
-}
-.fc-hour-cell .direction i {
-  display: inline-block;
-  color: var(--text);
-  font-style: normal;
-  transform: rotate(var(--direction));
-}
-.fc-hour-cell.empty {
-  background: color-mix(in srgb, var(--panel) 65%, transparent);
-}
-.fc-hour-cell.current {
-  background: color-mix(in srgb, var(--accent) 5%, transparent);
-}
-.fc-hour-cell.selected {
-  background: var(--accent-tint);
-}
-.fc-hour-heading.current,
-.fc-hour-cell.current {
-  position: relative;
-  overflow: hidden;
-}
-.fc-hour-heading.current::after,
-.fc-hour-cell.current::after {
-  position: absolute;
-  z-index: 1;
-  top: 0;
-  bottom: 0;
-  left: calc(var(--fc-now-progress, 0) * 100%);
-  width: 0;
-  border-left: 1px dashed color-mix(in srgb, var(--accent) 80%, transparent);
-  pointer-events: none;
-  content: "";
-  animation: fc-now-progress var(--fc-now-duration, 3600000ms) linear forwards;
-}
-@keyframes fc-now-progress {
-  to {
-    left: 100%;
-  }
-}
-.fc-charts.textual-mode .fc-model-row > header {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  align-content: center;
-  gap: 3px 8px;
-  height: 52px;
-  padding: 7px 10px;
-  overflow: hidden;
-}
-.fc-charts.textual-mode .fc-model-row {
-  height: 52px;
-  min-height: 52px;
-}
-.fc-charts.textual-mode .fc-model-row .fc-hourly-grid {
-  height: 100%;
-}
-.fc-charts.textual-mode .fc-model-row > header b {
-  grid-column: 1;
-  grid-row: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.fc-charts.textual-mode .fc-model-row > header > span:not(.fc-model-compact) {
-  grid-column: 1 / -1;
-  grid-row: 2;
-  min-width: 0;
-  margin-top: 0;
-  padding-right: 14px;
-  overflow: hidden;
-  line-height: 1.2;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.fc-charts.textual-mode .fc-model-row > header small {
-  grid-column: 2;
-  grid-row: 1;
-  margin-top: 0;
-  overflow: hidden;
-  text-align: right;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.fc-hour-empty {
-  margin-top: auto;
-  margin-bottom: auto;
-  text-align: center;
 }
 
 @media (max-width: 760px) {
@@ -4142,29 +5104,16 @@ button.fc-model-reveal[aria-pressed="true"] {
   .fc-model-row {
     grid-template-columns: 125px max-content;
   }
-  .fc-hourly-heading-row {
-    grid-template-columns: 125px max-content;
-  }
-  .fc-hourly-corner {
-    width: 125px;
-    padding: 0 8px;
-  }
+
   .fc-model-row > header {
     width: 125px;
     padding: 8px;
   }
-  /* Per-model graphs use a narrow, rotated model header on mobile. */
-  .fc-charts:not(.compare-mode) .fc-model-row,
-  .fc-charts.textual-mode .fc-hourly-heading-row {
-    grid-template-columns: 56px max-content;
-  }
+
   .fc-charts:not(.compare-mode) .fc-model-row {
     min-height: 88px;
   }
-  .fc-charts:not(.compare-mode) .fc-model-row > header,
-  .fc-charts.textual-mode .fc-hourly-corner {
-    width: 56px;
-  }
+
   .fc-charts:not(.compare-mode) .fc-model-row > header {
     min-height: 0;
     padding: 0;
@@ -4191,7 +5140,7 @@ button.fc-model-reveal[aria-pressed="true"] {
     overflow: hidden;
     overflow-wrap: anywhere;
     color: var(--text);
-    font-size: 9px;
+    font-size: 11px;
     font-weight: 650;
     line-height: 1.05;
     text-align: center;
@@ -4205,49 +5154,7 @@ button.fc-model-reveal[aria-pressed="true"] {
     font-size: inherit;
     font-weight: 700;
   }
-  #forecastCharts.textual-mode .fc-model-row,
-  #forecastCharts.textual-mode .fc-hourly-heading-row {
-    grid-template-columns: 104px max-content;
-  }
-  #forecastCharts.textual-mode .fc-model-row {
-    height: 52px;
-    min-height: 52px;
-  }
-  #forecastCharts.textual-mode .fc-model-row > header,
-  #forecastCharts.textual-mode .fc-hourly-corner {
-    width: 104px;
-  }
-  #forecastCharts.textual-mode .fc-model-row > header {
-    grid-template-columns: minmax(0, 1fr);
-    gap: 2px;
-    height: 52px;
-    min-height: 52px;
-    padding: 6px 8px;
-  }
-  #forecastCharts.textual-mode .fc-model-row > header > b,
-  #forecastCharts.textual-mode .fc-model-row > header > span:not(.fc-model-compact) {
-    display: block;
-    grid-column: 1;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  #forecastCharts.textual-mode .fc-model-row > header > b {
-    grid-row: 1;
-  }
-  #forecastCharts.textual-mode .fc-model-row > header > span:not(.fc-model-compact) {
-    grid-row: 2;
-    font-size: 10px;
-  }
-  #forecastCharts.textual-mode .fc-model-row > header > small,
-  #forecastCharts.textual-mode .fc-model-row > header .fc-model-compact {
-    display: none;
-  }
-  #forecastCharts.textual-mode .fc-hourly-corner {
-    padding: 0 8px;
-    font-size: 8px;
-    letter-spacing: 0;
-  }
+
   .fc-detail-sheet.resized {
     max-height: 85dvh;
   }
@@ -4296,25 +5203,6 @@ button.fc-model-reveal[aria-pressed="true"] {
   }
 }
 
-/* Every view is either narrow or wide. The Explore list is happy inside main's
-   940px column (narrow, the default), but the map-heavy views (Map, Stats,
-   Wind/Speed, Wind rose, Timeline) need more horizontal room — at 940px the
-   all-rides map column shrinks to ~648px and even basemap labels get cropped.
-   Those views opt in with `.view-wide` to break out of main to ~1200px on wide
-   enough viewports, while main (and the view tabs inside it) stays at 940px so
-   the tabs don't shift when you switch views. Adding/removing a wide view is a
-   one-class change — no per-id rule to maintain. Centre via margin math rather
-   than `transform: translateX`, because a transformed ancestor would become the
-   containing block for a view's full-screen `position: fixed` wrap and break
-   Expand; plain width/margin don't, so the fixed fullscreen overlays still fill
-   the viewport with no per-view exception. */
-@media (min-width: 1000px) {
-  .view-wide:not(.hidden) {
-    width: min(96vw, 1200px);
-    margin-left: calc(50% - min(48vw, 600px));
-  }
-}
-
 /* -- stats view (totals / records / route-frequency heatmap) -------------- */
 .stats-empty {
   color: var(--muted);
@@ -4329,8 +5217,93 @@ button.fc-model-reveal[aria-pressed="true"] {
 .stats-empty.hidden {
   display: none;
 }
+.stats-body {
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - var(--chrome-h));
+  min-height: 560px;
+}
 .stats-section {
-  margin: 0 0 22px;
+  margin: 0 0 14px;
+}
+/* The two KPI groups share one compact band: on a wide screen they sit side by
+   side (a hairline between them), with overline captions and 24px numerals, so
+   the heatmap — the view's real subject — gets the height. */
+.stats-kpis {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 4px 28px;
+  margin-bottom: 6px;
+}
+.stats-kpis .stats-h {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+.stats-kpis .stats-cards {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px 14px;
+  max-width: none;
+}
+.stats-kpis .stat-num {
+  gap: 5px;
+}
+.stats-kpis .stat-num-v {
+  font-size: 24px;
+  padding-bottom: 5px;
+}
+.stats-kpis .stat-num-l {
+  font-size: 11px;
+}
+.stats-kpis .stat-num-s {
+  font-size: 11.5px;
+  white-space: normal; /* "Week of Sep 28, 2026 · 4 rides" wraps rather than ellipsizes */
+  line-height: 1.3;
+}
+@media (min-width: 1200px) {
+  .stats-kpis {
+    grid-template-columns: 1fr 1fr;
+  }
+  .stats-kpis .stats-section + .stats-section {
+    padding-left: 28px;
+    border-left: 1px solid var(--line);
+  }
+}
+.stats-h .stats-hint {
+  font-weight: 400;
+}
+.stats-h .stats-hint.hidden {
+  display: none;
+}
+/* The section that takes whatever height the KPI rows leave (heatmap / scatter). */
+.stats-section.stats-fill {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 0;
+}
+.stats-fill .freq-wrap,
+.stats-fill .chart-wrap {
+  flex: 1;
+  min-height: 0;
+  height: auto;
+}
+.stats-fill .ctl-accordions {
+  flex: 0 0 auto;
+}
+.stats-fill .ms-matched {
+  flex: 0 0 auto;
+  max-height: 40%;
+  overflow: auto;
+}
+/* Thickness sits with the heading, not orphaned at the far edge of a wide row. */
+.stats-h .heat-thickness {
+  margin: 0 0 0 18px;
+  font-weight: 400;
 }
 .stats-h {
   display: flex;
@@ -4355,13 +5328,18 @@ button.fc-model-reveal[aria-pressed="true"] {
   font-weight: 500;
   letter-spacing: 0.01em;
 }
+/* A note-only heading (the view title lives in the top bar) collapses when empty. */
+.stats-h--note:has(.stats-sub:empty) {
+  display: none;
+}
 .stats-h .stats-flag:empty {
   display: none;
 }
 .stats-cards {
   display: grid;
-  gap: 10px;
-  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px 16px;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  max-width: 1040px;
 }
 /* Stat numeral (built by ui.statNum): a large value over a short accent underline
    and a small tracked-out label, with an optional muted sub-line. The accent
@@ -4379,7 +5357,7 @@ button.fc-model-reveal[aria-pressed="true"] {
   min-width: 0;
 }
 .stat-num-v {
-  font-size: 27px;
+  font-size: 30px;
   font-weight: 700;
   line-height: 1;
   color: var(--text);
@@ -4388,7 +5366,7 @@ button.fc-model-reveal[aria-pressed="true"] {
   border-bottom: 2px solid var(--accent);
 }
 .stat-num-l {
-  font-size: 10.5px;
+  font-size: 12px;
   color: var(--muted);
   text-transform: uppercase;
   letter-spacing: 0.09em;
@@ -4411,7 +5389,7 @@ button.fc-model-reveal[aria-pressed="true"] {
   padding-bottom: 6px;
 }
 .stat-num--sm .stat-num-l {
-  font-size: 9.5px;
+  font-size: 11.5px;
   letter-spacing: 0.08em;
   line-height: 1.2;
 }
@@ -4420,7 +5398,7 @@ button.fc-model-reveal[aria-pressed="true"] {
   display: grid;
   grid-template-columns: 1fr 300px;
   gap: 12px;
-  height: calc(100vh - 210px);
+  height: calc(100vh - var(--chrome-h));
   min-height: 460px;
 }
 .tl-wrap.hidden {
@@ -4454,7 +5432,7 @@ button.fc-model-reveal[aria-pressed="true"] {
 }
 /* Same dark, desaturated basemap treatment as every other map. */
 #timelineMap .leaflet-tile-pane {
-  filter: grayscale(85%) brightness(0.6) contrast(1.1);
+  filter: var(--tile-filter);
 }
 #timelineMap.selecting,
 #timelineMap.selecting .leaflet-grab,
@@ -4490,6 +5468,51 @@ button.fc-model-reveal[aria-pressed="true"] {
 }
 .map-banner.hidden {
   display: none;
+}
+.map-banner.busy {
+  padding-bottom: 8px;
+}
+.map-banner.busy::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 34%;
+  height: 2px;
+  background: var(--accent);
+  animation: thread-run 1.5s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+}
+/* Corner variant: a readout pinned bottom-left (clear of the zoom control, the
+   attribution and whatever the user picked in the middle). */
+.map-banner--corner {
+  top: auto;
+  bottom: 10px;
+  left: 10px;
+  transform: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  max-width: calc(100% - 20px);
+  padding: 6px 12px;
+  color: var(--muted);
+}
+.map-banner--corner svg,
+.fc-strip-wind svg {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  color: var(--accent);
+  transition: transform 0.18s ease;
+}
+.map-banner--corner b,
+.fc-strip-wind b {
+  color: var(--text);
+}
+.map-banner--corner .fc-when,
+.fc-strip-wind .fc-when {
+  color: var(--text);
+  font-weight: 600;
+  margin-right: 2px;
 }
 
 /* Map hover tooltips (visit stops / approximate routes in day replay). Override
@@ -4548,7 +5571,7 @@ button.fc-model-reveal[aria-pressed="true"] {
   width: 78px;
 }
 .tl-tweak output {
-  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
   font-size: 11px;
   color: var(--text);
   min-width: 26px;
@@ -4582,7 +5605,7 @@ button.fc-model-reveal[aria-pressed="true"] {
   color: var(--muted);
 }
 .tl-date {
-  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
 }
 /* The date-range slider is the bar's primary control: it grows to fill the row and
    only wraps to its own line on a narrow map. Reuses the shared `.rf-*` slider chrome. */
@@ -4823,7 +5846,7 @@ button.dp-month.dp-zoom:hover {
   color: color-mix(in srgb, var(--accent) 55%, var(--muted));
 }
 .dp-cell.out {
-  color: #3a4250;
+  color: var(--muted-2);
   cursor: default;
 }
 button.dp-cell:hover {
@@ -4881,7 +5904,7 @@ button.dp-cell:hover {
 }
 .tl-clock {
   flex: 0 0 auto;
-  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
   font-size: 13px;
   color: var(--accent);
   min-width: 48px;
@@ -4893,7 +5916,7 @@ button.dp-cell:hover {
   padding: 3px 9px;
   font-size: 11px;
   font-weight: 600;
-  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
   letter-spacing: 0.02em;
   color: var(--muted);
   background: var(--panel2);
@@ -4993,11 +6016,52 @@ button.dp-cell:hover {
   align-items: center;
   gap: 7px;
 }
+/* Shared button glyph (src/icons.ts). A button that leads with one becomes an
+   icon + label row; the glyph scales with the control size. */
 .bi {
   width: 16px;
   height: 16px;
   flex: 0 0 auto;
   display: block;
+}
+button:has(> .bi) {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ctrl-gap);
+}
+button.small > .bi,
+.seg button > .bi,
+.splitmenu button > .bi,
+.ovr-items > button > .bi {
+  width: 15px;
+  height: 15px;
+}
+button.small:has(> .bi) {
+  gap: 6px;
+}
+/* Menu rows stay full-width block rows (inline-flex would let them flow side by
+   side); a quiet leading glyph, the label carries the weight. */
+.splitmenu button:has(> .bi),
+.ovr-items > button:has(> .bi) {
+  display: flex;
+}
+.splitmenu button > .bi,
+.ovr-items > button > .bi {
+  color: var(--muted);
+}
+.splitmenu button.danger > .bi,
+.ovr-items > button.danger > .bi {
+  color: inherit;
+}
+.linkbtn > .bi {
+  width: 14px;
+  height: 14px;
+}
+.linkbtn:has(> .bi) {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  vertical-align: -3px;
 }
 .tl-btn.primary .bi {
   width: 17px;
@@ -5174,7 +6238,7 @@ button.dp-cell:hover {
 .tl-hist-yr {
   flex: 0 0 auto;
   width: 34px;
-  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
   font-size: 11.5px;
   color: var(--text);
 }
@@ -5188,7 +6252,7 @@ button.dp-cell:hover {
 .tl-hist-fill {
   display: block;
   height: 100%;
-  background: linear-gradient(90deg, #22d3ee, #f97316);
+  background: linear-gradient(90deg, var(--grad-cool), var(--grad-warm));
   border-radius: 4px;
 }
 .tl-hist-n {
@@ -5327,7 +6391,7 @@ button.dp-cell:hover {
   top: 0;
   bottom: 0;
   width: 2px;
-  background: var(--ev, #64748b);
+  background: var(--ev, var(--muted));
 }
 /* The node dot at the event's moment, punched out of the row background. */
 .tl-ev::after {
@@ -5338,7 +6402,7 @@ button.dp-cell:hover {
   width: 9px;
   height: 9px;
   border-radius: 50%;
-  background: var(--ev, #64748b);
+  background: var(--ev, var(--muted));
   border: 2px solid var(--panel);
   transform: translate(-50%, -50%);
 }
@@ -5376,14 +6440,14 @@ button.dp-cell:hover {
 }
 .tl-ev-time {
   flex: 0 0 auto;
-  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
   font-size: 11.5px;
   color: var(--muted);
   min-width: 42px;
 }
 /* "±Nd" marker for an event whose area-local time wraps to an adjacent calendar day. */
 .tl-ev-dd {
-  font-size: 8.5px;
+  font-size: 10.5px;
   color: var(--accent);
   margin-left: 1px;
   vertical-align: super;
@@ -5416,7 +6480,7 @@ body.tl-expanded {
   display: grid;
   grid-template-columns: 1fr 340px;
   gap: 12px;
-  height: calc(100vh - 210px);
+  height: calc(100vh - var(--chrome-h));
   min-height: 460px;
 }
 .cl-wrap.hidden {
@@ -5452,7 +6516,7 @@ body.tl-expanded {
 }
 /* Same dark, desaturated basemap treatment as every other map. */
 #climateMap .leaflet-tile-pane {
-  filter: grayscale(85%) brightness(0.6) contrast(1.1);
+  filter: var(--tile-filter);
 }
 /* Keep the crosshair over the pannable layers so "click to pick a point" reads. */
 #climateMap .leaflet-grab {
@@ -5501,6 +6565,224 @@ body.tl-expanded {
   flex: 1 1 100%;
   min-width: 200px;
 }
+/* Loaded-history bands under the wind-rose year window: a faint band for years
+   cached on disk (loads without network), a stronger one for years already in
+   memory (the rose re-aggregates live as you drag over them). Sits on the rail,
+   under the accent window fill (the ::after paints last). */
+/* Loaded history painted ON the rail, under the accent window: a muted blend
+   of accent and track for years in memory (live while dragging), a fainter one
+   for years cached on disk. Same height as the rail, so it reads as "this part
+   of the line is lit", never as a second slider. Paint order is the track's
+   ::before, then this layer, then the ::after accent fill on top. */
+.rf-cached {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  left: calc(var(--rf-thumb) / 2);
+  right: calc(var(--rf-thumb) / 2);
+  height: 4px;
+  pointer-events: none;
+}
+.rf-run {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  border-radius: 3px;
+}
+.rf-run-cached {
+  background: color-mix(in srgb, var(--accent) 22%, var(--track));
+}
+.rf-run-ready {
+  background: color-mix(in srgb, var(--accent) 42%, var(--track));
+}
+.cl-year-meta {
+  flex: 1 1 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: -4px;
+  min-width: 0;
+}
+.cl-year-hint {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 12px;
+  line-height: 1.35;
+  color: var(--muted);
+}
+.cl-year-hint.pending {
+  color: var(--accent-soft-text);
+}
+/* Pinned comparison: the pinned rose's sector outlines ghosted over the live rose
+   (both scaled by share-of-hours, so differently sized windows compare fairly) in
+   the dedicated compare colour — never one of the speed-bin hues. The monthly
+   mini-roses carry a quieter solid outline. */
+.cl-ghost {
+  fill: var(--cmp-fill);
+  stroke: var(--cmp);
+  stroke-width: 1.6;
+  stroke-dasharray: 4 2.5;
+  stroke-linejoin: round;
+  opacity: 0.95;
+}
+.cl-ghost-mini {
+  fill: none;
+  stroke-width: 1;
+  stroke-dasharray: none;
+  opacity: 0.6;
+}
+/* Section header row: the heading (title + sub) and, for the rose, the pin button. */
+.cl-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 8px;
+}
+.cl-head > .cl-h {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+}
+.cl-pinbtn {
+  flex: 0 0 auto;
+}
+/* The comparison card: pinned vs now, side by side, deltas on the live side. */
+.cl-cmp {
+  margin-top: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-soft);
+  overflow: hidden;
+}
+.cl-cmp-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 6px 6px 10px;
+  border-bottom: 1px solid var(--line);
+  font-size: 12.5px;
+}
+.cl-cmp-head > b {
+  flex: 1 1 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-weight: 600;
+}
+.cl-cmp-head > b > .bi {
+  width: 14px;
+  height: 14px;
+  color: var(--cmp);
+}
+.cl-cmp-head > button.small {
+  background: transparent;
+}
+.cl-cmp-t {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.cl-cmp-t th,
+.cl-cmp-t td {
+  padding: 5px 8px;
+  text-align: left;
+  vertical-align: baseline;
+}
+.cl-cmp-t thead th {
+  padding-top: 7px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.cl-cmp-t tbody th {
+  width: 1%;
+  font-weight: 400;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.cl-cmp-t tbody tr {
+  border-top: 1px solid color-mix(in srgb, var(--line) 60%, transparent);
+}
+.cl-cmp-t td {
+  color: var(--text);
+}
+.cl-cmp-same {
+  color: var(--muted);
+  font-style: italic;
+}
+.cl-cmp-d {
+  margin-left: 6px;
+  font-style: normal;
+  font-size: 11px;
+  color: var(--accent-soft-text);
+}
+.cl-cmp-d.zero {
+  color: var(--muted);
+}
+.cl-sw-pin,
+.cl-sw-now {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: 5px;
+  border-radius: 3px;
+  vertical-align: -1px;
+}
+.cl-sw-pin {
+  border: 1.5px dashed var(--cmp);
+  background: var(--cmp-fill);
+}
+.cl-sw-now {
+  background: var(--accent);
+}
+.cl-pinned-x {
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  background: transparent;
+  border-color: transparent;
+  color: var(--muted);
+}
+.cl-pinned-x svg {
+  width: 12px;
+  height: 12px;
+}
+/* The pinned place on the map (only when it differs from the live one). */
+.cl-pin-marker {
+  border: 0;
+  background: transparent;
+}
+.cl-pin-dot {
+  display: block;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2px dashed var(--cmp);
+  background: var(--cmp-fill);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+}
+.leaflet-tooltip.cl-pin-tip {
+  padding: 2px 7px;
+  background: var(--glass);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  font-size: 11px;
+  box-shadow: var(--shadow-pop);
+}
+.leaflet-tooltip.cl-pin-tip::before {
+  display: none;
+}
+
 /* Tighten the year edge labels to the short "2006"/"2025" text. Scoped under
    `.cl-bar` so it beats the generic `.range-filter .rf-edge` (82px, sized for full
    dates) defined later in the file — equal specificity would otherwise let it win. */
@@ -5534,10 +6816,12 @@ body.tl-expanded {
   color: var(--muted);
   text-align: left;
 }
-.cl-prov-2 {
-  margin-top: 0;
-  font-variant-numeric: tabular-nums;
-  opacity: 0.85;
+/* The dataset · cell · years prefix repeats the top bar's subtitle — shown only
+   where that subtitle is hidden (phones). */
+@media (min-width: 769px) {
+  .cl-prov-dup {
+    display: none;
+  }
 }
 
 .cl-sec {
@@ -5573,8 +6857,8 @@ body.tl-expanded {
   pointer-events: none;
 }
 .cl-rose-hi {
-  fill: rgba(255, 255, 255, 0.09);
-  stroke: rgba(255, 255, 255, 0.3);
+  fill: color-mix(in srgb, var(--text) 9%, transparent);
+  stroke: color-mix(in srgb, var(--text) 30%, transparent);
   stroke-width: 1;
 }
 .cl-rose-tip {
@@ -5636,7 +6920,7 @@ body.tl-expanded {
   opacity: 0.5;
 }
 .cl-calm {
-  fill: rgba(255, 255, 255, 0.05);
+  fill: color-mix(in srgb, var(--text) 5%, transparent);
   stroke: var(--line);
   stroke-width: 1;
 }
@@ -5671,7 +6955,7 @@ body.tl-expanded {
   display: inline-block;
 }
 .cl-leg-calm i {
-  background: rgba(255, 255, 255, 0.06);
+  background: color-mix(in srgb, var(--text) 6%, transparent);
   border: 1px solid var(--line);
 }
 
@@ -5719,7 +7003,7 @@ body.tl-expanded {
 }
 .cl-mini-cap {
   display: block;
-  font-size: 10px;
+  font-size: 11.5px;
   color: var(--muted);
   margin-top: 1px;
 }
@@ -5728,7 +7012,7 @@ body.tl-expanded {
 }
 .cl-mini-cap small {
   display: block;
-  font-size: 8.5px;
+  font-size: 10.5px;
   opacity: 0.7;
   font-variant-numeric: tabular-nums;
 }
@@ -5747,7 +7031,7 @@ body.tl-expanded {
 }
 .cl-hm-lbl {
   fill: var(--muted);
-  font-size: 9.5px;
+  font-size: 11.5px;
 }
 
 body.climate-expanded .cl-wrap {
@@ -5780,7 +7064,7 @@ body.climate-expanded .cl-ctl input[type="range"] {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  margin: 0 0 10px;
+  margin: 0;
   color: var(--muted);
   font-size: 11.5px;
 }
@@ -5788,7 +7072,7 @@ body.climate-expanded .cl-ctl input[type="range"] {
   width: 120px;
 }
 .heat-thickness output {
-  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
   font-size: 12px;
   color: var(--text);
   min-width: 2.4ch;
@@ -5798,8 +7082,16 @@ body.climate-expanded .cl-ctl input[type="range"] {
   display: grid;
   grid-template-columns: 1fr 280px;
   gap: 12px;
-  height: calc(100vh - 430px);
+  height: calc(100vh - var(--chrome-h) - 220px);
   min-height: 360px;
+}
+/* The "Selected rides" panel only exists once there is a selection; until then
+   the heatmap takes the whole width (the hint lives in the heading). */
+.freq-wrap:not(.has-sel) {
+  grid-template-columns: 1fr;
+}
+.freq-wrap:not(.has-sel) .heat-side {
+  display: none;
 }
 .freq-main {
   position: relative;
@@ -5832,7 +7124,7 @@ body.climate-expanded .cl-ctl input[type="range"] {
 }
 /* Keep the dark, desaturated basemap treatment in sync with the Map view. */
 #freqHeatMap .leaflet-tile-pane {
-  filter: grayscale(85%) brightness(0.6) contrast(1.1);
+  filter: var(--tile-filter);
 }
 /* Crosshair while area-selecting on the heatmap; mirrors the Map view. */
 #freqHeatMap.selecting,
@@ -5866,7 +7158,7 @@ body.climate-expanded .cl-ctl input[type="range"] {
   width: 110px;
 }
 .ctl-grp-row output {
-  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
   font-size: 12px;
   color: var(--text);
   min-width: 6ch;
@@ -5899,7 +7191,7 @@ body.climate-expanded .cl-ctl input[type="range"] {
 .ctl-acc {
   border: var(--ctrl-border) solid var(--line);
   border-radius: var(--ctrl-radius);
-  background: var(--panel-2, rgba(255, 255, 255, 0.02));
+  background: var(--panel);
 }
 .ctl-acc > summary {
   display: flex;
@@ -5997,7 +7289,7 @@ body.climate-expanded .cl-ctl input[type="range"] {
   border: var(--ctrl-border) solid var(--line);
 }
 .wind-legend .cw-end {
-  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
   color: var(--text);
 }
 /* Narrow screens: let each control take a full row with a grabbable full-width thumb. */
@@ -6018,7 +7310,7 @@ body.climate-expanded .cl-ctl input[type="range"] {
    filter sits in flow beneath it rather than overlaying it. */
 .chart-wrap {
   position: relative;
-  height: calc(100vh - 430px);
+  height: calc(100vh - var(--chrome-h) - 220px);
   min-height: 360px;
   display: flex;
   flex-direction: column;
@@ -6064,7 +7356,7 @@ body.climate-expanded .cl-ctl input[type="range"] {
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
 }
 .chart-tip .tip-when {
-  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
   font-size: 11.5px;
   color: var(--accent);
 }
@@ -6130,8 +7422,10 @@ body.climate-expanded .cl-ctl input[type="range"] {
   flex-direction: column;
   align-items: center;
   gap: 6px;
-  width: 260px;
-  max-width: 80%;
+  width: 340px;
+  max-width: 86%;
+  background: var(--panel);
+  padding: 18px 20px 16px;
 }
 .cm-head {
   color: var(--text);
@@ -6192,7 +7486,7 @@ body.climate-expanded .cl-ctl input[type="range"] {
   grid-template-columns: 1fr 280px;
   gap: 12px;
   /* Fill the viewport below the sticky header + tab bar. */
-  height: calc(100vh - 210px);
+  height: calc(100vh - var(--chrome-h));
   min-height: 460px;
 }
 .map-main {
@@ -6228,7 +7522,7 @@ body.climate-expanded .cl-ctl input[type="range"] {
    Filter the whole tile pane (not per-tile) so it applies regardless of when
    individual tiles finish loading. */
 #allRidesMap .leaflet-tile-pane {
-  filter: grayscale(85%) brightness(0.6) contrast(1.1);
+  filter: var(--tile-filter);
 }
 #allRidesMap .leaflet-interactive {
   cursor: pointer;
@@ -6288,8 +7582,8 @@ body.climate-expanded .cl-ctl input[type="range"] {
   top: 90px;
 }
 .map-locate.active {
-  background: #2b8cff;
-  border-color: #2b8cff;
+  background: var(--blue);
+  border-color: var(--blue);
   color: #fff;
 }
 .map-locate .mi {
@@ -6389,13 +7683,15 @@ body.climate-expanded .cl-ctl input[type="range"] {
   border-bottom: none;
 }
 .leaflet-container .leaflet-bar a.leaflet-disabled {
-  background: rgba(20, 23, 29, 0.55);
+  background: var(--glass);
   color: var(--muted);
+  opacity: 0.6;
 }
-/* Attribution: dark translucent strip instead of Leaflet's stock white pill. */
+/* Attribution: a translucent strip in the theme's glass instead of Leaflet's stock pill. */
 .leaflet-container .leaflet-control-attribution {
-  background: rgba(11, 13, 17, 0.78);
+  background: var(--glass);
   color: var(--muted);
+  border-top-left-radius: 6px;
   -webkit-backdrop-filter: blur(6px);
   backdrop-filter: blur(6px);
 }
@@ -6443,33 +7739,43 @@ input[type="range"].uslider::-moz-range-progress {
 input[type="range"].uslider::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
-  height: 15px;
-  width: 15px;
-  margin-top: -5.5px;
+  height: 16px;
+  width: 16px;
   border-radius: 50%;
-  background: var(--accent);
-  border: 2px solid var(--bg);
+  background: var(--panel);
+  border: 2.5px solid var(--accent);
   box-shadow: var(--shadow-thumb);
   cursor: grab;
+  transition: box-shadow 0.12s ease;
+  margin-top: -6px;
+}
+input[type="range"].uslider:hover::-webkit-slider-thumb,
+input[type="range"].uslider:focus-visible::-webkit-slider-thumb {
+  box-shadow: 0 0 0 5px var(--accent-tint-strong);
 }
 input[type="range"].uslider::-webkit-slider-thumb:active {
   cursor: grabbing;
+  box-shadow: 0 0 0 7px var(--accent-tint-strong);
 }
 input[type="range"].uslider::-moz-range-thumb {
-  height: 15px;
-  width: 15px;
+  height: 16px;
+  width: 16px;
   border-radius: 50%;
-  background: var(--accent);
-  border: 2px solid var(--bg);
+  background: var(--panel);
+  border: 2.5px solid var(--accent);
   box-shadow: var(--shadow-thumb);
   cursor: grab;
 }
+input[type="range"].uslider:hover::-moz-range-thumb,
+input[type="range"].uslider:focus-visible::-moz-range-thumb {
+  box-shadow: 0 0 0 5px var(--accent-tint-strong);
+}
 input[type="range"].uslider:disabled::-webkit-slider-thumb {
-  background: var(--muted);
+  border-color: var(--muted);
   cursor: default;
 }
 input[type="range"].uslider:disabled::-moz-range-thumb {
-  background: var(--muted);
+  border-color: var(--muted);
   cursor: default;
 }
 
@@ -6483,7 +7789,7 @@ input[type="range"].uslider:disabled::-moz-range-thumb {
   display: none;
 }
 .range-filter .rf-edge {
-  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
   font-size: 11.5px;
   color: var(--text);
   white-space: nowrap;
@@ -6524,7 +7830,7 @@ input[type="range"].uslider:disabled::-moz-range-thumb {
   position: relative;
   flex: 1 1 auto;
   height: 18px;
-  --rf-thumb: 15px;
+  --rf-thumb: 16px;
 }
 /* Baseline + accent fill are inset by half a thumb at each end so they line up
    exactly with the thumb centres (which the browser insets from the edges). */
@@ -6593,37 +7899,43 @@ input[type="range"].uslider:disabled::-moz-range-thumb {
   outline: none;
 }
 .rf-track input[type="range"]::-webkit-slider-thumb {
+  pointer-events: auto;
   -webkit-appearance: none;
   appearance: none;
-  pointer-events: auto;
-  height: 15px;
-  width: 15px;
+  height: 16px;
+  width: 16px;
   border-radius: 50%;
-  background: var(--accent);
-  border: 2px solid var(--bg);
+  background: var(--panel);
+  border: 2.5px solid var(--accent);
   box-shadow: var(--shadow-thumb);
   cursor: grab;
+  transition: box-shadow 0.12s ease;
   margin-top: -1px;
+}
+.rf-track input[type="range"]:hover::-webkit-slider-thumb,
+.rf-track input[type="range"]:focus-visible::-webkit-slider-thumb {
+  box-shadow: 0 0 0 5px var(--accent-tint-strong);
 }
 .rf-track input[type="range"]::-webkit-slider-thumb:active {
   cursor: grabbing;
+  box-shadow: 0 0 0 7px var(--accent-tint-strong);
 }
 .rf-track input[type="range"]::-moz-range-thumb {
   pointer-events: auto;
-  height: 15px;
-  width: 15px;
+  height: 16px;
+  width: 16px;
   border-radius: 50%;
-  background: var(--accent);
-  border: 2px solid var(--bg);
+  background: var(--panel);
+  border: 2.5px solid var(--accent);
   box-shadow: var(--shadow-thumb);
   cursor: grab;
 }
 .rf-track input[type="range"]:disabled::-webkit-slider-thumb {
-  background: var(--muted);
+  border-color: var(--muted);
   cursor: default;
 }
 .rf-track input[type="range"]:disabled::-moz-range-thumb {
-  background: var(--muted);
+  border-color: var(--muted);
   cursor: default;
 }
 /* Shared chrome for the date filter that sits directly below a basemap — used by
@@ -6740,11 +8052,11 @@ body.heat-expanded {
   border-color: var(--border-hover);
 }
 .ms-item.hot {
-  background: #2a1a10;
+  background: var(--accent-wash);
   border-color: var(--accent-dim);
 }
 .ms-item .ms-when {
-  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
   font-size: 11.5px;
   color: var(--muted);
   flex: 0 0 auto;
@@ -6788,7 +8100,7 @@ body.heat-expanded {
   padding: 8px;
   border: 1px solid var(--accent-dim);
   border-radius: 10px;
-  background: #1c130c;
+  background: var(--accent-wash-soft);
 }
 .ms-matched .ms-mhead {
   display: flex;
@@ -6838,6 +8150,17 @@ body.heat-expanded {
   color: var(--text);
   border-color: var(--border-hover);
 }
+/* Icon-only variant (the selection panels' ×): a 22px round target. */
+.ms-clear:has(> .bi) {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  justify-content: center;
+}
+.ms-clear > .bi {
+  width: 12px;
+  height: 12px;
+}
 .ms-item.matched {
   flex-direction: column;
   align-items: stretch;
@@ -6848,7 +8171,7 @@ body.heat-expanded {
 }
 .ms-item.matched:hover,
 .ms-item.matched.hot {
-  background: #2a1a10;
+  background: var(--accent-wash);
   border-color: var(--accent);
 }
 /* Name on its own full-width row so it rarely needs the ellipsis; the date and
@@ -6867,7 +8190,7 @@ body.heat-expanded {
   justify-content: space-between;
   align-items: baseline;
   gap: 8px;
-  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
   font-size: 11px;
   color: var(--muted);
 }
@@ -6932,11 +8255,14 @@ body.heat-expanded {
 .onb-foot a {
   color: var(--accent);
 }
+/* Transient toasts sit top-centre over the content column (clear of every map's
+   corner controls); on phones they rise above the bottom nav instead. */
 .toast {
   position: fixed;
-  bottom: 20px;
-  left: 50%;
+  top: 66px;
+  left: calc(var(--sb-w) + (100vw - var(--sb-w)) / 2);
   transform: translateX(-50%);
+  max-width: min(480px, calc(100vw - var(--sb-w) - 44px));
   background: var(--panel2);
   border: 1px solid var(--line);
   color: var(--text);
@@ -6952,11 +8278,26 @@ body.heat-expanded {
 }
 .toast.err {
   border-color: var(--danger-border);
-  background: #2a1513;
+  background: var(--err-bg);
 }
-/* lift transient toasts above the floating progress pill when a job is active */
-body.job-active .toast {
-  bottom: 84px;
+body.ridemap-open .toast {
+  top: auto;
+  bottom: 152px;
+  left: 50%;
+  max-width: min(520px, calc(100vw - 44px));
+}
+/* Inline, in-context success note in the toolbar's status slot: a tick, then it
+   clears itself. */
+.ridemap-status.done::before {
+  content: "";
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  margin-right: 6px;
+  vertical-align: -1px;
+  background:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='m5 12.5 4.2 4.2L19 7' fill='none' stroke='%232ec27e' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")
+    center / 12px no-repeat;
 }
 
 /* ------------------------------------------------------------------------ */
@@ -6981,30 +8322,6 @@ body.job-active .toast {
      go. The pill collapses to a colour-only status dot (meaning kept in title +
      aria-label, set in renderConn; the .on/.demo/.err classes tint it), freeing
      ~180px so the text button labels can survive far lower. */
-  #connState.cstate {
-    width: 10px;
-    height: 10px;
-    padding: 0;
-    border-radius: 50%;
-    overflow: hidden;
-    color: transparent;
-    font-size: 0;
-    line-height: 0;
-    white-space: nowrap;
-    background: var(--muted);
-    border: 0;
-    flex: 0 0 auto;
-    align-self: center;
-  }
-  #connState.cstate.on {
-    background: var(--green);
-  }
-  #connState.cstate.demo {
-    background: var(--blue);
-  }
-  #connState.cstate.err {
-    background: #ff6a6a;
-  }
   .brand .ver {
     display: none; /* build hash is wide-desktop-only chrome */
   }
@@ -7086,24 +8403,8 @@ body.job-active .toast {
   .row {
     gap: 6px;
   }
-  /* The floating job pill: give it a touch more breathing room from the screen
-     edges, and let its single control row wrap rather than overflow. On a ~320px
-     pill the trailing controls (queued count, "Up next", Clear, Stop, Hide) are
-     non-shrinking and would otherwise run past the right edge; wrapping drops them
-     onto a second line under the title/message instead. */
-  .job {
-    width: min(680px, calc(100% - 20px));
-  }
-  .job-head {
-    flex-wrap: wrap;
-    row-gap: 8px;
-  }
-  /* Keep the spinner + live title/message together on the first line (the basis
-     leaves room for the 17px spinner + its gap), so every trailing control wraps
-     as a clean second row beneath them rather than orphaning the spinner. */
-  .job-now {
-    flex: 1 1 calc(100% - 28px);
-  }
+  /* The job strip stays one row on a phone: the live step line folds away and Stop
+     is an icon, so verb + count + controls fit (see the 768px block below). */
   /* The header carries a lot of buttons; at full padding they wrap into a
      tall stack. Compact every button (and the segmented controls) so the
      same actions pack into far fewer, shorter rows. */
@@ -7128,9 +8429,6 @@ body.job-active .toast {
   .brand-logo {
     width: 19px;
     height: 19px;
-  }
-  .totals {
-    font-size: 11.5px;
   }
   /* The flexible spacer separates info from bulk-actions in the header. At full
      width it grows and shoves a lone label to the far edge while its segment wraps
@@ -7171,11 +8469,21 @@ body.job-active .toast {
   .mtitle {
     min-width: 0;
   }
-  .ymeta,
-  .mmeta {
+  .ymeta {
     order: 10; /* push below the title row (after the right-aligned ⋯) */
     flex-basis: 100%;
     font-size: 11.5px;
+  }
+  /* Month cards stack one per row: no volume bar (the meta says it), so the
+     header collapses to its single title + meta line. */
+  .mmeta {
+    font-size: 11.5px;
+  }
+  .mhead {
+    grid-template-rows: auto;
+    row-gap: 0;
+    column-gap: 8px;
+    padding: 9px 10px;
   }
   .rrow {
     gap: 10px;
@@ -7264,6 +8572,16 @@ body.job-active .toast {
     margin-bottom: 0;
   }
 
+  .stats-body {
+    height: auto;
+    min-height: 0;
+  }
+  /* No viewport-fit column on a phone: give the scatter a fixed share instead. */
+  .stats-fill .chart-wrap {
+    flex: none;
+    height: 56vh;
+    min-height: 320px;
+  }
   /* -- map view: stack the side list under the map instead of beside it --- */
   .map-wrap,
   .freq-wrap {
@@ -7276,6 +8594,23 @@ body.job-active .toast {
   body.heat-expanded .freq-wrap {
     grid-template-columns: 1fr;
     grid-template-rows: 1fr minmax(0, 38svh);
+  }
+  /* Phone: two KPI columns (four crushed "10h 35m" into two lines); the how-to
+     hint goes — the floating select / locate buttons speak for themselves. */
+  .stats-kpis .stats-cards {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px 14px;
+  }
+  .stats-h .stats-hint {
+    display: none;
+  }
+  /* No selection → no list row under the heatmap (the map keeps its share). */
+  .freq-wrap:not(.has-sel),
+  body.heat-expanded .freq-wrap:not(.has-sel) {
+    grid-template-rows: 60vh;
+  }
+  body.heat-expanded .freq-wrap:not(.has-sel) {
+    grid-template-rows: 1fr;
   }
 
   /* -- Timeline: stack the side panel under the map, like the Map view ----- */
@@ -7448,7 +8783,7 @@ body.job-active .toast {
   .stats-panel {
     padding: 12px 12px;
   }
-  .sp-head {
+  .sp-head-main {
     gap: 8px 10px;
   }
   .sp-metric,
@@ -7534,6 +8869,103 @@ body.job-active .toast {
   .ridemap-bar {
     gap: 8px;
     padding: 8px 10px;
+  }
+  .ridemap-tools {
+    gap: 6px 14px;
+    padding: 6px 10px 8px;
+  }
+  /* The ride's summary: one sideways-scrolling line instead of four rows. */
+  .ridemap-summary {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+    gap: 14px;
+  }
+  .ridemap-summary::-webkit-scrollbar {
+    display: none;
+  }
+  /* A ride's time zone tag folds away (the tooltip keeps it). */
+  .rmeta-tz {
+    display: none;
+  }
+  /* The job strip: Stop is an icon; the live step line gives way to the verb + count. */
+  .job .msg,
+  .job .btn-label {
+    display: none;
+  }
+  .job .job-stop {
+    width: 34px;
+    padding: 0;
+    justify-content: center;
+  }
+  /* Forecast: the measures legend is one sideways line; the models fold behind
+     a "● ● ● 9 models" button (they are named again on each lane and in the sheet). */
+  .fc-legend {
+    flex-wrap: nowrap;
+    gap: 6px 14px;
+    overflow-x: auto;
+    scrollbar-width: none;
+    white-space: nowrap;
+    font-size: 12px;
+  }
+  .fc-legend::-webkit-scrollbar {
+    display: none;
+  }
+  .fc-model-legend {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 10px;
+  }
+  .fc-models-peek {
+    display: inline-flex;
+  }
+  .fc-model-legend .fc-model-list {
+    display: none;
+  }
+  .fc-model-legend.open .fc-model-list {
+    display: grid;
+    flex: 1 1 100%;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0 8px;
+  }
+  .fc-model-legend .fc-track-toggle {
+    padding: 5px 4px;
+    font-size: 12px;
+  }
+  .fc-track-val {
+    display: none;
+  }
+  .fc-readout {
+    height: auto;
+    min-height: 34px;
+    flex-wrap: wrap;
+    white-space: normal;
+  }
+  /* Timetable headers: tighter, and a model's name may take two lines. */
+  .fc-tt-col {
+    padding: 7px 7px 6px;
+  }
+  .fc-tt-col > b {
+    font-size: 11.5px;
+  }
+  .fc-tt-col > span {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    white-space: normal;
+    font-size: 11px;
+    line-height: 1.25;
+  }
+  .fc-tt-corner {
+    padding: 8px;
+  }
+  /* Per-model graphs: a narrow sticky column with the model's name rotated. */
+  .fc-charts:not(.compare-mode) .fc-model-row {
+    grid-template-columns: 56px max-content;
+  }
+  .fc-charts:not(.compare-mode) .fc-model-row > header {
+    width: 56px;
   }
   .ridemap-title {
     max-width: 42%;
@@ -7697,18 +9129,28 @@ body.job-active .toast {
   display: flex;
 }
 .srcopt-status {
-  color: var(--green);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text);
   font-size: 13px;
+}
+.srcopt-status:empty {
+  display: none;
 }
 .srcopt-status::before {
   content: "";
-  display: inline-block;
+  flex: 0 0 auto;
   width: 7px;
   height: 7px;
-  margin-right: 7px;
   border-radius: 50%;
   background: var(--green);
-  vertical-align: middle;
+}
+.srcopt-status b {
+  font-weight: 600;
+}
+.srcopt-who {
+  color: var(--muted);
 }
 .srcopt-actions {
   display: flex;
@@ -7784,24 +9226,83 @@ body.job-active .toast {
   gap: 8px;
   margin-top: 12px;
 }
-/* Shared text-field look (dark inset, line border, accent focus ring); callers
-   add only their own sizing/layout. */
+/* Text fields — ONE family. A filled well (darker than the panel in the dark theme,
+   white on the light one) with a soft inset top edge so it reads as something you
+   type into, a hairline that strengthens on hover, and an accent ring on focus.
+   Every text-like input gets it; `.custom input` (the underlined range fields in the
+   filter bar) is the one deliberate exception. */
+input[type="text"],
+input[type="email"],
+input[type="password"],
+input[type="search"],
+input[type="url"],
+input[type="tel"],
+input[type="number"]:not(.custom input):not(.cw-filter input),
+textarea,
+select,
 .field {
-  background: var(--bg);
-  border: 1px solid var(--line);
+  box-sizing: border-box;
+  padding: 8px 11px;
+  background: var(--field-bg);
+  border: 1px solid var(--field-border);
   border-radius: 8px;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.14);
   color: var(--text);
   font: inherit;
   line-height: 1.4;
+  transition:
+    border-color 0.12s ease,
+    box-shadow 0.12s ease;
 }
+:root[data-theme="light"] input[type="text"],
+:root[data-theme="light"] input[type="email"],
+:root[data-theme="light"] input[type="password"],
+:root[data-theme="light"] input[type="search"],
+:root[data-theme="light"] input[type="url"],
+:root[data-theme="light"] input[type="tel"],
+:root[data-theme="light"] input[type="number"]:not(.custom input):not(.cw-filter input),
+:root[data-theme="light"] textarea,
+:root[data-theme="light"] select,
+:root[data-theme="light"] .field {
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.06);
+}
+input[type="text"]:hover,
+input[type="email"]:hover,
+input[type="password"]:hover,
+input[type="search"]:hover,
+input[type="url"]:hover,
+input[type="tel"]:hover,
+input[type="number"]:not(.custom input):not(.cw-filter input):hover,
+textarea:hover,
+select:hover,
+.field:hover {
+  border-color: var(--field-border-hover);
+}
+input[type="text"]:focus,
+input[type="email"]:focus,
+input[type="password"]:focus,
+input[type="search"]:focus,
+input[type="url"]:focus,
+input[type="tel"]:focus,
+input[type="number"]:not(.custom input):not(.cw-filter input):focus,
+textarea:focus,
+select:focus,
 .field:focus {
   outline: none;
-  border-color: var(--accent-dim);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--field-ring);
+}
+input::placeholder,
+textarea::placeholder {
+  color: var(--field-placeholder);
+  opacity: 1;
+}
+input[type="search"]::-webkit-search-cancel-button {
+  cursor: pointer;
 }
 .srcopt-form input {
   flex: 1 1 180px;
   min-width: 0;
-  padding: 7px 10px;
 }
 .srcopt-err {
   flex: 1 0 100%;
@@ -7988,7 +9489,11 @@ body.dragging-files::after {
 .settings-row {
   display: flex;
   flex-direction: column;
+  align-items: flex-start;
   gap: 8px;
+}
+.settings-row .settings-control {
+  align-self: stretch;
 }
 .settings-row + .settings-row {
   margin-top: 18px;
@@ -8058,4 +9563,620 @@ body.dragging-files::after {
 #fDestination:not(.hidden),
 #fNamed:not(.hidden) {
   display: inline-block;
+}
+
+/* ===========================================================================
+   APP SHELL — grouped sidebar (desktop) · top bar · bottom nav + More sheet (phone)
+   One set of nav elements (`.navlink[data-view]`, routed by the global click
+   dispatcher); src/shell.ts reflects the active view and, on phones, re-parents
+   the sidebar's Research group + footer into the More sheet.
+   =========================================================================== */
+.shell {
+  display: flex;
+  min-height: 100vh;
+  align-items: stretch;
+}
+.content {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.sidebar {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  width: var(--sb-w);
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px 10px 12px;
+  background: var(--panel);
+  border-right: 1px solid var(--line);
+  z-index: 11;
+  overflow-y: auto;
+  overflow-x: hidden;
+  transition: width 0.15s ease;
+}
+.sb-brand {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 4px 10px 8px;
+}
+.sb-brand .brand {
+  min-width: 0;
+  flex: 1;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  column-gap: 10px;
+  align-items: center;
+}
+.sb-brand .brand-logo {
+  grid-row: 1 / span 2;
+  width: 26px;
+  height: 26px;
+}
+.sb-brand .brand h1 {
+  grid-column: 2;
+  white-space: nowrap;
+  line-height: 1.15;
+}
+.sb-brand .brand .ver {
+  grid-column: 2;
+  font-size: 11px;
+  line-height: 1.2;
+}
+.sb-toggle {
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--ctrl-radius-sm);
+  background: transparent;
+  border-color: transparent;
+  color: var(--muted);
+}
+.sb-toggle .mi {
+  width: 16px;
+  height: 16px;
+  transition: transform 0.15s ease;
+}
+.sb-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.sb-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.sb-sec {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--muted);
+  padding: 14px 10px 5px;
+  white-space: nowrap;
+}
+.sidebar .navlink,
+.bottomnav .navlink,
+.more-card .navlink {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  width: 100%;
+  padding: 9px 11px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 600;
+  text-align: left;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+.sidebar .navlink .mi,
+.bottomnav .navlink .mi,
+.more-card .navlink .mi {
+  width: 19px;
+  height: 19px;
+  flex: 0 0 auto;
+  display: block;
+}
+.sidebar .navlink:hover:not(:disabled),
+.more-card .navlink:hover:not(:disabled) {
+  background: var(--surface-hover);
+  color: var(--text);
+  border-color: transparent;
+}
+.sidebar .navlink.active,
+.bottomnav .navlink.active,
+.more-card .navlink.active {
+  background: var(--accent-tint-strong);
+  color: var(--accent);
+}
+/* A nav row with a caption (Sources + its connection state). */
+.navlink .nav-text {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-width: 0;
+}
+.navlink--status {
+  position: relative;
+}
+/* Icon-rail badge: when the label and caption fold away, a dot on the row's
+   corner keeps the state visible (hidden when Beeline isn't in use at all). */
+.navlink--status::after {
+  content: "";
+  position: absolute;
+  top: 7px;
+  right: 8px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  border: 2px solid var(--panel);
+  background: var(--muted);
+  display: none;
+}
+.navlink--status[data-conn="on"]::after {
+  background: var(--green);
+}
+.navlink--status[data-conn="demo"]::after {
+  background: var(--blue);
+}
+body.sb-rail .sidebar .navlink--status:not([data-conn="none"])::after {
+  display: block;
+}
+.sb-foot {
+  position: relative;
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-top: 10px;
+}
+.sb-foot::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 12px;
+  right: 12px;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    var(--line) 20%,
+    var(--line) 80%,
+    transparent
+  );
+}
+/* Collapsed icon rail: labels, section captions and the status line fold away. */
+body.sb-rail {
+  --sb-w: var(--sb-rail-w);
+}
+body.sb-rail .sidebar {
+  width: var(--sb-rail-w);
+  padding-left: 8px;
+  padding-right: 8px;
+}
+body.sb-rail .sb-brand {
+  flex-direction: column;
+  padding: 2px 0 8px;
+  gap: 8px;
+}
+body.sb-rail .sb-brand .brand h1,
+body.sb-rail .sb-brand .brand .ver,
+body.sb-rail .sb-sec,
+body.sb-rail .sidebar .navlink span {
+  display: none;
+}
+body.sb-rail .sb-group {
+  padding-top: 10px;
+}
+body.sb-rail .sidebar .navlink {
+  justify-content: center;
+  padding: 10px 0;
+}
+body.sb-rail .sb-toggle .mi {
+  transform: rotate(180deg);
+}
+
+/* -- top bar: view title · contextual subtitle · the view-agnostic actions ---- */
+.topbar .row {
+  width: 100%;
+  flex-wrap: nowrap;
+}
+.tb-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  flex: 0 1 auto;
+}
+.tb-title h2 {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.tb-sub {
+  color: var(--muted);
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tb-sub.hidden {
+  display: none;
+}
+.tb-logo,
+.tb-weather {
+  display: none; /* phone-only (below) */
+}
+.hdr-actions {
+  flex: 0 0 auto;
+  flex-wrap: nowrap;
+}
+
+/* -- bottom nav + More sheet (phone only) ------------------------------------ */
+.bottomnav {
+  display: none;
+}
+.more-sheet.scrim {
+  place-items: end center;
+  padding: 0;
+  z-index: 200;
+}
+.more-card {
+  width: 100%;
+  max-height: 82vh;
+  overflow-y: auto;
+  background: var(--panel);
+  border-top: 1px solid var(--line);
+  border-radius: 18px 18px 0 0;
+  padding: 6px 14px max(16px, env(safe-area-inset-bottom));
+  box-shadow: 0 -16px 44px rgba(0, 0, 0, 0.35);
+  overscroll-behavior: contain;
+}
+.more-card::before {
+  content: "";
+  display: block;
+  width: 40px;
+  height: 4px;
+  margin: 6px auto 10px;
+  border-radius: 999px;
+  background: var(--line);
+}
+.more-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 2px 4px 8px;
+}
+.more-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.more-body .sb-foot {
+  margin-top: 8px;
+}
+.more-body .navlink {
+  padding: 12px 11px;
+}
+
+@media (max-width: 768px) {
+  :root {
+    --chrome-h: 150px; /* top bar + main padding + bottom nav */
+  }
+  .sidebar {
+    display: none;
+  }
+  .tb-logo {
+    display: block;
+    width: 22px;
+    height: 22px;
+    border-radius: 5px;
+    flex: 0 0 auto;
+  }
+  .tb-title h2 {
+    font-size: 16px;
+  }
+  .tb-sub {
+    display: none;
+  }
+  .tb-weather:not(.hidden) {
+    display: inline-flex;
+  }
+  /* Forecast model legend: wrap into rows on a phone — a sideways-scrolling strip
+     hides the models past the edge. */
+  .fc-model-legend {
+    flex-wrap: wrap;
+    white-space: normal;
+    overflow: visible;
+  }
+  /* The Forecast / Wind rose switch IS the title on a phone — no room for both. */
+  .tb-title:has(.tb-weather:not(.hidden)) h2 {
+    display: none;
+  }
+  .tb-weather .navlink {
+    padding: 4px 10px;
+  }
+  main {
+    padding-bottom: calc(84px + env(safe-area-inset-bottom));
+  }
+  .bottomnav {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 40;
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 2px;
+    padding: 6px 6px calc(6px + env(safe-area-inset-bottom));
+    background: var(--glass);
+    backdrop-filter: blur(12px);
+    border-top: 1px solid var(--line);
+  }
+  .bottomnav .navlink {
+    flex-direction: column;
+    justify-content: center;
+    gap: 4px;
+    padding: 7px 2px;
+    font-size: 11px;
+    font-weight: 600;
+    border-radius: 10px;
+    min-height: 52px;
+  }
+  .bottomnav .navlink .mi {
+    width: 21px;
+    height: 21px;
+  }
+  .toast {
+    top: auto;
+    right: 12px;
+    left: 12px;
+    transform: none;
+    max-width: none;
+    bottom: calc(80px + var(--vv-bottom, 0px) + env(safe-area-inset-bottom, 0px));
+  }
+  .job,
+  .job-handle {
+    left: 10px;
+    right: 10px;
+    bottom: calc(80px + var(--vv-bottom, 0px) + env(safe-area-inset-bottom, 0px));
+  }
+  .job-handle {
+    left: auto;
+  }
+  .job-now {
+    gap: 8px;
+  }
+  body.job-active main {
+    padding-bottom: calc(150px + env(safe-area-inset-bottom));
+  }
+  /* Selection mode: the toolbar takes the title's place and scrolls sideways. */
+  body.has-sel .tb-title {
+    display: none;
+  }
+  .selbar {
+    margin-left: 0;
+  }
+}
+/* Between a phone and a roomy desktop the sidebar is always the icon rail. */
+@media (min-width: 769px) and (max-width: 1099px) {
+  :root {
+    --sb-w: var(--sb-rail-w);
+  }
+  .sb-brand {
+    flex-direction: column;
+    padding: 2px 0 8px;
+    gap: 8px;
+  }
+  .sb-brand .brand h1,
+  .sb-brand .brand .ver,
+  .sb-sec,
+  .sidebar .navlink span {
+    display: none;
+  }
+  .sb-group {
+    padding-top: 10px;
+  }
+  .sidebar .navlink {
+    justify-content: center;
+    padding: 10px 0;
+  }
+  .sidebar .navlink--status:not([data-conn="none"])::after {
+    display: block;
+  }
+  .sb-toggle {
+    display: none;
+  }
+  .sidebar {
+    padding-left: 8px;
+    padding-right: 8px;
+  }
+}
+
+/* -- Wind vs speed: segmentation explainer (src/segment-demo.ts) --------------- */
+.seg-demo.hidden {
+  display: none;
+}
+.seg-demo-toggle {
+  margin-left: 4px;
+  font-size: 12.5px;
+}
+.seg-demo {
+  margin-top: 10px;
+  display: grid;
+  grid-template-columns: minmax(220px, 420px) 1fr;
+  gap: 6px 16px;
+  align-items: center;
+}
+.sd-svg {
+  width: 100%;
+  height: auto;
+  display: block;
+  background: var(--panel2);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+.sd-track {
+  fill: none;
+  stroke: var(--line-stronger);
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+  stroke-dasharray: 3 3;
+}
+.sd-seg {
+  fill: none;
+  stroke-width: 3.5;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+.sd-end {
+  fill: var(--panel);
+  stroke: var(--text);
+  stroke-width: 1.5;
+}
+.sd-cap {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--muted);
+  max-width: 420px;
+}
+@media (max-width: 768px) {
+  .seg-demo {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* The pane divider only exists in the side-by-side layout below. */
+.fc-splitter {
+  display: none;
+}
+
+/* -- Forecast on a wide screen: map pane + chart pane --------------------------
+   A picker does not deserve a 1700×300 letterbox. From 1400px the view takes the
+   same composition as the Map and Wind rose views: a full-height map pane on the
+   left and the work on the right — the range / presentation toolbar above the
+   legend and the charts, which own the rest of the viewport height (scrolling
+   inside their panel). Hiding the map reverts to the stacked layout with the
+   location strip on top. */
+@media (min-width: 1400px) {
+  #forecastView:not(.hidden):not(:has(.fc-top.collapsed)) {
+    display: grid;
+    /* The map pane's width is the user's (persisted `--fc-split`); the middle
+       column is the drag handle. */
+    grid-template-columns: var(--fc-split, clamp(380px, 32%, 560px)) 14px minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    column-gap: 2px;
+    height: calc(100vh - var(--chrome-h));
+    min-height: 560px;
+  }
+  #forecastView:not(.hidden):not(:has(.fc-top.collapsed)) .fc-splitter {
+    display: flex;
+    grid-column: 2;
+    grid-row: 1 / span 2;
+    align-items: center;
+    justify-content: center;
+    cursor: col-resize;
+    touch-action: none;
+    user-select: none;
+    border-radius: 6px;
+  }
+  #forecastView:not(.hidden):not(:has(.fc-top.collapsed)) .fc-splitter i {
+    width: 4px;
+    height: 36px;
+    border-radius: 2px;
+    background: var(--line-strong);
+    transition:
+      background 0.12s ease,
+      height 0.12s ease;
+  }
+  #forecastView:not(.hidden):not(:has(.fc-top.collapsed)) .fc-splitter:hover i,
+  #forecastView:not(.hidden):not(:has(.fc-top.collapsed)) .fc-splitter:focus-visible i,
+  #forecastView:not(.hidden):not(:has(.fc-top.collapsed)) .fc-splitter.dragging i {
+    background: var(--accent);
+    height: 56px;
+  }
+  #forecastView:not(.hidden):not(:has(.fc-top.collapsed)) .fc-splitter:focus-visible {
+    outline: none;
+    background: var(--accent-tint);
+  }
+  /* While dragging, the whole view (map tiles included) shows the resize cursor;
+     the panes are below the handle in specificity, so no override is needed. */
+  #forecastView.fc-resizing,
+  #forecastView.fc-resizing .fc-top,
+  #forecastView.fc-resizing .fc-comparison,
+  #forecastView.fc-resizing .leaflet-container,
+  #forecastView.fc-resizing .leaflet-grab,
+  #forecastView.fc-resizing canvas {
+    cursor: col-resize;
+  }
+  #forecastView:not(.hidden):not(:has(.fc-top.collapsed)) .fc-top {
+    --fc-map-height: 100%;
+    grid-column: 1;
+    grid-row: 1 / span 2;
+    height: 100%;
+    min-height: 0;
+    margin-bottom: 0;
+  }
+  #forecastView:not(.hidden):not(:has(.fc-top.collapsed)) .fc-map-wrap {
+    height: 100%;
+    min-height: 0;
+  }
+  #forecastView:not(.hidden):not(:has(.fc-top.collapsed)) #forecastMap {
+    min-height: 0;
+  }
+  #forecastView:not(.hidden):not(:has(.fc-top.collapsed)) .fc-options {
+    grid-column: 3;
+    grid-row: 1;
+    margin-bottom: 10px;
+  }
+  /* In the narrower pane the toolbar wraps (Presentation under Range) rather than clipping. */
+  #forecastView:not(.hidden):not(:has(.fc-top.collapsed)) .fc-option-row {
+    flex-wrap: wrap;
+    row-gap: 10px;
+  }
+  #forecastView:not(.hidden):not(:has(.fc-top.collapsed)) .fc-comparison {
+    grid-column: 3;
+    grid-row: 2;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  #forecastView:not(.hidden):not(:has(.fc-top.collapsed)) .fc-charts {
+    flex: 1 1 auto;
+    min-height: 0;
+    max-height: none;
+  }
+  /* The chart pane owns the height here, so the model row wraps instead of
+     scrolling sideways — nothing is hidden off the right edge. */
+  #forecastView:not(.hidden):not(:has(.fc-top.collapsed)) .fc-model-legend {
+    flex-wrap: wrap;
+    overflow: visible;
+    white-space: normal;
+  }
+  #forecastView:not(.hidden):not(:has(.fc-top.collapsed)) .fc-compare-style {
+    position: static;
+  }
+  #forecastView:not(.hidden):not(:has(.fc-top.collapsed)) .fc-credit-footer {
+    grid-column: 1 / -1;
+    grid-row: 3;
+    margin: 6px 2px 0;
+  }
 }

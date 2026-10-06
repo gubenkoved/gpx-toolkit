@@ -3,7 +3,6 @@
 import L from "leaflet";
 import {
   DEFAULT_FORECAST_METRICS,
-  DEFAULT_FORECAST_MODEL_IDS,
   FORECAST_HISTORY_HOURS,
   FORECAST_REFRESH_INTERVAL_MS,
   type ForecastCompareStyle,
@@ -16,6 +15,7 @@ import {
   type HourlyForecast,
   type LocationResult,
   mergeForecastHistory,
+  recommendForecastModels,
   sliceForecastWindow,
   toggleModelGroupSelection,
 } from "./forecast";
@@ -27,6 +27,7 @@ import {
   drawForecastRow,
   type ForecastChartLane,
   type ForecastChartOptions,
+  type ForecastComparisonDetails,
   forecastChartHeight,
   forecastComparisonDetails,
   forecastComparisonHeight,
@@ -40,7 +41,9 @@ import {
   speedUnitLabel,
   windTravelDeg,
 } from "./forecast-chart";
+import { WeatherFx, type WeatherSnapshot } from "./forecast-fx";
 import type { ForecastStore } from "./forecast-store";
+import { icon } from "./icons";
 import { createInteractiveMap, createLocationPointIcon } from "./map-core";
 import { type RoutePoint, sameRoutePoint } from "./router";
 import { browserZone, loadTz, zoneForPoint } from "./tz";
@@ -106,6 +109,25 @@ let searching = false;
 let renameMode: "new" | "existing" | null = null;
 let hoveredCompareModel: string | null = null;
 let compareTrackClickTimer: ReturnType<typeof setTimeout> | null = null;
+/** Map hidden behind a one-line location strip (persisted): the charts get the room. */
+let mapCollapsed = readMapCollapsed();
+/** Hover-synced weather on the map: the effects overlay + a corner readout pill. */
+const fx = new WeatherFx();
+const MAP_COLLAPSED_KEY = "gpx_toolkit.forecast_map_collapsed";
+/** Width of the map pane in the side-by-side layout (px), persisted. */
+const SPLIT_KEY = "gpx_toolkit.forecast_split";
+const SPLIT_MIN = 320;
+const SPLIT_STEP = 24;
+/** The chart pane never drops below this, whatever the saved split says. */
+const CHART_PANE_MIN = 640;
+
+function readMapCollapsed(): boolean {
+  try {
+    return localStorage.getItem("gpx_toolkit.forecast_map_collapsed") === "1";
+  } catch {
+    return false;
+  }
+}
 let resizeObserver: ResizeObserver | null = null;
 let rowObserver: IntersectionObserver | null = null;
 let renderedPresentation: ForecastPresentation | null = null;
@@ -188,6 +210,7 @@ export function initForecastView(d: ForecastViewDeps): void {
     renderToolbar();
     renderSearchResults();
   });
+  initSplitter();
   $("forecastCharts")?.addEventListener("pointermove", onChartPointerMove);
   $("forecastCharts")?.addEventListener("pointerdown", onChartPointerDown);
   $("forecastCharts")?.addEventListener("pointerup", onChartPointerUp);
@@ -208,6 +231,7 @@ export function initForecastView(d: ForecastViewDeps): void {
   detailSheet?.addEventListener("pointercancel", onDetailResizeEnd);
   detailSheet?.addEventListener("keydown", onDetailResizeKeydown);
   window.addEventListener("resize", applyDetailHeight);
+  window.addEventListener("resize", clampSplit);
   window.visualViewport?.addEventListener("resize", applyDetailHeight);
   window.addEventListener("focus", () => {
     if (!mounted) return;
@@ -225,6 +249,7 @@ export function initForecastView(d: ForecastViewDeps): void {
 }
 
 export async function mountForecastView(): Promise<void> {
+  applyMapCollapsed();
   if (!deps) return;
   if (mounted) {
     if (ready) {
@@ -267,6 +292,7 @@ export async function mountForecastView(): Promise<void> {
 }
 
 export function leaveForecastView(): void {
+  fx.set(null);
   mounted = false;
   ready = false;
   stopForecastTimers();
@@ -392,6 +418,7 @@ function ensureMap(): void {
   }
   map = createInteractiveMap(host);
   map.setView([52.2, 5.3], 7);
+  fx.attach(host);
   map.on("click", (event: L.LeafletMouseEvent) => {
     void choosePoint(rawPoint(event.latlng.lat, event.latlng.lng), false, false);
   });
@@ -426,6 +453,7 @@ async function choosePoint(
   loadAbort?.abort();
   clearForecastRefreshTimer();
   point = next;
+  autoFillRounds = 0;
   renameMode = null;
   forecasts.clear();
   displayForecastCache.clear();
@@ -454,12 +482,15 @@ function candidateIds(): string[] {
   return selectedModels ?? recommendedModelIds();
 }
 
+/** The auto set: the best models for the picked point (see recommendForecastModels),
+ *  leaving out any that already came back empty here so a replacement moves up. */
 function recommendedModelIds(): string[] {
-  const allIds = deps.provider.models.map((model) => model.id);
-  const available = new Set(allIds);
-  const preferred = DEFAULT_FORECAST_MODEL_IDS.filter((id) => available.has(id));
-  return [...preferred, ...allIds.filter((id) => !preferred.includes(id))].slice(0, 5);
+  const at = point ?? { lat: 52.37, lon: 4.9 };
+  const empty = new Set([...forecasts.values()].filter((f) => f.noData).map((f) => f.modelId));
+  return recommendForecastModels(deps.provider.models, at, { exclude: empty });
 }
+/** Rounds of "a model came back empty → fetch its replacement" per point (bounded). */
+let autoFillRounds = 0;
 
 function ageLabel(timestamp: number, now = Date.now()): string {
   const minutes = Math.max(0, Math.floor((now - timestamp) / 60_000));
@@ -592,6 +623,18 @@ async function refreshForecast(force: boolean): Promise<void> {
       forecasts.set(item.modelId, merged);
       await store.putForecast(merged);
     }
+    // Auto mode: a model that came back empty for this point has dropped out of the
+    // recommended set and a replacement moved in — fetch it (at most twice).
+    if (selectedModels === null && autoFillRounds < 2) {
+      // Only ids that moved into the set — never one we just asked for and the
+      // provider left out (that is the provider's answer, not a swap).
+      const missing = candidateIds().filter((id) => !forecasts.get(id) && !need.includes(id));
+      if (missing.length) {
+        autoFillRounds++;
+        void refreshForecast(false);
+        return;
+      }
+    }
     const available = visibleForecasts();
     status = available.length
       ? cachedStatus("Updated")
@@ -654,8 +697,10 @@ function chartOptions(): ForecastChartOptions {
     focusedLane,
     focusedModelId: presentation === "compare" ? hoveredCompareModel : null,
     showModelTracks: compareStyle === "models",
-    cursorDetails:
-      presentation === "compare" && selectionSource === "touch" ? "external" : "inline",
+    // The combined chart never draws a details card over the lanes: the per-model
+    // values live in the legend above it (renderCompareLegendValues) and the hour's
+    // summary in the readout line; touch keeps its docked sheet.
+    cursorDetails: presentation === "compare" ? "external" : "inline",
     modelLabels: new Map(
       deps.provider.models.map((model) => [model.id, `${model.provider} · ${model.label}`]),
     ),
@@ -688,6 +733,7 @@ function renderFetchedAt(): void {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(fetchedAt);
+  $("forecastRefresh")?.setAttribute("title", `Refresh forecast now · updated ${relative}`);
   time.dateTime = new Date(fetchedAt).toISOString();
   time.title = `Oldest selected forecast fetched ${exact}`;
   time.setAttribute("aria-label", `Forecast last fetched ${relative}, at ${exact}`);
@@ -698,6 +744,12 @@ function renderFetchedAt(): void {
 function renderToolbar(): void {
   const label = $("forecastPointLabel");
   if (label) label.textContent = point?.label ?? "No point selected";
+  const stripLabel = $("forecastStripLabel");
+  if (stripLabel) stripLabel.textContent = point?.label ?? "No point selected";
+  $("forecastStripSearch")?.setAttribute(
+    "aria-expanded",
+    locationPickerOpen ? "true" : "false",
+  );
   const stat = $("forecastStatus");
   if (stat) stat.textContent = status;
   renderFetchedAt();
@@ -786,6 +838,8 @@ function renderModelPicker(): void {
   const recommended = new Set(recommendedModelIds());
   const isRecommended =
     checked.size === recommended.size && [...checked].every((id) => recommended.has(id));
+  const recBtn = $("forecastModelsRecommended");
+  if (recBtn) recBtn.textContent = `Best for this spot · ${recommended.size}`;
   const presets: Array<[string, boolean]> = [
     ["forecastModelsRecommended", isRecommended],
     ["forecastModelsReset", checked.size === deps.provider.models.length],
@@ -836,15 +890,53 @@ function renderDisplayOptions(): void {
     const shown = visibleForecasts();
     const hiddenCount = shown.filter((item) => hiddenCompareModels.has(item.modelId)).length;
     comparisonLegend.classList.toggle("hidden", presentation !== "compare" || !shown.length);
-    comparisonLegend.innerHTML =
-      `<span class="fc-compare-style" role="group" aria-label="Comparison detail"><button type="button" data-compare-style="consensus" class="${compareStyle === "consensus" ? "active" : ""}" aria-pressed="${compareStyle === "consensus"}" aria-label="Consensus — model minimum–maximum range with bold median" title="Model minimum–maximum range with a bold median">Consensus</button><button type="button" data-compare-style="models" class="${compareStyle === "models" ? "active" : ""}" aria-pressed="${compareStyle === "models"}">All lines</button></span>` +
+    // The Consensus / All lines seg is built once and its active state flipped in place
+    // — a seg rebuilt from markup would lose its sliding thumb.
+    let seg = comparisonLegend.querySelector<HTMLElement>(":scope > .fc-compare-style");
+    if (!seg) {
+      comparisonLegend.innerHTML =
+        `<span class="seg fc-compare-style" role="group" aria-label="Comparison detail"><button type="button" data-compare-style="consensus" aria-label="Consensus — model minimum–maximum range with bold median" title="Model minimum–maximum range with a bold median">${icon("band")}Consensus</button><button type="button" data-compare-style="models">${icon("lines")}All lines</button></span>` +
+        // Phones: the model list folds behind this button (dots in each model's colour).
+        `<button type="button" class="fc-models-peek" aria-expanded="false" aria-controls="forecastCompareLegend"></button>` +
+        `<span class="fc-model-list"></span>`;
+      seg = comparisonLegend.querySelector<HTMLElement>(":scope > .fc-compare-style")!;
+      comparisonLegend.querySelector(".fc-models-peek")?.addEventListener("click", () => {
+        const open = !comparisonLegend.classList.contains("open");
+        comparisonLegend.classList.toggle("open", open);
+        comparisonLegend
+          .querySelector(".fc-models-peek")
+          ?.setAttribute("aria-expanded", String(open));
+      });
+    }
+    const peek = comparisonLegend.querySelector<HTMLElement>(":scope > .fc-models-peek");
+    if (peek) {
+      const on = shown.filter((i) => !hiddenCompareModels.has(i.modelId)).length;
+      peek.innerHTML =
+        `<span class="fc-peek-dots">${shown
+          .map(
+            (i) =>
+              `<i style="--model-color:${forecastModelColor(i.modelId)}"${hiddenCompareModels.has(i.modelId) ? ' class="off"' : ""}></i>`,
+          )
+          .join("")}</span>` +
+        `<span>${on === shown.length ? `${shown.length} models` : `${on} of ${shown.length} models`}</span>` +
+        `<svg class="fc-peek-caret" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>`;
+    }
+    for (const b of seg.querySelectorAll<HTMLButtonElement>("button")) {
+      const on = b.dataset.compareStyle === compareStyle;
+      b.classList.toggle("active", on);
+      b.setAttribute("aria-pressed", String(on));
+    }
+    const list = comparisonLegend.querySelector<HTMLElement>(":scope > .fc-model-list")!;
+    const sig = `${shown.map((i) => i.modelId).join(",")}|${[...hiddenCompareModels].join(",")}|${hoveredCompareModel ?? ""}`;
+    if (list.dataset.sig !== sig) list.dataset.sig = sig;
+    list.innerHTML =
       shown
         .map((item) => {
           const model = modelFor(item.modelId);
           const active = !hiddenCompareModels.has(item.modelId);
           const focused = active && hoveredCompareModel === item.modelId;
           const color = forecastModelColor(item.modelId);
-          return `<button type="button" class="fc-track-toggle${active ? " active" : ""}${focused ? " focused" : ""}" style="--model-color:${color}" data-compare-model="${deps.esc(item.modelId)}" aria-pressed="${active}" title="${active ? "Hide" : "Show"} ${deps.esc(`${model.provider} ${model.label}`)}; double-click to isolate"><i></i><span>${deps.esc(model.provider)} · ${deps.esc(model.label)}</span></button>`;
+          return `<button type="button" class="fc-track-toggle${active ? " active" : ""}${focused ? " focused" : ""}" style="--model-color:${color}" data-compare-model="${deps.esc(item.modelId)}" aria-pressed="${active}" title="${active ? "Hide" : "Show"} ${deps.esc(`${model.provider} ${model.label}`)}; double-click to isolate"><i></i><span>${deps.esc(model.provider)} · ${deps.esc(model.label)}</span><em class="fc-track-val" aria-hidden="true"></em></button>`;
         })
         .join("") +
       (hiddenCount
@@ -855,23 +947,15 @@ function renderDisplayOptions(): void {
 }
 
 const FORECAST_HOUR_MS = 3_600_000;
-const TABLE_HOUR_WIDTH = 80;
 
 function updateTableNowMarker(now = Date.now()): void {
   const host = $("forecastCharts");
   if (!host || presentation !== "textual") return;
   const currentHour = Math.floor(now / FORECAST_HOUR_MS) * FORECAST_HOUR_MS;
-  const progress = Math.max(0, Math.min(1, (now - currentHour) / FORECAST_HOUR_MS));
-  const remaining = Math.max(1, currentHour + FORECAST_HOUR_MS - now);
-  host.style.setProperty("--fc-now-progress", progress.toFixed(6));
-  host.style.setProperty("--fc-now-duration", `${remaining}ms`);
-  host.querySelectorAll<HTMLElement>("[data-time].current").forEach((cell) => {
-    cell.classList.remove("current");
-  });
-  // Restart the CSS animation from the exact wall-clock position after a render or wake.
-  void host.offsetWidth;
-  host.querySelectorAll<HTMLElement>(`[data-time="${currentHour}"]`).forEach((cell) => {
-    cell.classList.add("current");
+  host.querySelectorAll<HTMLElement>("[data-time]").forEach((row) => {
+    const t = Number(row.dataset.time);
+    row.classList.toggle("current", t === currentHour);
+    row.classList.toggle("past", t < currentHour);
   });
 }
 
@@ -885,16 +969,10 @@ function scheduleForecastNowMarker(): void {
   forecastNowTimer = setTimeout(() => scheduleForecastNowMarker(), delay);
 }
 
+/** Each enabled measure is its own table (wind carries the direction arrow inline). */
 function tableMetricOptions(): ForecastMetric[] {
   const enabled = new Set(metrics);
-  const options: ForecastMetric[] = [];
-  if (enabled.has("windSpeed")) options.push("windSpeed");
-  else if (enabled.has("windGust")) options.push("windGust");
-  for (const metric of DEFAULT_FORECAST_METRICS) {
-    if (metric === "windSpeed" || metric === "windGust" || !enabled.has(metric)) continue;
-    options.push(metric);
-  }
-  return options;
+  return DEFAULT_FORECAST_METRICS.filter((metric) => enabled.has(metric));
 }
 
 function activeTableMetric(): ForecastMetric {
@@ -904,7 +982,7 @@ function activeTableMetric(): ForecastMetric {
 }
 
 function tableMetricLabel(metric: ForecastMetric): string {
-  if (metric === "windSpeed") return metrics.includes("windGust") ? "Wind + gust" : "Wind";
+  if (metric === "windSpeed") return "Wind";
   if (metric === "windGust") return "Gusts";
   if (metric === "windDirection") return "Direction";
   if (metric === "precipitation") return "Rain";
@@ -915,9 +993,7 @@ function tableMetricLabel(metric: ForecastMetric): string {
 
 function tableMetricUnit(metric: ForecastMetric): string {
   if (metric === "windSpeed")
-    return metrics.includes("windGust")
-      ? `${speedUnitLabel(speedUnit)} · gust shown smaller`
-      : speedUnitLabel(speedUnit);
+    return `${speedUnitLabel(speedUnit)} · the arrow points where the wind blows to`;
   if (metric === "windGust") return speedUnitLabel(speedUnit);
   if (metric === "windDirection") return "from · degrees";
   if (metric === "precipitation") return "mm";
@@ -957,20 +1033,40 @@ function renderTableControls(): void {
   host.classList.toggle("hidden", !shown);
   if (!shown) {
     host.innerHTML = "";
+    delete host.dataset.sig;
     return;
   }
   const metric = activeTableMetric();
-  host.innerHTML =
-    `<b>Measure</b>` +
-    (options.length > 1
-      ? `<span class="seg" role="group" aria-label="Table measure">${options
-          .map((option) => {
-            const label = tableMetricLabel(option);
-            return `<button type="button" data-table-metric="${option}" class="${option === metric ? "active" : ""}" aria-pressed="${option === metric}" aria-label="${deps.esc(label)}" title="${deps.esc(label)}">${tableMetricIcon(option)}<span>${deps.esc(label)}</span></button>`;
-          })
-          .join("")}</span>`
-      : `<span class="fc-table-measure">${deps.esc(tableMetricLabel(metric))}</span>`) +
-    `<small aria-label="${deps.esc(tableMetricUnit(metric))}"><span class="fc-table-unit-wide">${deps.esc(tableMetricUnit(metric))}</span><span class="fc-table-unit-narrow">${deps.esc(tableMetricShortUnit(metric))}</span></small>`;
+  const sig = options.join(",");
+  if (host.dataset.sig !== sig) {
+    // The option set changed: rebuild. Otherwise the seg persists and only its active
+    // button flips, so the thumb slides.
+    host.dataset.sig = sig;
+    host.innerHTML =
+      `<b>Measure</b>` +
+      (options.length > 1
+        ? `<span class="seg" role="group" aria-label="Table measure">${options
+            .map((option) => {
+              const label = tableMetricLabel(option);
+              return `<button type="button" data-table-metric="${option}" aria-label="${deps.esc(label)}" title="${deps.esc(label)}">${tableMetricIcon(option)}<span>${deps.esc(label)}</span></button>`;
+            })
+            .join("")}</span>`
+        : `<span class="fc-table-measure">${deps.esc(tableMetricLabel(metric))}</span>`) +
+      `<small><span class="fc-table-unit-wide"></span><span class="fc-table-unit-narrow"></span></small>`;
+  }
+  for (const b of host.querySelectorAll<HTMLButtonElement>("[data-table-metric]")) {
+    const on = b.dataset.tableMetric === metric;
+    b.classList.toggle("active", on);
+    b.setAttribute("aria-pressed", String(on));
+  }
+  const unit = host.querySelector<HTMLElement>("small");
+  if (unit) {
+    unit.setAttribute("aria-label", tableMetricUnit(metric));
+    const wide = unit.querySelector<HTMLElement>(".fc-table-unit-wide");
+    const narrow = unit.querySelector<HTMLElement>(".fc-table-unit-narrow");
+    if (wide) wide.textContent = tableMetricUnit(metric);
+    if (narrow) narrow.textContent = tableMetricShortUnit(metric);
+  }
 }
 
 function modelHeader(model: ForecastModel, stale: boolean): string {
@@ -987,88 +1083,118 @@ function modelHeader(model: ForecastModel, stale: boolean): string {
   );
 }
 
-function hourlyTable(
-  item: HourlyForecast,
+// -- Table mode: a timetable ------------------------------------------------------
+// Hours run DOWN the page (a day heading between days), models ACROSS — a consensus
+// column first when more than one model is shown. One figure per cell, tinted by its
+// magnitude so a windy afternoon or a wet evening stands out before you read a number;
+// the wind cell carries a small arrow pointing where the wind blows to.
+
+interface TableCell {
+  text: string;
+  /** Tint strength 0..~0.6 (0 = none). */
+  heat: number;
+  /** Which tint: the heat token's suffix (wind / rain / warm / cold / cloud). */
+  hue: string;
+  /** Wind FROM-direction to draw as an arrow, when the measure carries one. */
+  dir?: number | null;
+  /** Soft figure (a 0 mm hour, a calm hour). */
+  quiet?: boolean;
+}
+
+interface HourValues {
+  speed: number | null;
+  gust: number | null;
+  dir: number | null;
+  rain: number | null;
+  temp: number | null;
+  pressure: number | null;
+  cloud: number | null;
+}
+
+const windHeat = (kmh: number): number => 0.55 * Math.min(1, kmh / 45) ** 1.15;
+const rainHeat = (mm: number): number =>
+  mm < 0.05 ? 0 : 0.12 + 0.5 * Math.min(1, mm / 4) ** 0.7;
+
+function tableCellFor(metric: ForecastMetric, v: HourValues): TableCell | null {
+  const wind = (kmh: number): string =>
+    convertWindSpeed(kmh, speedUnit).toFixed(speedUnit === "kmh" ? 0 : 1);
+  switch (metric) {
+    case "windSpeed":
+      if (v.speed == null) return null;
+      return {
+        text: wind(v.speed),
+        heat: windHeat(v.speed),
+        hue: "wind",
+        dir: v.dir,
+        quiet: v.speed < 3,
+      };
+    case "windGust":
+      if (v.gust == null) return null;
+      return { text: wind(v.gust), heat: windHeat(v.gust), hue: "wind" };
+    case "windDirection":
+      if (v.dir == null) return null;
+      return { text: compassFrom(v.dir), heat: 0, hue: "wind", dir: v.dir };
+    case "precipitation":
+      if (v.rain == null) return null;
+      return {
+        text: v.rain < 0.05 ? "0" : v.rain.toFixed(1),
+        heat: rainHeat(v.rain),
+        hue: "rain",
+        quiet: v.rain < 0.05,
+      };
+    case "temperature": {
+      if (v.temp == null) return null;
+      const t = v.temp;
+      const cold = t <= 12;
+      const warm = t >= 18;
+      return {
+        text: `${Math.round(t)}°`,
+        heat: cold
+          ? 0.5 * Math.min(1, (12 - t) / 14)
+          : warm
+            ? 0.5 * Math.min(1, (t - 18) / 14)
+            : 0,
+        hue: cold ? "cold" : "warm",
+      };
+    }
+    case "pressure":
+      if (v.pressure == null) return null;
+      return { text: String(Math.round(v.pressure)), heat: 0, hue: "cloud" };
+    default:
+      if (v.cloud == null) return null;
+      return {
+        text: `${Math.round(v.cloud)}`,
+        heat: (v.cloud / 100) * 0.35,
+        hue: "cloud",
+        quiet: v.cloud < 10,
+      };
+  }
+}
+
+function tableCellHtml(cell: TableCell | null, extraClass = ""): string {
+  if (!cell) return `<div class="fc-tt-cell empty${extraClass}" role="cell">·</div>`;
+  const arrow =
+    cell.dir == null
+      ? ""
+      : `<i class="fc-tt-arrow" style="transform:rotate(${windTravelDeg(cell.dir).toFixed(0)}deg)" title="from ${compassFrom(cell.dir)} · ${Math.round(cell.dir)}°"></i>`;
+  const style =
+    cell.heat > 0.005
+      ? ` style="--h:${cell.heat.toFixed(3)};--heat:var(--fc-heat-${cell.hue})"`
+      : "";
+  return `<div class="fc-tt-cell${cell.quiet ? " quiet" : ""}${extraClass}" role="cell"${style}>${cell.text}${arrow}</div>`;
+}
+
+function timetableHtml(
+  shown: HourlyForecast[],
   timeline: ReturnType<typeof sharedForecastTimeline>,
   metric: ForecastMetric,
 ): string {
-  const indexes = new Map(item.times.map((time, index) => [time, index]));
-  const wind = (value: number | null | undefined): string =>
-    value == null
-      ? "—"
-      : convertWindSpeed(value, speedUnit).toFixed(speedUnit === "kmh" ? 0 : 1);
-  const value = (itemValue: number | null | undefined, digits = 0): string =>
-    itemValue == null ? "—" : itemValue.toFixed(digits);
-  const cellValue = (index: number): string | null => {
-    if (metric === "windSpeed") {
-      const average = item.windSpeedKmh[index];
-      const gust = metrics.includes("windGust") ? item.windGustKmh[index] : null;
-      if (average == null && gust == null) return null;
-      return (
-        `<span class="fc-hour-primary wind">${wind(average)}</span>` +
-        (gust == null ? "" : `<span class="fc-hour-secondary gust">gust ${wind(gust)}</span>`)
-      );
-    }
-    if (metric === "windGust") {
-      const gust = item.windGustKmh[index];
-      return gust == null ? null : `<span class="fc-hour-primary gust">${wind(gust)}</span>`;
-    }
-    if (metric === "windDirection") {
-      const direction = item.windDirectionDeg[index];
-      return direction == null
-        ? null
-        : `<span class="fc-hour-primary direction"><i style="--direction:${windTravelDeg(direction)}deg">↑</i>${compassFrom(direction)}</span><span class="fc-hour-secondary">${Math.round(direction)}°</span>`;
-    }
-    if (metric === "precipitation") {
-      const rain = item.precipitationMm[index];
-      return rain == null
-        ? null
-        : `<span class="fc-hour-primary rain">${value(rain, 1)}</span>`;
-    }
-    if (metric === "temperature") {
-      const temperature = item.temperatureC[index];
-      return temperature == null
-        ? null
-        : `<span class="fc-hour-primary temp">${value(temperature, 1)}</span>`;
-    }
-    if (metric === "pressure") {
-      const pressure = item.pressureHpa[index];
-      return pressure == null
-        ? null
-        : `<span class="fc-hour-primary pressure">${value(pressure)}</span>`;
-    }
-    const cloud = item.cloudCoverPct[index];
-    return cloud == null ? null : `<span class="fc-hour-primary cloud">${value(cloud)}</span>`;
-  };
-  const currentHour = Math.floor(Date.now() / FORECAST_HOUR_MS) * FORECAST_HOUR_MS;
-  const cells: string[] = [];
-  for (let offset = 0; offset < timeline.hours; offset++) {
-    const time = timeline.startMs + offset * FORECAST_HOUR_MS;
-    const index = indexes.get(time) ?? -1;
-    const content = index >= 0 ? cellValue(index) : null;
-    const available = content != null;
-    const classes = [
-      "fc-hour-cell",
-      available ? "" : "empty",
-      time === currentHour ? "current" : "",
-      time === selectedTime ? "selected" : "",
-    ]
-      .filter(Boolean)
-      .join(" ");
-    cells.push(
-      `<div class="${classes}" role="cell" data-time="${time}">${content ?? `<span class="fc-hour-empty">No data</span>`}</div>`,
-    );
-  }
-  const width = Math.max(TABLE_HOUR_WIDTH, timeline.hours * TABLE_HOUR_WIDTH);
-  return `<div class="fc-hourly-grid" role="row" style="width:${width}px;grid-template-columns:repeat(${timeline.hours},${TABLE_HOUR_WIDTH}px)">${cells.join("")}</div>`;
-}
-
-function hourlyTableHeading(timeline: ReturnType<typeof sharedForecastTimeline>): string {
-  const weekdayFmt = new Intl.DateTimeFormat(undefined, {
+  const dayFmt = new Intl.DateTimeFormat(undefined, {
     timeZone: zone,
-    weekday: "short",
+    weekday: "long",
+    day: "numeric",
+    month: "short",
   });
-  const dayFmt = new Intl.DateTimeFormat(undefined, { timeZone: zone, day: "numeric" });
   const dayKeyFmt = new Intl.DateTimeFormat("en-CA", {
     timeZone: zone,
     year: "numeric",
@@ -1081,31 +1207,90 @@ function hourlyTableHeading(timeline: ReturnType<typeof sharedForecastTimeline>)
     minute: "2-digit",
     hour12: false,
   });
+  const indexes = shown.map((item) => new Map(item.times.map((time, index) => [time, index])));
   const currentHour = Math.floor(Date.now() / FORECAST_HOUR_MS) * FORECAST_HOUR_MS;
+  const consensus = shown.length > 1;
+  const head =
+    `<div class="fc-tt-head" role="row"><div class="fc-tt-corner" role="columnheader">Local time</div>` +
+    (consensus
+      ? `<div class="fc-tt-col cons" role="columnheader" title="The median of the ${shown.length} models shown (directions: their mean)"><b>Consensus</b><small>median of ${shown.length}</small></div>`
+      : "") +
+    shown
+      .map((item) => {
+        const model = modelFor(item.modelId);
+        const name = `${model.provider} ${model.label}`;
+        const stale = forecastIsStale(item);
+        const selected = selectedTableModel === model.id;
+        return (
+          `<div class="fc-tt-col" role="columnheader" style="--mc:${forecastModelColor(model.id)}" title="${deps.esc(name)} · ${deps.esc(model.resolution)} · ${model.nativeHours}h native${stale ? " · stale" : ""}">` +
+          `<b>${deps.esc(model.provider)}</b><span>${deps.esc(model.label)}</span><small>${deps.esc(model.resolution)}${stale ? " · stale" : ""}</small>` +
+          `<button type="button" class="fc-model-reveal fc-tt-info" data-table-model="${deps.esc(model.id)}" aria-pressed="${selected}" aria-label="${selected ? "Hide" : "Show"} details for ${deps.esc(name)}" title="${deps.esc(name)}"><svg class="mi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></svg></button>` +
+          `</div>`
+        );
+      })
+      .join("") +
+    `</div>`;
+  const rows: string[] = [];
   let previousDay = "";
-  const cells: string[] = [];
   for (let offset = 0; offset < timeline.hours; offset++) {
     const time = timeline.startMs + offset * FORECAST_HOUR_MS;
     const dayKey = dayKeyFmt.format(time);
-    const day =
-      dayKey !== previousDay ? `${weekdayFmt.format(time)} ${dayFmt.format(time)}` : "";
-    previousDay = dayKey;
+    if (dayKey !== previousDay) {
+      rows.push(
+        `<div class="fc-tt-day" role="rowheader">${deps.esc(dayFmt.format(time))}</div>`,
+      );
+      previousDay = dayKey;
+    }
+    const values: Array<HourValues | null> = shown.map((item, k) => {
+      const i = indexes[k].get(time);
+      if (i == null) return null;
+      return {
+        speed: item.windSpeedKmh[i],
+        gust: item.windGustKmh[i],
+        dir: item.windDirectionDeg[i],
+        rain: item.precipitationMm[i],
+        temp: item.temperatureC[i],
+        pressure: item.pressureHpa[i],
+        cloud: item.cloudCoverPct[i],
+      };
+    });
+    let cons = "";
+    if (consensus) {
+      const pick = (key: Exclude<keyof HourValues, "dir">): number | null =>
+        median(values.flatMap((v) => (v && v[key] != null ? [v[key] as number] : [])));
+      const dirs = values.flatMap((v) => (v && v.dir != null ? [v.dir] : []));
+      const any = values.some((v) => v);
+      cons = tableCellHtml(
+        any
+          ? tableCellFor(metric, {
+              speed: pick("speed"),
+              gust: pick("gust"),
+              dir: meanDirection(dirs),
+              rain: pick("rain"),
+              temp: pick("temp"),
+              pressure: pick("pressure"),
+              cloud: pick("cloud"),
+            })
+          : null,
+        " cons",
+      );
+    }
+    const cells = values
+      .map((v) => tableCellHtml(v ? tableCellFor(metric, v) : null))
+      .join("");
     const classes = [
-      "fc-hour-heading",
+      "fc-tt-row",
+      time < currentHour ? "past" : "",
       time === currentHour ? "current" : "",
       time === selectedTime ? "selected" : "",
     ]
       .filter(Boolean)
       .join(" ");
-    cells.push(
-      `<div class="${classes}" role="columnheader" data-time="${time}" title="${deps.esc(`${weekdayFmt.format(time)} ${dayFmt.format(time)}, ${hourFmt.format(time)}`)}">${day ? `<b>${deps.esc(day)}</b>` : ""}<span>${deps.esc(hourFmt.format(time))}</span></div>`,
+    rows.push(
+      `<div class="${classes}" role="row" data-time="${time}"><div class="fc-tt-time" role="rowheader">${deps.esc(hourFmt.format(time))}</div>${cons}${cells}</div>`,
     );
   }
-  const width = Math.max(TABLE_HOUR_WIDTH, timeline.hours * TABLE_HOUR_WIDTH);
-  return (
-    `<div class="fc-hourly-heading-row" role="row"><div class="fc-hourly-corner" role="columnheader">Local time</div>` +
-    `<div class="fc-hourly-grid fc-hourly-headings" style="width:${width}px;grid-template-columns:repeat(${timeline.hours},${TABLE_HOUR_WIDTH}px)">${cells.join("")}</div></div>`
-  );
+  return `<div class="fc-tt" style="--cols:${shown.length + (consensus ? 1 : 0)}">${head}${rows.join("")}</div>`;
 }
 
 function updateTableSelection(): void {
@@ -1144,8 +1329,12 @@ function renderCharts(): void {
     timeline.hours,
     Math.max(620, host.clientWidth - (isCompare ? 0 : 190)),
   );
+  // Side by side, the chart panel owns its column's height — fill it. Otherwise the
+  // combined chart takes a viewport share (more when the map is hidden).
   const height = isCompare
-    ? forecastComparisonHeight(window.innerHeight)
+    ? sideBySide()
+      ? Math.max(420, host.clientHeight - 2)
+      : forecastComparisonHeight(window.innerHeight, mapCollapsed)
     : forecastChartHeight(options.metrics);
   const oldScroll = host.scrollLeft;
   const oldScrollTop = host.scrollTop;
@@ -1172,34 +1361,36 @@ function renderCharts(): void {
         `<article class="fc-model-row" data-model-row="${model.id}">` +
         modelHeader(model, stale) +
         (isTable
-          ? hourlyTable(item, timeline, selectedTableMetric!)
+          ? ""
           : `<canvas style="width:${width}px;height:${height}px" aria-label="Hourly forecast from ${deps.esc(model.provider)} ${deps.esc(model.label)}"></canvas>`) +
         `</article>`
       );
     })
     .join("");
   host.innerHTML = isTable
-    ? hourlyTableHeading(timeline) + rows
+    ? timetableHtml(shown, timeline, selectedTableMetric!)
     : isCompare
       ? compared.length
         ? `<canvas class="fc-compare-canvas" style="width:${width}px;height:${height}px" aria-label="Combined hourly forecast from ${compared.length} enabled models"></canvas>`
         : `<div class="fc-compare-empty" style="height:${height}px">All model tracks are hidden. Enable one in the legend above.</div>`
       : rows;
-  if (isTable && presentationChanged) {
-    const nowIndex = Math.max(
-      0,
-      Math.min(
-        timeline.hours - 1,
-        Math.floor((Date.now() - timeline.startMs) / FORECAST_HOUR_MS),
-      ),
-    );
-    host.scrollLeft = Math.max(0, nowIndex * TABLE_HOUR_WIDTH - 40);
-  } else {
-    host.scrollLeft = presentationChanged ? 0 : oldScroll;
-  }
+  host.scrollLeft = presentationChanged ? 0 : oldScroll;
   host.scrollTop = oldScrollTop;
   if (isTable) {
     updateTableNowMarker();
+    // The sticky day line sits under the sticky header, whose height depends on the
+    // width (names take two lines on a phone) — measure it.
+    const tt = host.querySelector<HTMLElement>(".fc-tt");
+    const headH = host.querySelector<HTMLElement>(".fc-tt-head")?.offsetHeight ?? 58;
+    tt?.style.setProperty("--tt-head", `${headH}px`);
+    if (presentationChanged) {
+      // Open on the current hour: just under the sticky head + day line.
+      const now = host.querySelector<HTMLElement>(".fc-tt-row.current");
+      if (now) {
+        const top = now.getBoundingClientRect().top - host.getBoundingClientRect().top;
+        host.scrollTop = Math.max(0, host.scrollTop + top - headH - 32);
+      }
+    }
     renderReadout();
     return;
   }
@@ -1435,7 +1626,231 @@ function renderCompareDetailSheet(): void {
   }
 }
 
+// -- map collapse + hover-synced weather -------------------------------------- //
+/** Wide layout: a full-height map pane beside the chart pane (the 1400px block in
+ *  style.css); the charts then fill their panel rather than a viewport share. */
+function sideBySide(): boolean {
+  return !mapCollapsed && !!window.matchMedia?.("(min-width: 1400px)").matches;
+}
+
+// -- the pane divider ----------------------------------------------------------- //
+function splitMax(): number {
+  // Before the view is first shown it has no width yet — size the cap off the
+  // viewport (minus the sidebar) so a saved width isn't clamped to the minimum.
+  const view = $("forecastView");
+  const w = view?.clientWidth || Math.max(0, window.innerWidth - 260);
+  return Math.max(SPLIT_MIN, Math.round(w - CHART_PANE_MIN - 16));
+}
+
+/** Keep a (saved or dragged) split inside today's bounds, e.g. after a window resize. */
+function clampSplit(): void {
+  if (!sideBySide()) return;
+  const view = $("forecastView");
+  if (!view?.style.getPropertyValue("--fc-split")) return;
+  const px = currentSplit();
+  const max = splitMax();
+  if (px > max) applySplit(max);
+}
+
+function applySplit(px: number | null): void {
+  const view = $("forecastView");
+  if (!view) return;
+  if (px == null) view.style.removeProperty("--fc-split");
+  else view.style.setProperty("--fc-split", `${Math.round(px)}px`);
+  requestAnimationFrame(() => {
+    map?.invalidateSize(); // Leaflet re-measures the pane
+    // Publish the pane's share of the view for assistive tech (role="separator").
+    const share = Math.round((currentSplit() / Math.max(1, view.clientWidth)) * 100);
+    $("forecastSplitter")?.setAttribute("aria-valuenow", String(share));
+  });
+}
+
+function currentSplit(): number {
+  const top = $("forecastView")?.querySelector<HTMLElement>(".fc-top");
+  return top?.getBoundingClientRect().width ?? SPLIT_MIN;
+}
+
+function saveSplit(px: number | null): void {
+  try {
+    if (px == null) localStorage.removeItem(SPLIT_KEY);
+    else localStorage.setItem(SPLIT_KEY, String(Math.round(px)));
+  } catch {
+    /* non-fatal */
+  }
+}
+
+/** Drag (or arrow-key, or double-click to reset) the divider between the map pane
+ *  and the charts. The width lives in `--fc-split` on the view, so the grid in
+ *  style.css does the layout; the charts re-render through their ResizeObserver. */
+function initSplitter(): void {
+  const bar = $("forecastSplitter");
+  const view = $("forecastView");
+  if (!bar || !view) return;
+  try {
+    const saved = Number(localStorage.getItem(SPLIT_KEY));
+    if (saved >= SPLIT_MIN) applySplit(Math.min(saved, splitMax()));
+  } catch {
+    /* non-fatal */
+  }
+  let startX = 0;
+  let startW = 0;
+  let raf = 0;
+  bar.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0) return;
+    startX = e.clientX;
+    startW = currentSplit();
+    bar.setPointerCapture(e.pointerId);
+    bar.classList.add("dragging");
+    view.classList.add("fc-resizing");
+    e.preventDefault();
+  });
+  bar.addEventListener("pointermove", (e) => {
+    if (!bar.classList.contains("dragging")) return;
+    const px = Math.max(SPLIT_MIN, Math.min(splitMax(), startW + (e.clientX - startX)));
+    if (raf) return;
+    raf = requestAnimationFrame(() => {
+      raf = 0;
+      applySplit(px);
+    });
+  });
+  const end = (): void => {
+    if (!bar.classList.contains("dragging")) return;
+    bar.classList.remove("dragging");
+    view.classList.remove("fc-resizing");
+    saveSplit(currentSplit());
+  };
+  bar.addEventListener("pointerup", end);
+  bar.addEventListener("pointercancel", end);
+  bar.addEventListener("dblclick", () => {
+    applySplit(null);
+    saveSplit(null);
+  });
+  bar.addEventListener("keydown", (e) => {
+    const dir = e.key === "ArrowLeft" ? -1 : e.key === "ArrowRight" ? 1 : 0;
+    if (!dir) return;
+    const px = Math.max(SPLIT_MIN, Math.min(splitMax(), currentSplit() + dir * SPLIT_STEP));
+    applySplit(px);
+    saveSplit(px);
+    e.preventDefault();
+  });
+}
+
+function applyMapCollapsed(): void {
+  $("forecastView")?.querySelector(".fc-top")?.classList.toggle("collapsed", mapCollapsed);
+  if (!mapCollapsed) requestAnimationFrame(() => map?.invalidateSize());
+}
+
+function setMapCollapsed(collapsed: boolean): void {
+  mapCollapsed = collapsed;
+  try {
+    localStorage.setItem(MAP_COLLAPSED_KEY, collapsed ? "1" : "0");
+  } catch {
+    /* non-fatal */
+  }
+  if (collapsed) {
+    locationPickerOpen = false;
+    searchOpen = false;
+    renderToolbar();
+    renderSearchResults();
+  }
+  applyMapCollapsed();
+  renderCharts(); // the combined chart grows into the freed room
+}
+
+function median(values: number[]): number | null {
+  if (!values.length) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = sorted.length >> 1;
+  return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+}
+
+/** Circular mean of "from" directions (degrees), null when none. */
+function meanDirection(degs: number[]): number | null {
+  if (!degs.length) return null;
+  let x = 0;
+  let y = 0;
+  for (const d of degs) {
+    x += Math.cos((d * Math.PI) / 180);
+    y += Math.sin((d * Math.PI) / 180);
+  }
+  return ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
+}
+
+/** The consensus weather at the hovered hour across the shown models. */
+function weatherAtSelection(): WeatherSnapshot | null {
+  if (selectedTime == null) return null;
+  const shown = presentation === "compare" ? visibleCompareForecasts() : visibleForecasts();
+  const speeds: number[] = [];
+  const dirs: number[] = [];
+  const rains: number[] = [];
+  const clouds: number[] = [];
+  for (const item of shown) {
+    const i = item.times.indexOf(selectedTime);
+    if (i < 0) continue;
+    const sp = item.windSpeedKmh[i];
+    const di = item.windDirectionDeg[i];
+    const ra = item.precipitationMm[i];
+    const cl = item.cloudCoverPct[i];
+    if (sp != null) speeds.push(sp);
+    if (di != null) dirs.push(di);
+    if (ra != null) rains.push(ra);
+    if (cl != null) clouds.push(cl);
+  }
+  const speedKmh = median(speeds);
+  const fromDeg = meanDirection(dirs);
+  if (speedKmh == null || fromDeg == null) return null;
+  const shownSpeed = convertWindSpeed(speedKmh, speedUnit);
+  return {
+    fromDeg,
+    speedKmh,
+    rainMm: median(rains) ?? 0,
+    cloudPct: median(clouds) ?? 0,
+    speedLabel: `${shownSpeed >= 10 ? Math.round(shownSpeed) : shownSpeed.toFixed(1)} ${speedUnitLabel(speedUnit)}`,
+  };
+}
+
+/** One readout fragment for the hovered hour — the strip (map hidden) and the
+ *  map's corner pill (map shown) render the same thing. */
+function weatherReadoutHtml(snap: WeatherSnapshot): string {
+  const when =
+    selectedTime == null
+      ? ""
+      : new Intl.DateTimeFormat(undefined, {
+          timeZone: zone,
+          weekday: "short",
+          hour: "2-digit",
+          minute: "2-digit",
+          hour12: false,
+        }).format(selectedTime);
+  const travel = ((snap.fromDeg + 180) % 360).toFixed(0);
+  return (
+    (when ? `<span class="fc-when">${deps.esc(when)}</span>` : "") +
+    `<svg viewBox="0 0 24 24" style="transform:rotate(${travel}deg)" aria-hidden="true">` +
+    `<path d="M12 20V4M6 10l6-6 6 6" fill="none" stroke="currentColor" stroke-width="2.2" ` +
+    `stroke-linecap="round" stroke-linejoin="round"/></svg>` +
+    `<b>${deps.esc(snap.speedLabel)}</b> from ${compassFrom(snap.fromDeg)}` +
+    (snap.rainMm > 0 ? ` · ${snap.rainMm.toFixed(1)} mm` : "")
+  );
+}
+
+/** Mirror the hovered hour on the map (effects overlay + corner pill) and in the
+ *  strip. No marker at the point: the streaks already show the direction, and a
+ *  marker would sit exactly on the spot the user picked. */
+function syncMapWeather(): void {
+  const snap = weatherAtSelection();
+  const html = snap ? weatherReadoutHtml(snap) : "";
+  const strip = $("forecastStripWind");
+  if (strip) strip.innerHTML = html;
+  const pill = $("forecastWeatherPill");
+  if (pill) {
+    pill.innerHTML = html;
+    pill.classList.toggle("hidden", !snap || mapCollapsed);
+  }
+  fx.set(map && point && !mapCollapsed ? snap : null);
+}
+
 function renderReadout(): void {
+  syncMapWeather();
   const host = $("forecastReadout");
   if (!host) return;
   const shown = presentation === "compare" ? visibleCompareForecasts() : visibleForecasts();
@@ -1458,8 +1873,8 @@ function renderReadout(): void {
     }
     selectedTableModel = null;
     const guidance = canHover()
-      ? "Choose one measure above, then scan across models and hours; hover or click a column to align it."
-      : "Choose one measure above, then scan across models and hours; tap a column to align it.";
+      ? "Pick a measure above, then read down the hours — tinted cells are the windy, wet or warm ones; click a row to pin it."
+      : "Pick a measure above, then read down the hours — tinted cells are the windy, wet or warm ones; tap a row to pin it.";
     if (selectedTime == null || selectionSource === "hover") {
       host.textContent = guidance;
       return;
@@ -1498,6 +1913,7 @@ function renderReadout(): void {
     return;
   }
   if (selectedTime == null || !shown.length) {
+    renderCompareLegendValues(null);
     host.textContent =
       presentation === "compare"
         ? canHover()
@@ -1532,9 +1948,50 @@ function renderReadout(): void {
       return `${model.provider} ${model.label}: ${values.join("; ")}`;
     })
     .join(". ");
+  if (presentation === "compare" && focusedLane) {
+    const compared = visibleCompareForecasts();
+    const details = compared.length
+      ? forecastComparisonDetails(compared, at, focusedLane, options)
+      : null;
+    const summary = details?.summary
+      ? details.columns
+          .map(
+            (c) =>
+              `<span class="fc-ro-col"><small>${deps.esc(c.label)}</small><b>${deps.esc(c.summary)}</b></span>`,
+          )
+          .join("")
+      : "";
+    host.innerHTML =
+      `<b>${deps.esc(date)}</b>` +
+      (details?.summary
+        ? `<span class="fc-ro-lane">${deps.esc(details.title)}</span>${summary}<span class="fc-ro-hint">range (median) · each model's figures sit beside its name above</span>`
+        : `<span>No forecast for this hour.</span>`) +
+      `<span class="fc-a11y-values">${deps.esc(announcement)}</span>`;
+    renderCompareLegendValues(details);
+    return;
+  }
   host.innerHTML =
     `<b>${deps.esc(date)}</b><span>${presentation === "compare" ? "The focused band shows model spread and median." : "Values are labelled at the cursor in every model row."}</span>` +
     `<span class="fc-a11y-values">${deps.esc(announcement)}</span>`;
+}
+
+/** The hovered hour's figures, written beside each model in the legend above the
+ *  chart (null clears them) — so the chart itself stays uncovered. */
+function renderCompareLegendValues(details: ForecastComparisonDetails | null): void {
+  const legend = $("forecastCompareLegend");
+  if (!legend) return;
+  const byModel = new Map(details?.models.map((row) => [row.modelId, row]) ?? []);
+  legend.classList.toggle("has-values", !!details?.summary);
+  // The value slot is always in the markup (empty = invisible) so showing figures
+  // never reflows the legend — a chart that shifts under the pointer loses the hover.
+  for (const btn of legend.querySelectorAll<HTMLElement>("[data-compare-model]")) {
+    const row = byModel.get(btn.dataset.compareModel ?? "");
+    const em = btn.querySelector<HTMLElement>(".fc-track-val");
+    if (!em) continue;
+    const text =
+      !row || !details?.summary ? "" : row.value === "No data" ? "—" : row.cells.join(" · ");
+    if (em.textContent !== text) em.textContent = text;
+  }
 }
 
 function updateChartSelection(event: PointerEvent, source: "hover" | "touch"): void {
@@ -1967,7 +2424,11 @@ function onClick(event: MouseEvent): void {
     void refreshForecast(false);
     return;
   }
-  if (button.id === "forecastSearchToggle") {
+  if (button.id === "forecastMapHide" || button.id === "forecastMapShow") {
+    setMapCollapsed(button.id === "forecastMapHide");
+    return;
+  }
+  if (button.id === "forecastSearchToggle" || button.id === "forecastStripSearch") {
     locationPickerOpen = !locationPickerOpen;
     searchOpen = locationPickerOpen;
     renderToolbar();

@@ -14,6 +14,7 @@
  */
 
 import type { RideView } from "./controller";
+import { icon } from "./icons";
 import { type DateRange, dateRange, filterRidesByRange } from "./mapview";
 
 // Bounds vs. range:
@@ -43,8 +44,7 @@ const DAY_MS = 86_400_000;
 
 // The double-headed arrow glyph on each slider's "All" reset. Matches the Timeline
 // bar's `ICONS.allRange` so all four date-range sliders read as one control.
-const ALL_RANGE_ICON =
-  '<svg class="bi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M3 12h18"/><path d="m7 8-4 4 4 4"/><path d="m17 8 4 4-4 4"/></svg>';
+const ALL_RANGE_ICON = icon("allRange");
 
 // Per-view range state: the current selection (`sel`) and the last-seen bounds of
 // the whole library (`bounds`), used to reconcile the selection when rides are
@@ -177,9 +177,28 @@ function assignRange(which: RangeView, next: DateRange): void {
   if (which === "analytics") deps.onAnalyticsChange();
 }
 
-/** Re-mount a view after its range changed (no re-fit during live drags). */
+/** Re-mount a view after its range changed (no re-fit during live drags). A drag
+ *  fires `input` far faster than a 2,000-track map can redraw, so live remounts are
+ *  coalesced to one per animation frame (the latest range always wins); an explicit
+ *  commit (`fit`) runs at once. */
+let remountRaf = 0;
+let remountPending: RangeView | null = null;
 function remountRange(which: RangeView, fit: boolean): void {
-  deps.remount(which, fit);
+  if (fit) {
+    if (remountRaf) cancelAnimationFrame(remountRaf);
+    remountRaf = 0;
+    remountPending = null;
+    deps.remount(which, fit);
+    return;
+  }
+  remountPending = which;
+  if (remountRaf) return;
+  remountRaf = requestAnimationFrame(() => {
+    remountRaf = 0;
+    const view = remountPending;
+    remountPending = null;
+    if (view) deps.remount(view, false);
+  });
 }
 
 /** Compact local day label for a slider edge, e.g. "Jun 1, 2026". */
@@ -308,7 +327,7 @@ export function onWindowDrag(which: RangeView, win: HTMLElement, e: PointerEvent
   const hi = document.getElementById(`${which}Hi`) as HTMLInputElement | null;
   if (!bounds || !track || !lo || !hi) return;
   const n = dayCount(bounds);
-  const usablePx = track.getBoundingClientRect().width - 15; // track width minus one thumb
+  const usablePx = track.getBoundingClientRect().width - 16; // track width minus one thumb (--rf-thumb)
   if (n <= 0 || usablePx <= 0) return;
 
   const startX = e.clientX;

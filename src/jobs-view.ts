@@ -128,32 +128,27 @@ export function renderJob(): void {
   document.body.classList.toggle("job-active", busy);
 
   // -- current activity: what is being done right now -----------------------
+  // One lean row: the verb in bold, "2 / 3" beside it, the live step muted after
+  // it; the thread along the top edge is the motion — it fills with progress, or
+  // runs while the total is unknown (a scan). Only text and classes change per tick,
+  // so the thread's animation never restarts.
   const titleEl = $("#jobTitle");
+  const countEl = $("#jobCount");
   const msgEl = $("#jobMsg");
-  const bar = $("#jobBar") as HTMLElement;
+  const p = cur?.progress;
   if (cur) {
-    titleEl.textContent = taskTitle(cur);
+    const verb = TASK_VERB[cur.kind] || cur.kind;
+    titleEl.textContent = cur.kind === "scan" && cur.label ? `${verb} ${cur.label}` : verb;
+    countEl.textContent = p && p.total > 0 ? `${p.done} / ${p.total}` : "";
     msgEl.textContent = cur.message || "working\u2026";
-    const p = cur.progress;
-    if (p && p.total > 0) {
-      bar.style.display = "";
-      ($("#jobBarFill") as HTMLElement).style.width =
-        `${Math.round((p.done / p.total) * 100)}%`;
-    } else {
-      bar.style.display = "none";
-    }
+    $("#job").title = `${taskTitle(cur)} — ${cur.message || "working…"}`;
   } else if (busy) {
     titleEl.textContent = "Starting\u2026";
-    msgEl.textContent = "waiting for the next item\u2026";
-    bar.style.display = "none";
-  } else {
-    bar.style.display = "none";
+    countEl.textContent = "";
+    msgEl.textContent = "";
+    $("#job").title = "Starting…";
   }
-
-  // -- queued-ride count badge ----------------------------------------------
-  const qc = $("#qcount");
-  qc.textContent = total ? `${total} ride${total === 1 ? "" : "s"} queued` : "";
-  qc.style.display = total ? "" : "none";
+  setThread($("#jobBar"), p && p.total > 0 ? p.done / p.total : null);
 
   // Minimized handle: keep it a tiny pill, but convey the NATURE of the work and the
   // PROGRESS, not just a bare count. Show the current verb ("Resolving wind") + a
@@ -161,20 +156,16 @@ export function renderJob(): void {
   // determinate ring that fills as work completes (falls back to the indeterminate
   // spinner when no progress is known, e.g. a scan).
   const handleText = $("#jobHandleText");
-  const handleSpin = $("#jobHandle .spin") as HTMLElement;
   const verb = cur ? TASK_VERB[cur.kind] || cur.kind : "Working";
   const hp = cur?.progress;
   if (hp && hp.total > 0) {
-    handleSpin.classList.add("det");
-    handleSpin.style.setProperty("--p", String(hp.done / hp.total));
     handleText.textContent = `${verb} · ${hp.done}/${hp.total}`;
   } else {
-    handleSpin.classList.remove("det");
-    handleSpin.style.removeProperty("--p");
     handleText.textContent = total
       ? `${verb} · ${total} ride${total === 1 ? "" : "s"}`
       : `${verb}\u2026`;
   }
+  setThread($("#jobHandleBar"), hp && hp.total > 0 ? hp.done / hp.total : null);
 
   // -- the rest of the queue: what is to be done ----------------------------
   const toggle = $("#btnQueueToggle") as HTMLElement;
@@ -189,6 +180,18 @@ export function renderJob(): void {
   // Clear only drops not-yet-started tasks, so keep its visibility tied to the queue.
   ($("#btnClear") as HTMLElement).style.display = queuedTasks ? "" : "none";
   renderError();
+}
+
+/** Drive a `.thread`: a fraction fills it, null makes it run (unknown total). Writes
+ *  only on change — re-setting the class or width would restart its animation. */
+function setThread(el: HTMLElement | null, fraction: number | null): void {
+  if (!el) return;
+  const indet = fraction == null;
+  if (el.classList.contains("indet") !== indet) el.classList.toggle("indet", indet);
+  const fill = el.querySelector<HTMLElement>("i");
+  if (!fill) return;
+  const width = indet ? "" : `${Math.round(Math.max(0, Math.min(1, fraction)) * 1000) / 10}%`;
+  if (fill.style.width !== width) fill.style.width = width;
 }
 
 /** Rebuild the persistent error stack (failed jobs + standalone pushed errors). */

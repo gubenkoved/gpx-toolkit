@@ -7,6 +7,13 @@
  * in-browser `Controller` and re-renders on its change events.
  */
 
+// The app's type: Ubuntu (self-hosted, so every machine renders the same) and Ubuntu
+// Mono for figures; `--font` / `--mono` in style.css name them first.
+import "@fontsource/ubuntu/400.css";
+import "@fontsource/ubuntu/500.css";
+import "@fontsource/ubuntu/700.css";
+import "@fontsource/ubuntu-mono/400.css";
+import "@fontsource/ubuntu-mono/700.css";
 import "leaflet/dist/leaflet.css";
 import "./style.css";
 
@@ -59,9 +66,11 @@ import {
 } from "./map-view";
 import {
   autoGranularity,
+  beelineRideKey,
   bucketRide,
   compareRidesByDateDesc,
   type Granularity,
+  rideDatetime,
   rideShortLabel,
   trimmedSpeed,
 } from "./parsing";
@@ -97,6 +106,7 @@ import {
   initStatsView,
   mountStatsView,
   setHeatExpanded,
+  setHeatRadiusPreview,
   showHeatHover,
 } from "./stats-view";
 import {
@@ -140,6 +150,8 @@ import {
 } from "./forecast-view";
 import { GpxRideSource } from "./gpx-source";
 import { GpxCache } from "./gpxcache";
+import { decorateIcons, icon } from "./icons";
+import { runInSlices } from "./idle";
 import {
   idbBackend,
   idbBlobBackend,
@@ -161,9 +173,10 @@ import {
   setRideMapColor,
   setRideMapProfileAxis,
   setRideMapProfileMetric,
+  toggleRideMapChrome,
   toggleRideMapProfile,
   toggleRideMapProfileStops,
-  toggleRideMapWind,
+  toggleRideMapWeather,
 } from "./ridemap";
 import {
   parseRoute,
@@ -172,8 +185,11 @@ import {
   validRoutePoint,
   writeRoute,
 } from "./router";
+import { initSegSliding } from "./seg";
+import { initShell, lastWeatherView, setViewSubtitle, syncShell } from "./shell";
 import type { SourceFactory } from "./source";
 import { type RideSource, STORAGE_KEY, Store } from "./store";
+import { initTheme } from "./theme";
 import {
   closeTimelineHelp,
   collapseTimeline,
@@ -185,13 +201,15 @@ import {
   resetTimelineData,
 } from "./timeline-view";
 import { decodePolyline } from "./track";
-import { escHtml } from "./ui";
+import { escHtml, initCollapse } from "./ui";
 import { WindCache } from "./windcache";
 import {
   initWindSpeedView,
   mountWindSpeedView,
+  renderSegmentDemo,
   SEG_TUNE_DEFAULTS,
   syncColorByGating,
+  toggleSegmentDemo,
   windSpeedVisibleRides,
 } from "./windspeed-view";
 import { buildZip, unzip } from "./zip";
@@ -448,7 +466,7 @@ function resolveWindFor(keys: string[], force = false): void {
     );
     return;
   }
-  toast(n === 1 ? "Resolving wind for 1 ride…" : `Resolving wind for ${n} rides…`);
+  // No start toast: the activity card already names the job and its progress.
 }
 
 /** Build a ride source from a device getter (closure captures serial, etc.). */
@@ -820,8 +838,218 @@ let STATE: AppState = {
 let ACTIVE = new Set<string>(); // keys queued or running
 let RUNNING = new Set<string>(); // keys in the currently running task
 const selected = new Set<string>();
+// The selection survives a reload / a closed tab: it is the user's work (forty rides
+// hand-picked for a wind job) and nothing should drop it but the user. Restored
+// before the library loads; keys that no longer exist are pruned once rides arrive
+// (renderSelectionBar), never while the library is still empty.
+const SELECTION_KEY = "gpx_toolkit.selection";
+try {
+  const saved = JSON.parse(localStorage.getItem(SELECTION_KEY) ?? "[]");
+  if (Array.isArray(saved)) for (const k of saved) if (typeof k === "string") selected.add(k);
+} catch {
+  /* non-fatal */
+}
+// The range hint names the modifier the platform actually uses.
+if (/Mac|iPhone|iPad/.test(navigator.platform)) {
+  const hint = document.getElementById("selHint");
+  if (hint) hint.textContent = hint.textContent?.replace("Ctrl", "⌘") ?? "";
+}
+let selectionSaved = "";
+let selectionSaveTimer: ReturnType<typeof setTimeout> | null = null;
+function persistSelection(): void {
+  if (selectionSaveTimer) return;
+  selectionSaveTimer = setTimeout(() => {
+    selectionSaveTimer = null;
+    const json = JSON.stringify([...selected]);
+    if (json === selectionSaved) return;
+    selectionSaved = json;
+    try {
+      localStorage.setItem(SELECTION_KEY, json);
+    } catch {
+      /* non-fatal */
+    }
+  }, 250);
+}
+/** The last ride the user clicked (its checkbox, or Ctrl-click on its row): the
+ *  anchor a Shift-click extends from. */
+let selAnchor: string | null = null;
+/** Ride keys in the order the list shows them: years ↓, months ↓, newest first. */
+function listOrderKeys(): string[] {
+  return visibleRides(filters, STATE.rides)
+    .slice()
+    .sort((a, b) => b.month_key.localeCompare(a.month_key) || compareRidesByDateDesc(a, b))
+    .map((r) => r.key);
+}
+/** Shift-click: set every ride between the anchor and `toKey` (inclusive, list
+ *  order) to `on`. Without an anchor the clicked ride becomes it. */
+function selectRange(toKey: string, on: boolean): void {
+  const order = listOrderKeys();
+  const j = order.indexOf(toKey);
+  if (j < 0) return;
+  const i = selAnchor ? order.indexOf(selAnchor) : -1;
+  if (i < 0) selAnchor = toKey;
+  const [a, b] = i < 0 ? [j, j] : [Math.min(i, j), Math.max(i, j)];
+  for (let k = a; k <= b; k++) on ? selected.add(order[k]) : selected.delete(order[k]);
+  applySelection();
+}
 const openMonths = new Set<string>();
 const openYears = new Set<string>();
+
+// -- Explore layout: contents + continuous list on wide screens -------------------
+// From 1100px the year / month tree on the left is a table of contents and the pane
+// on the right lists EVERY ride continuously, with a rule at each month and a heavier
+// one at each year. Clicking a month scrolls the list there; a scroll-spy marks the
+// month in view. Narrower screens keep the rides inside their (open) month box. The
+// decision is made per render, and the signature includes it so a resize across the
+// breakpoint — or a chart-width change that moves the Auto granularity — re-renders.
+const EXPLORE_SPLIT = "(min-width: 1100px)";
+function exploreSplit(): boolean {
+  return !!window.matchMedia?.(EXPLORE_SPLIT).matches;
+}
+/** How many bars the Explore chart can hold at ~22px a slot (12…120). */
+function chartBuckets(): number {
+  const el = document.getElementById("chart");
+  const w = el?.clientWidth || document.getElementById("statsPanel")?.clientWidth || 1000;
+  return Math.max(12, Math.min(120, Math.floor(w / 22)));
+}
+/** Scroll the continuous list to a month / year heading (split layout). Builds the
+ *  month it lands on first; a far target is jumped to (gliding across thousands of
+ *  rows is a blur, and months rendered on the way would move the target), a near
+ *  one glides. Either way the heading is checked once the scroll ends and nudged
+ *  to the line if a late layout moved it. */
+function scrollToGroup(selector: string): void {
+  const el = document.querySelector<HTMLElement>(selector);
+  if (!el) return;
+  treeClickAt = performance.now();
+  const m = el.dataset.m ?? el.nextElementSibling?.getAttribute("data-m");
+  if (m) buildMonthNow(m);
+  const top = el.getBoundingClientRect().top;
+  const far = Math.abs(top - GROUP_LINE) > window.innerHeight * 2;
+  el.scrollIntoView({ behavior: far ? "auto" : "smooth", block: "start" });
+  settleGroup(el);
+}
+/** Where a group heading rests after a scroll-to (its scroll-margin-top). */
+const GROUP_LINE = 64;
+let settleTimer: ReturnType<typeof setTimeout> | null = null;
+function settleGroup(el: HTMLElement): void {
+  if (settleTimer) clearTimeout(settleTimer);
+  const check = (): void => {
+    settleTimer = null;
+    document.body.removeEventListener("scrollend", check);
+    if (!el.isConnected) return;
+    const d = el.getBoundingClientRect().top - GROUP_LINE;
+    const atEnd =
+      document.body.scrollTop + document.body.clientHeight >= document.body.scrollHeight - 2;
+    if (Math.abs(d) > 1 && !(atEnd && d < 0)) document.body.scrollTop += d;
+  };
+  document.body.addEventListener("scrollend", check, { once: true });
+  settleTimer = setTimeout(check, 700); // browsers without scrollend
+}
+
+// -- Scroll anchoring -----------------------------------------------------------
+// A render wipes and rebuilds the list, which would leave the page wherever the
+// browser clamped the scroll position mid-rebuild — the list visibly jumping under
+// the user. So before a rebuild (or leaving Explore) we note which month sits at the
+// reading line and where, build that month first, and put it back at the same pixel.
+// Idle slices then fill the months above and below; their placeholder heights come
+// from measured rows, so they barely change when built.
+type ListAnchor = { m: string; top: number };
+let listAnchor: ListAnchor | null = null;
+/** Set by navigation: the next render restores the saved anchor instead of
+ *  re-reading one from a list that another view scrolled away from. */
+let keepAnchor = false;
+/** The reading line: just under the top bar + the sticky month heading. */
+const READ_LINE = 130;
+function exploreVisible(): boolean {
+  return (
+    activeView() === "explore" &&
+    !document.getElementById("exploreView")?.classList.contains("hidden")
+  );
+}
+function anchorSections(): HTMLElement[] {
+  return exploreSplit()
+    ? [...document.querySelectorAll<HTMLElement>("#rideList .rp-month")]
+    : [...document.querySelectorAll<HTMLElement>("#months .month")];
+}
+function sectionKey(sec: HTMLElement): string | undefined {
+  return sec.dataset.m ?? sec.querySelector<HTMLElement>(".mhead")?.dataset.m;
+}
+function captureListAnchor(): void {
+  if (!exploreVisible()) return;
+  if (document.body.scrollTop <= 0) {
+    listAnchor = null;
+    return;
+  }
+  for (const sec of anchorSections()) {
+    const rect = sec.getBoundingClientRect();
+    if (rect.bottom <= READ_LINE) continue;
+    const m = sectionKey(sec);
+    listAnchor = m ? { m, top: rect.top } : null;
+    return;
+  }
+  listAnchor = null;
+}
+function restoreListAnchor(): void {
+  if (!listAnchor || !exploreVisible()) return;
+  const sec = anchorSections().find((s) => sectionKey(s) === listAnchor?.m);
+  if (!sec) return;
+  const delta = sec.getBoundingClientRect().top - listAnchor.top;
+  if (Math.abs(delta) >= 1) document.body.scrollTop += delta;
+}
+
+/** Mark the tree row of the month currently in view, and keep it visible in the
+ *  (independently scrolling) tree. Cheap: a handful of rect reads per frame. */
+let spyRaf = 0;
+/** When the user last clicked in the tree — the spy leaves the tree alone for a
+ *  moment afterwards so the row they clicked doesn't slide out from under the pointer. */
+let treeClickAt = 0;
+function exploreSpy(): void {
+  if (activeView() !== "explore" || !exploreSplit()) return;
+  const secs = document.querySelectorAll<HTMLElement>("#rideList .rp-month");
+  if (!secs.length) return;
+  const line = READ_LINE;
+  let cur: HTMLElement = secs[0];
+  for (const sec of secs) {
+    if (sec.getBoundingClientRect().top <= line) cur = sec;
+    else break;
+  }
+  // The section in view is laid out: refresh the row measurement from it, and if
+  // it changed, correct every placeholder still waiting.
+  if (measureRowHeights()) applyPlaceholderHeights();
+  // Scrolled to the very end: the last month can never reach the line, so it wins.
+  const scroller = document.body;
+  if (scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - 2) {
+    cur = secs[secs.length - 1];
+  }
+  const key = cur.dataset.m;
+  let row: HTMLElement | null = null;
+  for (const box of document.querySelectorAll<HTMLElement>("#months .month")) {
+    const on = box.querySelector<HTMLElement>(".mhead")?.dataset.m === key;
+    box.classList.toggle("cur", on);
+    if (on) row = box;
+  }
+  const tree = document.getElementById("months");
+  if (!row || !tree) return;
+  // Keep the current month visible in the tree — unless the pointer is in the tree
+  // (the user is reading or about to click it) or they just clicked there.
+  if (tree.matches(":hover") || performance.now() - treeClickAt < 1200) return;
+  const top = row.offsetTop - tree.offsetTop;
+  const bottom = top + row.offsetHeight;
+  if (top < tree.scrollTop + 8) tree.scrollTop = Math.max(0, top - 8);
+  else if (bottom > tree.scrollTop + tree.clientHeight - 8)
+    tree.scrollTop = bottom - tree.clientHeight + 8;
+}
+// `<body>` is the page's scroll container (full-height body, hidden horizontal
+// overflow), so its scroll events never reach `window` — listen on both.
+const onPageScroll = (): void => {
+  if (spyRaf) return;
+  spyRaf = requestAnimationFrame(() => {
+    spyRaf = 0;
+    exploreSpy();
+  });
+};
+window.addEventListener("scroll", onPageScroll, { passive: true });
+document.body.addEventListener("scroll", onPageScroll, { passive: true });
 const openStats = new Set<string>();
 
 // Which menu is open, if any: a ride key for a per-ride overflow button, or "state"
@@ -846,6 +1074,97 @@ effect(() => {
   }
 });
 let lastSig = "";
+/** Which rides are queued / running, applied to the DOM in place (rings + `.busy`). */
+let lastJobsSig = "";
+function jobsSig(): string {
+  const { jobs } = STATE;
+  return (
+    [...(jobs.active_keys ?? [])].sort().join(",") +
+    ";" +
+    [...(jobs.current ? (jobs.current_keys ?? []) : [])].sort().join(",")
+  );
+}
+
+// -- Chunked list build ---------------------------------------------------------
+// With thousands of rides the right pane is built in slices: the screenful at the
+// reading line synchronously, the rest in idle slices of ~12ms so the page never
+// blocks. Each pending month's build is keyed, so navigation can build just the
+// month it is about to show (buildMonthNow) instead of flushing everything. A render
+// cancels any pending slices.
+let listBuildCancel: (() => void) | null = null;
+const pendingBuilds = new Map<string, () => void>();
+function runPending(m: string): void {
+  const f = pendingBuilds.get(m);
+  if (!f) return;
+  pendingBuilds.delete(m);
+  f();
+}
+function scheduleListBuild(order: string[]): void {
+  listBuildCancel?.();
+  listBuildCancel = runInSlices(order, runPending, {
+    onDone: () => {
+      listBuildCancel = null;
+      exploreSpy();
+    },
+  });
+}
+/** Build one month's rows now (a scroll-to needs its target's real rows). */
+function buildMonthNow(m: string): void {
+  runPending(m);
+}
+/** Build every pending month now. */
+function flushListBuild(): void {
+  for (const m of [...pendingBuilds.keys()]) runPending(m);
+  listBuildCancel?.();
+  listBuildCancel = null;
+}
+/** The first N rows of the pane are built synchronously (one screenful). */
+const SYNC_ROWS = 60;
+/** Height of a two-line ride row / a month heading, measured from the rows that are
+ *  built (defaults until the first measurement) — placeholders for the months built
+ *  later use these so the scrollbar and the scroll position stay honest. */
+let rowHeightPx = 61;
+let headHeightPx = 40;
+/** Each month section of the current list → its ride count (for placeholder heights). */
+const sectionRows = new Map<HTMLElement, number>();
+/** Measure a row + heading from the section at the reading line — the one that is
+ *  laid out (content-visibility skips the rest). True when the numbers changed. */
+function measureRowHeights(): boolean {
+  let sec: HTMLElement | null = null;
+  for (const s of document.querySelectorAll<HTMLElement>("#rideList .rp-month")) {
+    if (s.getBoundingClientRect().bottom > READ_LINE) {
+      sec = s;
+      break;
+    }
+  }
+  const row = sec?.querySelector<HTMLElement>(".rrow:not(:has(.rdetails))");
+  const head = sec?.querySelector<HTMLElement>(".rp-head");
+  const rh = row?.offsetHeight ?? 0;
+  const hh = head?.offsetHeight ?? 0;
+  if (!(rh > 0 && hh > 0) || (rh === rowHeightPx && hh === headHeightPx)) return false;
+  rowHeightPx = rh;
+  headHeightPx = hh;
+  return true;
+}
+/** Honest heights for the months not built yet, from the measured rows, so the
+ *  scrollbar is right and nothing shifts when a slice lands. The intrinsic size
+ *  stays on every section: an off-screen month skips layout entirely
+ *  (content-visibility) and would otherwise snap from a stock guess to its real
+ *  height the moment it scrolls into view. */
+function applyPlaceholderHeights(): void {
+  for (const [sec, n] of sectionRows) {
+    const h = n * rowHeightPx + headHeightPx;
+    sec.style.containIntrinsicSize = `auto ${h}px`;
+    if (!sec.querySelector(".rrow")) sec.style.minHeight = `${h}px`;
+  }
+}
+
+/** `.rrow[data-key]` lookup. */
+function rowEl(key: string): HTMLElement | null {
+  return document.querySelector<HTMLElement>(
+    `.rrow[data-key="${(window.CSS?.escape ?? cssEscape)(key)}"]`,
+  );
+}
 /** Tracks the per-ride wind-resolved state applied to the DOM, so a weather-only
  *  change can be detected and patched in place (see applyState/applyWeatherUpdate). */
 let lastWeatherSig = "";
@@ -1212,6 +1531,9 @@ function openRideInExplore(key: string): void {
  * way the blink is reliably seen wherever the row comes to rest.
  */
 function flashRowIntoView(key: string): void {
+  const ride = STATE.rides.find((r) => r.key === key);
+  if (ride) buildMonthNow(ride.month_key);
+  else flushListBuild();
   const find = (): HTMLElement | null => {
     for (const el of document.querySelectorAll<HTMLElement>(".rrow")) {
       if (el.dataset.key === key) return el;
@@ -1272,28 +1594,10 @@ function applyView(): void {
   if (!isClimate) leaveClimateView();
   if (!isForecast) leaveForecastView();
   if (!isTimeline) leaveTimelineView();
-  document.querySelectorAll<HTMLButtonElement>("#viewTabs .vtab").forEach((button) => {
-    const active = button.dataset.view === activeView();
-    button.classList.toggle("active", active);
-  });
-  // The tab rail scrolls on narrow screens. Scroll that container explicitly:
-  // Firefox can treat scrollIntoView's inline axis as the page axis here and
-  // leave later tabs represented by only their first character.
-  const selectedTab = document.querySelector<HTMLButtonElement>("#viewTabs .vtab.active");
-  const tabRail = document.getElementById("viewTabs");
-  if (selectedTab && tabRail) {
-    const centerSelectedTab = (): void => {
-      const centeredLeft =
-        selectedTab.offsetLeft - (tabRail.clientWidth - selectedTab.offsetWidth) / 2;
-      tabRail.scrollLeft = Math.max(0, centeredLeft);
-    };
-    requestAnimationFrame(centerSelectedTab);
-    // Firefox restores an overflow element's pre-navigation scroll position
-    // after the first frame, so repeat once when initial page layout is final.
-    if (document.readyState !== "complete") {
-      window.addEventListener("load", centerSelectedTab, { once: true });
-    }
-  }
+  // The subtitle belongs to the view: Explore writes its ride count on render, the
+  // Wind rose its dataset line on mount; every other view shows none.
+  if (activeView() !== "explore" && !isClimate) setViewSubtitle("");
+  syncShell();
 }
 
 function routeForView(view: ViewName): Route {
@@ -1319,7 +1623,9 @@ function applyHashRoute(): void {
   if (target.view === "forecast") setForecastRoutePoint(target.point ?? null);
   if (target.view === "climate") setClimateRoutePoint(target.point ?? null);
   writeRoute(target, "replace"); // normalize invalid routes and coordinate precision
+  captureListAnchor(); // where the Explore list was, to land there on return
   if (!setActiveView(target.view)) return;
+  keepAnchor = true;
   applyView();
   render();
   trackView(target.view);
@@ -1327,7 +1633,9 @@ function applyHashRoute(): void {
 
 /** Switch the active view, persist the choice, and add a browser history entry. */
 function setView(v: ViewName): void {
+  captureListAnchor(); // where the Explore list was, to land there on return
   if (!setActiveView(v)) return;
+  keepAnchor = true;
   writeRoute(routeForView(v), "push");
   applyView();
   render();
@@ -1363,14 +1671,52 @@ const KEBAB_ICON =
 /**
  * Per-ride queue-state badge: "working" while a task runs, "queued" while pending.
  */
-function queueBadge(key: string): string {
-  if (RUNNING.has(key)) return `<span class="badge working">working</span>`;
-  if (ACTIVE.has(key)) return `<span class="badge queued">queued</span>`;
-  return "";
+/** Class + tooltip for a ride's status ring (`.rring`): spinning while a job works
+ *  on it, dotted while it waits. The element is created once per row and only its
+ *  class flips (applyJobUpdate), so the spin animation never restarts. */
+function ringAttrs(key: string): string {
+  if (RUNNING.has(key)) return `class="rring working" title="Working on this ride…"`;
+  if (ACTIVE.has(key)) return `class="rring queued" title="Queued — waiting its turn"`;
+  return `class="rring"`;
 }
 /** The inner HTML of a ride's title row (`.rtitle`): source marker, name + location,
  *  and the status badges. One canonical builder so the full-list render and the
  *  lightweight in-place wind-badge update (applyWeatherUpdate) stay identical. */
+/** A ride row's meta line: when · distance · duration (checked detail stats fill in
+ *  for rides the list scan never captured, so a Checked ride shows numbers, not "?"). */
+function rmetaHtml(r: RideView): string {
+  const distance =
+    r.distance_km != null && r.distance_km > 0 ? fmtKmDetail(r.distance_km) : "?";
+  const duration =
+    r.elapsed_sec != null
+      ? fmtDurationExact(r.elapsed_sec)
+      : r.moving_sec != null
+        ? fmtDurationExact(r.moving_sec)
+        : "?";
+  // The zone tag "(UTC+1 · London)" is its own span: phones fold it away (the
+  // title tooltip keeps the full breakdown).
+  const when = rideWhen(r);
+  const cut = when.indexOf(" (");
+  const day = cut > 0 ? when.slice(0, cut) : when;
+  const zone = cut > 0 ? `<span class="rmeta-tz">${escHtml(when.slice(cut))}</span>` : "";
+  return `${escHtml(day)}${zone} · ${distance} · ${duration}`;
+}
+
+/** The per-ride ⋯ menu entries — built only when that menu opens (see syncOpenMenu). */
+function rideMenuHtml(r: RideView): string {
+  return `              ${r.can_upload ? `<button class="small ghost" data-act="upload-one" data-key="${r.key}"${r.status === "uploaded" ? ' disabled title="Already uploaded to Strava"' : ' title="Push this ride to Strava (via Beeline)"'}>${icon("upload")}Push to Strava</button>` : ""}
+              ${r.strava_activity_id ? `<button class="small ghost" data-act="strava-open-one" data-key="${r.key}" title="Open this ride on Strava in a new tab">${icon("external")}Show in Strava</button>` : ""}
+              <button class="small ghost" data-act="gpx-save-one" data-key="${r.key}" title="Save the route-only GPX (the stored shape — no timestamps or elevation; instant, works offline)">${icon("download")}Save route GPX</button>
+              <button class="small ghost" data-act="gpx-save-full-one" data-key="${r.key}" title="Download the full recorded GPX (real timestamps + elevation) and save it to disk">${icon("download")}Save full GPX</button>
+              <button class="small ghost" data-act="gpx-fetch-one" data-key="${r.key}" title="${r.gpx_cached ? "Full GPX is cached — fetch again to refresh it (no file saved)" : "Fetch the full recorded GPX into the local cache without saving a file (pre-warms offline use + the map)"}">${icon("cloudDown")}${r.gpx_cached ? "Fetch full GPX ✓" : "Fetch full GPX"}</button>
+              <button class="small ghost" data-act="resolve-wind-one" data-key="${r.key}" title="${controller.hasResolvedWind(r.key) ? "Historical wind is resolved — open the map and choose Show wind, or resolve again to refresh" : "Resolve historical wind (from Open-Meteo) for this ride — colours its big map by head/tailwind"}">${icon("wind")}${controller.hasResolvedWind(r.key) ? "Resolve wind ✓" : "Resolve wind"}</button>
+              <button class="small ghost" data-act="tags-one" data-key="${r.key}" title="Add or remove tags for this ride">${icon("tag")}Tags…</button>
+              ${r.deleted ? "" : `<button class="small ghost" data-act="rename-one" data-key="${r.key}" title="Rename this ride">${icon("pencil")}Rename…</button>`}
+              ${r.deleted || r.source !== "gpx" ? "" : `<button class="small ghost" data-act="destination-one" data-key="${r.key}" title="Set or edit this ride's destination (the place it went to)">${icon("pin")}${r.location.trim() ? "Edit destination…" : "Set destination…"}</button>`}
+              ${r.deleted ? "" : `<button class="small danger" data-act="delete-one" data-key="${r.key}" title="Delete this ride">${icon("trash")}Delete…</button>`}
+              ${r.deleted ? `<button class="small danger" data-act="drop-one" data-key="${r.key}" title="Permanently remove this deleted ride (and its stored GPX) from this device">${icon("trash")}Drop from library</button>` : ""}`;
+}
+
 function rtitleHtml(r: RideView, multiSource: boolean): string {
   return (
     sourceMark(r.source, multiSource) +
@@ -1379,7 +1725,7 @@ function rtitleHtml(r: RideView, multiSource: boolean): string {
     `${rideTagsHtml(r)}` +
     `${r.source !== "gpx" && r.gpx_cached ? cachedBadge() : ""} ` +
     `${r.wind_resolved ? windBadge() : ""} ` +
-    `${r.deleted ? deletedBadge() : ""} ${queueBadge(r.key)}`
+    `${r.deleted ? deletedBadge() : ""} `
   );
 }
 function deletedBadge(): string {
@@ -1470,17 +1816,22 @@ function volumeBar(km: number, maxKm: number): string {
 function syncTrimControls(): void {
   const slow = $<HTMLInputElement>("#trimSlow");
   const fast = $<HTMLInputElement>("#trimFast");
-  if (slow && document.activeElement !== slow) {
-    slow.value = String(STATE.settings.speedTrimSlowPct);
-  }
-  if (fast && document.activeElement !== fast) {
-    fast.value = String(STATE.settings.speedTrimFastPct);
-  }
-  if (slow) setSliderFill(slow);
-  if (fast) setSliderFill(fast);
-  ($("#trimSlowOut") as HTMLOutputElement).value = `${STATE.settings.speedTrimSlowPct}%`;
-  ($("#trimFastOut") as HTMLOutputElement).value = `${STATE.settings.speedTrimFastPct}%`;
+  const slowPct = trimSlowPct();
+  const fastPct = trimFastPct();
+  if (document.activeElement !== slow) slow.value = String(slowPct);
+  if (document.activeElement !== fast) fast.value = String(fastPct);
+  setSliderFill(slow);
+  setSliderFill(fast);
+  ($("#trimSlowOut") as HTMLOutputElement).value = `${slowPct}%`;
+  ($("#trimFastOut") as HTMLOutputElement).value = `${fastPct}%`;
 }
+
+/** Trim percentages being dragged (null = the persisted settings). The sliders'
+ *  `input` ticks redraw only the chart with these; the store is written once on
+ *  `change`, which then runs the one full render for the whole drag. */
+let liveTrim: { slow: number; fast: number } | null = null;
+const trimSlowPct = (): number => liveTrim?.slow ?? STATE.settings.speedTrimSlowPct;
+const trimFastPct = (): number => liveTrim?.fast ?? STATE.settings.speedTrimFastPct;
 
 function renderStats(rides: AppState["rides"]): void {
   const panel = $("#statsPanel");
@@ -1492,7 +1843,12 @@ function renderStats(rides: AppState["rides"]): void {
 
   const g = statGran();
   const gran: Granularity =
-    g === "auto" ? autoGranularity(rides.map((r) => ({ key: r.date_key }))) : g;
+    g === "auto"
+      ? autoGranularity(
+          rides.map((r) => ({ key: r.date_key })),
+          chartBuckets(),
+        )
+      : g;
 
   // Outlier-trim sliders belong to the speed view only.
   $("#spTrim").classList.toggle("hidden", statMetric() !== "speed");
@@ -1532,15 +1888,54 @@ function renderStats(rides: AppState["rides"]): void {
       e.rides.push({ km: spKm, sec });
     }
   }
+  // A time axis must not skip quiet periods: fill every day / week / month / year
+  // between the first and last ride with an empty bucket, so gaps show as gaps
+  // (and the per-period averages divide by the real number of periods).
+  fillEmptyBuckets(byM, rides, gran);
   const items = [...byM.entries()].sort((a, b) => a[0].localeCompare(b[0]));
-  const slowPct = STATE.settings.speedTrimSlowPct;
-  const fastPct = STATE.settings.speedTrimFastPct;
+  const slowPct = trimSlowPct();
+  const fastPct = trimFastPct();
   const bucketSpeed = (e: StatBucket): number => trimmedSpeed(e.rides, slowPct, fastPct);
 
   if (statMetric() === "speed") {
     renderSpeed(gran, items, bucketSpeed, rides.length, slowPct, fastPct);
   } else {
     renderDistance(gran, items, rides.length);
+  }
+}
+
+/** Add zero buckets for the periods between the earliest and latest ride. */
+function fillEmptyBuckets(
+  byM: Map<string, StatBucket>,
+  rides: ReadonlyArray<{ date_key: string }>,
+  gran: Granularity,
+): void {
+  let min = Infinity;
+  let max = -Infinity;
+  for (const r of rides) {
+    const t = rideDatetime(r.date_key)?.getTime();
+    if (t == null) continue;
+    if (t < min) min = t;
+    if (t > max) max = t;
+  }
+  if (!Number.isFinite(min) || !Number.isFinite(max)) return;
+  const step = (d: Date): void => {
+    if (gran === "day") d.setDate(d.getDate() + 1);
+    else if (gran === "week") d.setDate(d.getDate() + 7);
+    else if (gran === "month") d.setMonth(d.getMonth() + 1);
+    else d.setFullYear(d.getFullYear() + 1);
+  };
+  const d = new Date(min);
+  d.setHours(12, 0, 0, 0); // noon: DST shifts can't push a step across a day boundary
+  // Month / year steps start from the 1st, so a first ride on the 31st can't make
+  // `setMonth` overflow past a short month and skip it.
+  if (gran === "month" || gran === "year") d.setDate(1);
+  if (gran === "year") d.setMonth(0);
+  for (let guard = 0; d.getTime() <= max && guard < 20000; guard++) {
+    const [bkey, label, short] = bucketRide(beelineRideKey(d.getTime()), gran);
+    if (!byM.has(bkey))
+      byM.set(bkey, { label, short, km: 0, n: 0, spKm: 0, spSec: 0, spN: 0, rides: [] });
+    step(d);
   }
 }
 
@@ -1574,16 +1969,33 @@ function renderDistance(
     `<div class="kpi"><b>${(totalKm / rideCount).toFixed(1)} km</b><span>avg / ride</span></div>`,
   ].join("");
 
+  setChartDensity(items.length);
   $("#chart").innerHTML = items
-    .map(([, e]) => {
-      const h = Math.round((e.km / maxKm) * 96);
-      return `<div class="col" title="${e.label}: ${e.km.toFixed(1)} km over ${e.n} rides">
+    .map(([, e], i) => {
+      const h = Math.round((e.km / maxKm) * CHART_BAR_PX);
+      return `<div class="col${labelClass(i, items.length)}" title="${e.label}: ${e.km.toFixed(1)} km over ${e.n} rides">
       <span class="cval">${Math.round(e.km)}</span>
       <div class="bar" style="height:${h}px"></div>
       <span class="clab">${e.short}</span>
     </div>`;
     })
     .join("");
+}
+
+/** Tallest bar in the Explore chart, px. */
+const CHART_BAR_PX = 118;
+
+/** Crowded charts (many days/weeks) drop the per-bar values (CSS, `.dense`). */
+function setChartDensity(buckets: number): void {
+  $("#chart").classList.toggle("dense", buckets > 20);
+}
+
+/** Label every Nth bar so the axis stays legible: at most ~14 labels, the first
+ *  always, the last whenever it doesn't collide with the previous labelled bar. */
+function labelClass(index: number, count: number): string {
+  const every = Math.max(1, Math.ceil(count / 14));
+  const labelled = index % every === 0 || (index === count - 1 && (count - 1) % every >= 2);
+  return labelled ? "" : " nolab";
 }
 
 function renderSpeed(
@@ -1633,18 +2045,20 @@ function renderSpeed(
     `<div class="kpi"><b>${fmtSpeed(slowest)}</b><span>slowest ${gran}</span></div>`,
   ].join("");
 
+  setChartDensity(items.length);
   $("#chart").innerHTML = items
-    .map(([, e]) => {
+    .map(([, e], i) => {
       const v = bucketSpeed(e);
+      const cls = `col${labelClass(i, items.length)}`;
       if (e.spN === 0) {
-        return `<div class="col" title="${e.label}: no speed data">
+        return `<div class="${cls}" title="${e.label}: no speed data">
       <span class="cval">—</span>
       <div class="bar empty" style="height:2px"></div>
       <span class="clab">${e.short}</span>
     </div>`;
       }
-      const h = Math.round((v / maxSpeed) * 96);
-      return `<div class="col" title="${e.label}: ${v.toFixed(1)} km/h over ${e.spN} rides">
+      const h = Math.round((v / maxSpeed) * CHART_BAR_PX);
+      return `<div class="${cls}" title="${e.label}: ${v.toFixed(1)} km/h over ${e.spN} rides">
       <span class="cval">${v.toFixed(1)}</span>
       <div class="bar" style="height:${h}px"></div>
       <span class="clab">${e.short}</span>
@@ -1671,41 +2085,35 @@ function renderConn(): void {
     STATE.rides.some((r) => r.source === "beeline") ||
     rememberedProfile() === "beeline";
 
+  // The state is a caption under the Sources label (dot + short text); the full
+  // story goes in the title. Grey, never red: signed-out is the designed resting
+  // state — the password is deliberately not stored, and "Pull from Beeline" signs
+  // you in on demand.
+  let conn: "on" | "demo" | "off" | "none" = "none";
   if (isDemo) {
-    el.textContent = "demo · Beeline";
-    el.className = "cstate demo";
-    el.style.display = "";
-    // No dedicated "Exit demo" button: the always-visible "Change source" already
-    // leads out of the demo (picking any source replaces it), so a second exit
-    // affordance would just be header clutter.
+    conn = "demo";
+    el.textContent = "Beeline · demo";
+    el.title = "A simulated Beeline account. Open Sources to leave the demo.";
   } else if (STATE.connected) {
-    el.textContent = STATE.device || "connected";
-    el.className = "cstate on";
-    el.style.display = "";
-    // No "Sign out" button: the password is never stored, so a plain page refresh
-    // already drops account access (back to offline cached rides), and "Change
-    // source" leads out — a dedicated sign-out would just be header clutter.
+    conn = "on";
+    el.textContent = "Beeline · connected";
+    el.title = STATE.device ? `Connected as ${STATE.device}` : "Connected to Beeline";
   } else if (usesBeeline) {
-    // Showing cached Beeline rides without a live account — flag it in red so the
-    // "stale, can't sync right now" state is unmistakable. No dedicated "Sign in"
-    // button: "Pull from Beeline" already routes through the re-auth gate
-    // (withBeelineAccess), so clicking it signs in (via the password manager) and
-    // then pulls in one step — a separate sign-in affordance would be redundant.
-    // Name the source so the state is clear once several sources can coexist.
-    el.textContent = "Beeline: offline — not signed in";
-    el.className = "cstate err";
-    el.style.display = "";
+    // Cached Beeline rides without a live account. No dedicated "Sign in" button:
+    // "Pull from Beeline" routes through the re-auth gate (withBeelineAccess), so
+    // clicking it signs in (via the password manager) and pulls in one step.
+    conn = "off";
+    el.textContent = "Beeline · offline";
+    el.title =
+      "Showing cached Beeline rides — not signed in. Pull from Beeline signs you in and syncs.";
   } else {
-    // Pure-GPX (or empty): no Beeline footprint, so no account chrome at all — the
-    // connection state and Re-sync would be meaningless noise here.
-    el.style.display = "none";
+    // Pure-GPX (or empty): no Beeline footprint, so no account caption at all.
+    el.title = "";
   }
-
-  // On narrow screens the state collapses to a colour-only dot (its text is hidden
-  // by CSS to reclaim the row); mirror the visible text into title + aria-label so
-  // the meaning survives for hover and assistive tech.
-  el.title = el.textContent || "";
-  el.setAttribute("aria-label", el.textContent || "");
+  el.className = `cstate ${conn === "none" ? "off" : conn}`;
+  el.style.display = conn === "none" ? "none" : "";
+  el.setAttribute("aria-label", el.title || el.textContent || "");
+  sourceBtn.dataset.conn = conn;
 
   // The whole-history "Re-sync" pull is a Beeline-account action; hide it entirely
   // for non-Beeline users (GPX rides come from import, not a sync).
@@ -1719,7 +2127,87 @@ function renderConn(): void {
   renderSources();
 }
 
+/** The top-bar selection toolbar: shown while anything is selected; every batch
+ *  action states the subset it will act on and hides when that subset is empty. */
+/** The Actions menu (below 1700px the batch actions fold into it). */
+function setSelMenu(open: boolean): void {
+  const bar = document.getElementById("selBar");
+  if (!bar) return;
+  bar.classList.toggle("menu-open", open);
+  document.getElementById("selMore")?.setAttribute("aria-expanded", String(open));
+}
+// Capture phase: the menu closes on any click — after the action's own handler has
+// the click (closing only hides the menu; the target is still the action button).
+document.addEventListener(
+  "click",
+  (e) => {
+    const t = e.target as HTMLElement;
+    if (t.closest?.("#selMore")) {
+      setSelMenu(!document.getElementById("selBar")?.classList.contains("menu-open"));
+      return;
+    }
+    if (document.getElementById("selBar")?.classList.contains("menu-open")) {
+      setTimeout(() => setSelMenu(false), 0);
+    }
+  },
+  true,
+);
+
+function renderSelectionBar(allRides: AppState["rides"]): void {
+  const byKey = new Map(allRides.map((r) => [r.key, r]));
+  // Keys that no longer resolve (a replaced library, dropped tombstones) go — but only
+  // once rides exist: while the store is still loading, every key would look stale.
+  if (allRides.length) for (const k of selected) if (!byKey.has(k)) selected.delete(k);
+  persistSelection();
+  const nSel = allRides.length ? selected.size : 0;
+  document.getElementById("selBar")?.classList.toggle("hidden", nSel === 0);
+  document.body.classList.toggle("has-sel", nSel > 0);
+  const label = document.getElementById("selGroupLabel");
+  if (label) label.textContent = `${nSel} selected`;
+  // One ride picked: say how to get the rest quickly (pointer devices only, via CSS).
+  document.getElementById("selHint")?.classList.toggle("hidden", nSel !== 1);
+  if (nSel === 0) {
+    setSelMenu(false);
+    return;
+  }
+  const selRides = [...selected].map((k) => byKey.get(k)).filter((r): r is RideView => !!r);
+  const setSelAction = (id: string, count: number, text: string): void => {
+    const btn = document.getElementById(id) as HTMLButtonElement | null;
+    if (!btn) return;
+    btn.style.display = count ? "" : "none";
+    const span = btn.querySelector<HTMLElement>(":scope > .btn-label");
+    if (span) span.textContent = text;
+    btn.title = text; // the label folds to the icon on narrow bars
+  };
+  // Push: only upload-capable rides not already on Strava — "Push 3 rides to Strava"
+  // under "5 selected" makes the 2 skipped rides self-evident.
+  const pushable = selRides.filter((r) => r.can_upload && r.status !== "uploaded").length;
+  setSelAction(
+    "btnUploadSel",
+    pushable,
+    pushable === 1 ? "Push 1 ride to Strava" : `Push ${pushable} rides to Strava`,
+  );
+  const toFetch = selRides.filter((r) => !r.gpx_cached).length;
+  setSelAction(
+    "btnGpxFetchSel",
+    toFetch,
+    toFetch === 1 ? "Fetch full GPX for 1 ride" : `Fetch full GPX for ${toFetch} rides`,
+  );
+  const toWind = selRides.filter((r) => r.track && !controller.hasResolvedWind(r.key)).length;
+  setSelAction(
+    "btnResolveWindSel",
+    toWind,
+    toWind === 1 ? "Resolve wind for 1 ride" : `Resolve wind for ${toWind} rides`,
+  );
+  const live = selRides.filter((r) => !r.deleted).length;
+  setSelAction("btnDeleteSel", live, live === 1 ? "Delete 1 ride" : `Delete ${live} rides`);
+}
+
 function render(): void {
+  listBuildCancel?.(); // cancel any pending list slices — this render rebuilds everything
+  listBuildCancel = null;
+  if (!keepAnchor) captureListAnchor();
+  keepAnchor = false;
   renderConn();
   const allRides = STATE.rides;
   const rides = visibleRides(filters, allRides);
@@ -1743,8 +2231,8 @@ function render(): void {
       `<h2 class="onb-title">Your ride library is empty</h2>` +
       `<p class="onb-lede">Fill it from a <b>source</b> — your Beeline account or your own GPX files.</p>` +
       `<div class="onb-cta">` +
-      `<button class="primary small" id="emptyConnect">Connect Beeline</button>` +
-      `<button class="ghost small" id="emptyAddGpx">Add GPX files…</button>` +
+      `<button class="primary small" id="emptyConnect">${icon("login")}Connect Beeline</button>` +
+      `<button class="ghost small" id="emptyAddGpx">${icon("folder")}Add GPX files…</button>` +
       `</div>` +
       `<p class="onb-foot">Just exploring? <a href="#" id="emptyDemo">Try the demo</a>.</p>` +
       `</div>`;
@@ -1788,67 +2276,9 @@ function render(): void {
   const shown = filtersActive(filters)
     ? `${rides.length} of ${allRides.length} rides`
     : `${rides.length} rides`;
-  const nSel = selected.size;
-  // The "N selected" suffix doubles as a one-click "Clear selection" affordance.
-  // Everything interpolated here is static text or a number, so innerHTML is safe.
-  // Upload totals (uploaded / pending) are intentionally NOT shown here — they're
-  // low-importance noise in the header; the Strava-status filter lets the user drill
-  // into exactly those subsets on demand.
-  $("#totals").innerHTML =
-    `${shown}` +
-    (del ? ` · ${del} deleted` : "") +
-    (nSel
-      ? ` · <button class="selchip" id="selClear" title="Clear selection">${nSel} selected <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>`
-      : "");
-
-  // -- Selection actions: honest about the subset each will act on -----------------
-  // Every batch action lives in the ⋯ menu's "Selected (N)" group. An action that can
-  // act on only a *subset* of the selection stamps that subset's count into its label
-  // and hides when the subset is empty — the same "show only what applies" rule the
-  // per-ride actions follow, so a control is never a visible no-op. Actions that always
-  // act on all N (Save route/full GPX, Manage tags) stay label-only: the group header already
-  // says N, and a redundant "(N)" would just duplicate it. Build the selected rides
-  // once and derive every subset from it (cheap flags already on the ride view).
-  const selRides = [...selected]
-    .map((k) => allRides.find((r) => r.key === k))
-    .filter((r): r is RideView => !!r);
-  const setSelAction = (id: string, count: number, label: string) => {
-    const btn = document.getElementById(id) as HTMLButtonElement | null;
-    if (!btn) return;
-    btn.style.display = count ? "" : "none";
-    btn.textContent = label;
-  };
-  // Push: only rides that are upload-capable (Beeline) AND not already on Strava — a
-  // selection whose Beeline rides are all uploaded (or that holds only GPX rides) has
-  // nothing to push. "Push 3 rides to Strava" under "Selected (5)" makes the 2 skipped
-  // (already-uploaded / non-Beeline) rides self-evident.
-  const pushable = selRides.filter((r) => r.can_upload && r.status !== "uploaded").length;
-  setSelAction(
-    "btnUploadSel",
-    pushable,
-    pushable === 1 ? "Push 1 ride to Strava" : `Push ${pushable} rides to Strava`,
-  );
-  // Fetch full GPX: a cloud fetch that only helps rides whose full recorded GPX isn't
-  // cached yet (GPX-source rides already hold theirs locally, so they're always cached).
-  const toFetch = selRides.filter((r) => !r.gpx_cached).length;
-  setSelAction(
-    "btnGpxFetchSel",
-    toFetch,
-    toFetch === 1 ? "Fetch full GPX for 1 ride" : `Fetch full GPX for ${toFetch} rides`,
-  );
-  // Resolve wind: only rides that have a track and haven't had wind resolved yet
-  // (mirrors controller.resolveWind's own skip rules, so the count matches what runs).
-  const toWind = selRides.filter((r) => r.track && !controller.hasResolvedWind(r.key)).length;
-  setSelAction(
-    "btnResolveWindSel",
-    toWind,
-    toWind === 1 ? "Resolve wind for 1 ride" : `Resolve wind for ${toWind} rides`,
-  );
-  // Delete: only the live (non-deleted) rides — already-deleted rides are handled by the
-  // per-ride "Drop from library" and the global "Drop deleted". A partly-tombstoned
-  // selection is honest about how many it will actually delete.
-  const live = selRides.filter((r) => !r.deleted).length;
-  setSelAction("btnDeleteSel", live, live === 1 ? "Delete 1 ride" : `Delete ${live} rides`);
+  // The library's size sits in the top bar's subtitle, beside the view title.
+  if (activeView() === "explore") setViewSubtitle(`${shown}${del ? ` · ${del} deleted` : ""}`);
+  renderSelectionBar(allRides);
   // The global "Drop deleted" purges every tombstone — show it only when at least one
   // deleted ride exists anywhere, and stamp the count into its label.
   const dropAllBtn = document.getElementById("btnDropDeleted") as HTMLButtonElement | null;
@@ -1860,14 +2290,6 @@ function render(): void {
   // The Strava-status filter is Beeline-only; hide it when no ride can be pushed
   // (a pure-GPX library).
   document.getElementById("fStatus")?.classList.toggle("hidden", !hasUploadable);
-  // The selected-ride section only makes sense with a selection — hide the whole
-  // group (label + actions) when nothing is selected, and stamp its label with the
-  // count (the only place the count now lives in this menu).
-  const selGroup = document.getElementById("selGroup");
-  if (selGroup) selGroup.classList.toggle("hidden", nSel === 0);
-  const selGroupLabel = document.getElementById("selGroupLabel");
-  if (selGroupLabel) selGroupLabel.textContent = nSel ? `Selected (${nSel})` : "Selected";
-
   // Data-menu storage breakdown: spell out the cache-vs-data split so it's obvious
   // what each row holds, and inline a small "Clear" button on the re-fetchable caches
   // (the imported-GPX vault is your data — no inline clear). This menu is the single
@@ -1925,6 +2347,10 @@ function render(): void {
 
   const root = $("#months");
   root.innerHTML = "";
+  const split = exploreSplit();
+  const pane = $("#rideList");
+  pane.innerHTML = "";
+  $("#exploreSplit").classList.toggle("split", split);
   // Busiest-group distances, so the volume bars read as "relative to my biggest
   // year / month". Years compare against years, months against all months.
   const groupKm = (rs: AppState["rides"]) => rs.reduce((s, r) => s + (r.distance_km ?? 0), 0);
@@ -1936,6 +2362,39 @@ function render(): void {
     0,
     ...years.flatMap(([, ym]) => ym.map(([, m]) => groupKm(m.rides))),
   );
+  /** Build the rows of one month into `rowsEl` (shared by the sync + idle slices). */
+  const buildRows = (rowsEl: Element, list: RideView[]): void => {
+    for (const r of list) {
+      const so = openStats.has(r.key);
+      // Fall back to checked detail stats when the list scan never captured the
+      // summary figures, so a Checked ride shows real numbers instead of "?".
+      const el = document.createElement("div");
+      el.className = `rrow${r.deleted ? " deleted" : ""}${selected.has(r.key) ? " sel" : ""}${RUNNING.has(r.key) ? " busy" : ""}`;
+      el.dataset.key = r.key;
+      el.innerHTML = `
+        <input type="checkbox" class="chk" data-key="${r.key}" ${selected.has(r.key) ? "checked" : ""} title="Select · Shift+click selects the range from the last pick">
+        <div class="rmain">
+          <div class="rtitle"><span class="rtitle-main">${rtitleHtml(r, multiSource)}</span><span ${ringAttrs(r.key)} aria-hidden="true"></span></div>
+          <div class="rmeta" title="${escHtml(rideTimesTitle(r))}">${rmetaHtml(r)}</div>
+          ${so ? `<div class="rdetails">${detailsBlock(r)}</div>` : ""}
+        </div>
+        <div class="rbtns${openMenu === `ovr-r:${r.key}` ? " open" : ""}">
+          <button class="small ghost ovr" data-splitmenu="ovr-r:${r.key}" aria-haspopup="true" aria-expanded="${openMenu === `ovr-r:${r.key}`}" title="More ride actions">${KEBAB_ICON}</button>
+          <span class="ovr-items">${openMenu === `ovr-r:${r.key}` ? rideMenuHtml(r) : ""}</span>
+        </div>`;
+      rowsEl.appendChild(el);
+    }
+  };
+  // Split layout: the month at the reading line (the anchor) and those after it are
+  // built first, synchronously, up to one screenful; the rest wait for idle slices —
+  // months below the screen in order, then the ones above it nearest-first.
+  const deferredBelow: string[] = [];
+  const deferredAbove: string[] = [];
+  pendingBuilds.clear();
+  sectionRows.clear();
+  const anchorM = split && listAnchor && byMonth.has(listAnchor.m) ? listAnchor.m : null;
+  let reached = anchorM === null;
+  let builtSync = 0;
   for (const [year, ymonths] of years) {
     const yKeys = ymonths.flatMap(([, m]) => m.rides.map((r) => r.key));
     const yRides = ymonths.flatMap(([, m]) => m.rides);
@@ -1956,6 +2415,13 @@ function render(): void {
       <div class="ybody" ${yOpen ? "" : 'style="display:none"'}></div>`;
     root.appendChild(ybox);
     setChecked(ybox.querySelector(".selall"), ySel);
+    if (split) {
+      const yh = document.createElement("div");
+      yh.className = "rp-year";
+      yh.dataset.y = String(year);
+      yh.innerHTML = `<b>${year}</b><span class="mmeta">${yRides.length} rides · ${fmtKm(ykm)}</span>`;
+      pane.appendChild(yh);
+    }
 
     const ybody = ybox.querySelector(".ybody")!;
     for (const [mkey, m] of ymonths) {
@@ -1971,7 +2437,7 @@ function render(): void {
         !!openMenu && openMenu.startsWith("ovr-r:") && mKeys.includes(openMenu.slice(6));
 
       const box = document.createElement("div");
-      box.className = menuHere ? "month menu-open" : "month";
+      box.className = `month${isOpen ? " open" : ""}${menuHere ? " menu-open" : ""}`;
       box.innerHTML = `
         <div class="mhead" data-m="${mkey}">
           <span class="caret${isOpen ? " open" : ""}" aria-hidden="true"></span>
@@ -1980,53 +2446,68 @@ function render(): void {
           ${volumeBar(mkm, maxMonthKm)}
           <span class="mmeta">${m.rides.length} rides · ${fmtKm(mkm)}</span>
         </div>
-        <div class="rows ${isOpen ? "open" : ""}"></div>`;
+        ${split ? "" : `<div class="rows ${isOpen ? "open" : ""}"></div>`}`;
       ybody.appendChild(box);
       setChecked(box.querySelector(".selall"), mSel);
 
-      const rowsEl = box.querySelector(".rows")!;
-      for (const r of m.rides) {
-        const so = openStats.has(r.key);
-        // Fall back to checked detail stats when the list scan never captured the
-        // summary figures, so a Checked ride shows real numbers instead of "?".
-        const summaryDistance =
-          r.distance_km != null && r.distance_km > 0 ? fmtKmDetail(r.distance_km) : "?";
-        const summaryDuration =
-          r.elapsed_sec != null
-            ? fmtDurationExact(r.elapsed_sec)
-            : r.moving_sec != null
-              ? fmtDurationExact(r.moving_sec)
-              : "?";
-        const el = document.createElement("div");
-        el.className = `rrow${r.deleted ? " deleted" : ""}${selected.has(r.key) ? " sel" : ""}`;
-        el.dataset.key = r.key;
-        el.innerHTML = `
-          <input type="checkbox" class="chk" data-key="${r.key}" ${selected.has(r.key) ? "checked" : ""}>
-          <div class="rmain">
-            <div class="rtitle">${rtitleHtml(r, multiSource)}</div>
-            <div class="rmeta" title="${escHtml(rideTimesTitle(r))}">${escHtml(rideWhen(r))} · ${summaryDistance} · ${summaryDuration}</div>
-            ${so ? detailsBlock(r) : ""}
-          </div>
-          <div class="rbtns${openMenu === `ovr-r:${r.key}` ? " open" : ""}">
-            <button class="small ghost ovr" data-splitmenu="ovr-r:${r.key}" aria-haspopup="true" aria-expanded="${openMenu === `ovr-r:${r.key}`}" title="More ride actions">${KEBAB_ICON}</button>
-            <span class="ovr-items">
-              ${r.can_upload ? `<button class="small ghost" data-act="upload-one" data-key="${r.key}"${r.status === "uploaded" ? ' disabled title="Already uploaded to Strava"' : ' title="Push this ride to Strava (via Beeline)"'}>Push to Strava</button>` : ""}
-              ${r.strava_activity_id ? `<button class="small ghost" data-act="strava-open-one" data-key="${r.key}" title="Open this ride on Strava in a new tab">Show in Strava</button>` : ""}
-              <button class="small ghost" data-act="gpx-save-one" data-key="${r.key}" title="Save the route-only GPX (the stored shape — no timestamps or elevation; instant, works offline)">Save route GPX</button>
-              <button class="small ghost" data-act="gpx-save-full-one" data-key="${r.key}" title="Download the full recorded GPX (real timestamps + elevation) and save it to disk">Save full GPX</button>
-              <button class="small ghost" data-act="gpx-fetch-one" data-key="${r.key}" title="${r.gpx_cached ? "Full GPX is cached — fetch again to refresh it (no file saved)" : "Fetch the full recorded GPX into the local cache without saving a file (pre-warms offline use + the map)"}">${r.gpx_cached ? "Fetch full GPX ✓" : "Fetch full GPX"}</button>
-              <button class="small ghost" data-act="resolve-wind-one" data-key="${r.key}" title="${controller.hasResolvedWind(r.key) ? "Historical wind is resolved — open the map and choose Show wind, or resolve again to refresh" : "Resolve historical wind (from Open-Meteo) for this ride — colours its big map by head/tailwind"}">${controller.hasResolvedWind(r.key) ? "Resolve wind ✓" : "Resolve wind"}</button>
-              <button class="small ghost" data-act="tags-one" data-key="${r.key}" title="Add or remove tags for this ride">Tags…</button>
-              ${r.deleted ? "" : `<button class="small ghost" data-act="rename-one" data-key="${r.key}" title="Rename this ride">Rename…</button>`}
-              ${r.deleted || r.source !== "gpx" ? "" : `<button class="small ghost" data-act="destination-one" data-key="${r.key}" title="Set or edit this ride's destination (the place it went to)">${r.location.trim() ? "Edit destination…" : "Set destination…"}</button>`}
-              ${r.deleted ? "" : `<button class="small danger" data-act="delete-one" data-key="${r.key}" title="Delete this ride">Delete…</button>`}
-              ${r.deleted ? `<button class="small danger" data-act="drop-one" data-key="${r.key}" title="Permanently remove this deleted ride (and its stored GPX) from this device">Drop from library</button>` : ""}
-            </span>
-          </div>`;
-        rowsEl.appendChild(el);
+      // Split layout: every month's rows go into the continuous right pane under a
+      // sticky month heading. Otherwise the rows live inside the month box,
+      // shown/hidden by `.rows.open`.
+      let rowsEl: Element;
+      if (split) {
+        const sec = document.createElement("section");
+        sec.className = "rp-month";
+        sec.dataset.m = mkey;
+        sec.innerHTML =
+          `<div class="rp-head"><b>${m.label}</b><span class="mmeta">${m.rides.length} rides · ${fmtKm(mkm)}</span></div>` +
+          `<div class="rows open"></div>`;
+        pane.appendChild(sec);
+        rowsEl = sec.querySelector(".rows")!;
+      } else {
+        rowsEl = box.querySelector(".rows")!;
+      }
+      if (split) {
+        if (mkey === anchorM) reached = true;
+        const sec = rowsEl.closest<HTMLElement>(".rp-month")!;
+        sectionRows.set(sec, m.rides.length);
+        if (reached && builtSync < SYNC_ROWS) {
+          buildRows(rowsEl, m.rides);
+          builtSync += m.rides.length;
+        } else {
+          const el = rowsEl;
+          (reached ? deferredBelow : deferredAbove).push(mkey);
+          pendingBuilds.set(mkey, () => {
+            // A month above the viewport that is laid out (near enough to render)
+            // changes height as its placeholder becomes rows — keep the page still.
+            const above = sec.getBoundingClientRect().bottom < 0;
+            const h0 = above ? sec.offsetHeight : 0;
+            buildRows(el, m.rides);
+            sec.style.minHeight = "";
+            if (above) {
+              const d = sec.offsetHeight - h0;
+              if (d) document.body.scrollTop += d;
+            }
+          });
+        }
+      } else if (isOpen) {
+        buildRows(rowsEl, m.rides); // closed months' rows are hidden anyway — skip them
       }
     }
   }
+  if (split) {
+    applyPlaceholderHeights();
+    restoreListAnchor();
+    // The anchor month is in view now, so its rows measure — if that corrects the
+    // placeholders, the anchor moves and is put back once more.
+    if (measureRowHeights()) {
+      applyPlaceholderHeights();
+      restoreListAnchor();
+    }
+  } else {
+    restoreListAnchor();
+  }
+  scheduleListBuild([...deferredBelow, ...deferredAbove.reverse()]);
+  if (split) exploreSpy();
   renderJob();
   if (activeView() === "map") mountMapView();
   else if (activeView() === "stats") mountStatsView();
@@ -2039,13 +2520,15 @@ function render(): void {
   else mountMaps();
   // The consolidated actions menu lives in static markup (not rebuilt here), so
   // sync its open state from the shared `openMenu` flag.
-  const stateSplit = document.getElementById("stateMenu")?.closest(".split");
-  stateSplit?.classList.toggle("open", openMenu === "state");
+  syncOpenMenu();
   // First paint is done with real state — drop the boot guard that kept the static
   // header's Beeline connection chrome hidden, so it never flashed in then out.
   document.body.classList.remove("booting");
   lastSig = stateSig();
+  lastRowSigs = rowSigs();
+  lastJobsSig = jobsSig();
   lastWeatherSig = weatherSig();
+  lastWeatherByKey = new Map(STATE.rides.map((r) => [r.key, !!r.wind_resolved]));
 }
 
 // Batch select acts only on rides that pass the active filters — the same
@@ -2064,7 +2547,7 @@ const keysOfYear = (y: string): string[] =>
 function toggleGroup(keys: string[]): void {
   const allSel = keys.length > 0 && keys.every((k) => selected.has(k));
   for (const k of keys) allSel ? selected.delete(k) : selected.add(k);
-  render();
+  applySelection();
 }
 
 function toast(msg: string, err = false): void {
@@ -2090,27 +2573,28 @@ function dismissToast(): void {
 // own listeners; the app's global keydown still calls the imported closeConfirm).
 
 function stateSig(): string {
-  // Exclude the verbose, fast-changing job fields (message/progress/history) from the
-  // render signature: they tick on every `report()` during a job and would otherwise
-  // trigger a full render() — which remounts the Leaflet maps and makes them flicker.
-  // The job BAR is refreshed separately every tick (renderJob); the LIST only depends
-  // on WHICH rides are queued/running (active_keys/current_keys), so include just those.
+  // STRUCTURE only: which rides are listed, in which groups, and everything that
+  // shapes the list around them. A ride's own fields (title, status, cached GPX…)
+  // are diffed per row instead (rowSigs → applyRowUpdates), so a job completing one
+  // ride never rebuilds 2,000 rows. Jobs (rings) and weather (badges) are patched
+  // in place too. Never serialise the `track` polyline.
   const { jobs, rides, ...rest } = STATE;
-  const jobsSig =
-    [...(jobs.active_keys ?? [])].sort().join(",") +
-    ";" +
-    [...(jobs.current ? (jobs.current_keys ?? []) : [])].sort().join(",");
-  // Strip the per-ride WEATHER fields too — during a bulk wind resolve they update
-  // one ride at a time, and including them would rebuild the whole list (remounting
-  // maps) on every resolved ride. Weather changes are applied in place by
-  // applyWeatherUpdate instead (toggling the small wind badge), no list rebuild.
-  const ridesSig = JSON.stringify(rides.map(({ wind_resolved, wind_speed_kmh, ...r }) => r));
+  void jobs;
+  const vis = visibleRides(filters, rides);
+  const structure = vis
+    .map((r) => `${r.key}|${r.month_key}|${r.deleted ? 1 : 0}|${r.distance_km ?? ""}`)
+    .join(";");
+  let deleted = 0;
+  const sources = new Set<string>();
+  for (const r of rides) {
+    if (r.deleted) deleted++;
+    sources.add(r.source);
+  }
   return (
     JSON.stringify(rest) +
     "#" +
-    ridesSig +
-    "#" +
-    jobsSig +
+    structure +
+    `#${deleted}#${sources.size}` +
     "|" +
     [...selected].sort().join(",") +
     "|" +
@@ -2120,8 +2604,58 @@ function stateSig(): string {
     "|" +
     [...openStats].sort().join(",") +
     "|" +
-    JSON.stringify(filters)
+    JSON.stringify(filters) +
+    `|${exploreSplit() ? "split" : "stack"}:${chartBuckets()}`
   );
+}
+/** Per-ride row signature: everything a row shows except the structural bits above,
+ *  the polyline and the weather flag (each handled by its own in-place patch). */
+function rowSigs(): Map<string, string> {
+  return new Map(
+    STATE.rides.map((r) => {
+      const { track, wind_resolved, wind_speed_kmh, ...x } = r;
+      void track;
+      void wind_resolved;
+      void wind_speed_kmh;
+      return [r.key, JSON.stringify(x)];
+    }),
+  );
+}
+let lastRowSigs = new Map<string, string>();
+/** Patch the rows whose own fields changed (title, status, cached-GPX badge, meta)
+ *  without rebuilding the list. A changed ride whose details block is open falls back
+ *  to a full render (the block is bespoke). */
+function applyRowUpdates(): void {
+  const next = rowSigs();
+  const multiSource = new Set(STATE.rides.map((r) => r.source)).size > 1;
+  let touched = 0;
+  for (const r of STATE.rides) {
+    if (lastRowSigs.get(r.key) === next.get(r.key)) continue;
+    if (openStats.has(r.key)) {
+      lastRowSigs = next;
+      render();
+      return;
+    }
+    const row = rowEl(r.key);
+    if (!row) continue; // not built yet / off the list
+    const main = row.querySelector<HTMLElement>(".rtitle-main");
+    const html = rtitleHtml(r, multiSource);
+    if (main && main.innerHTML !== html) main.innerHTML = html;
+    const meta = row.querySelector<HTMLElement>(".rmeta");
+    if (meta) {
+      const m = rmetaHtml(r);
+      if (meta.innerHTML !== m) meta.innerHTML = m;
+      meta.title = rideTimesTitle(r);
+    }
+    row.classList.toggle("deleted", !!r.deleted);
+    touched++;
+  }
+  lastRowSigs = next;
+  if (touched) {
+    // The toolbar's subset counts ("Fetch full GPX for N rides") follow the rows.
+    if (selected.size) renderSelectionBar(STATE.rides);
+    syncFilterBar(STATE.rides);
+  }
 }
 
 /** Signature of just the per-ride wind-resolved state, so a weather-only change can
@@ -2131,8 +2665,30 @@ function weatherSig(): string {
 }
 
 /** Re-read controller state and re-render if anything visible changed. */
+// A burst of store notifications (a sync upserting hundreds of rides, a job
+// reporting per item) must not render the 2,000-row list once per notification:
+// the state snapshot is taken immediately, the paint is coalesced to one per frame.
+let applyRaf = 0;
 function applyState(): void {
-  STATE = controller.state();
+  if (applyRaf) return;
+  applyRaf = requestAnimationFrame(() => {
+    applyRaf = 0;
+    const t0 = performance.now();
+    STATE = controller.state();
+    performance.measure("ui:snapshot", { start: t0 });
+    paintState();
+  });
+}
+/** Time a paint-path step (User Timing: visible in DevTools and to the perf harness). */
+function timed<T>(name: string, fn: () => T): T {
+  const t0 = performance.now();
+  try {
+    return fn();
+  } finally {
+    performance.measure(name, { start: t0 });
+  }
+}
+function paintState(): void {
   // Keep the open big-map wind overlay live as resolution lands, even when the main
   // list signature hasn't changed (the per-point overlay isn't part of STATE).
   refreshOpenRideMapWind();
@@ -2140,37 +2696,179 @@ function applyState(): void {
   // run the full, map-remounting render() when list-relevant state actually changed —
   // so job progress updates never flicker the maps.
   renderJob();
-  if (stateSig() !== lastSig) {
-    render();
+  if (timed("ui:sig", stateSig) !== lastSig) {
+    timed("ui:render", render);
     return;
+  }
+  // A ride's own fields changed (a fetch landed, a status came back) — patch its row.
+  timed("ui:rows", applyRowUpdates);
+  // Which rides a job touches changes on every item — patch the rings in place.
+  const js = jobsSig();
+  if (js !== lastJobsSig) {
+    lastJobsSig = js;
+    timed("ui:jobs", applyJobUpdate);
   }
   // Structure unchanged — apply any weather-only change (a ride resolved its wind) in
   // place, without rebuilding the list (which would remount + flicker the maps).
-  const wsig = weatherSig();
+  const wsig = timed("ui:wsig", weatherSig);
   if (wsig !== lastWeatherSig) {
     lastWeatherSig = wsig;
-    applyWeatherUpdate();
+    timed("ui:weather", applyWeatherUpdate);
   }
+}
+
+/** Apply a queued / running change in place: the ring in each affected title and
+ *  the row's `.busy` sweep — no list rebuild (2,000 rows per job tick is a freeze). */
+function applyJobUpdate(): void {
+  const jobs = STATE.jobs;
+  const nextActive = new Set(jobs.active_keys || []);
+  const nextRunning = new Set(jobs.current ? jobs.current_keys || [] : []);
+  const touched = new Set([...ACTIVE, ...RUNNING, ...nextActive, ...nextRunning]);
+  ACTIVE = nextActive;
+  RUNNING = nextRunning;
+  if (!touched.size) return;
+  const multiSource = new Set(STATE.rides.map((r) => r.source)).size > 1;
+  const byKey = new Map(STATE.rides.map((r) => [r.key, r]));
+  void multiSource;
+  for (const key of touched) {
+    const row = byKey.has(key) ? rowEl(key) : null;
+    if (!row) continue;
+    row.classList.toggle("busy", RUNNING.has(key));
+    const ring = row.querySelector<HTMLElement>(".rring");
+    if (!ring) continue;
+    const cls = RUNNING.has(key)
+      ? "rring working"
+      : ACTIVE.has(key)
+        ? "rring queued"
+        : "rring";
+    // Same class → leave it alone: re-setting it would restart the spin animation.
+    if (ring.className !== cls) {
+      ring.className = cls;
+      ring.title = RUNNING.has(key)
+        ? "Working on this ride…"
+        : ACTIVE.has(key)
+          ? "Queued — waiting its turn"
+          : "";
+    }
+  }
+}
+
+/** Open / close a ride's details in place: the block is inserted into (or removed
+ *  from) its row, its mini-map mounted, and the render signature updated — never a
+ *  list rebuild, which would scroll the page out from under the click. */
+function toggleRowDetails(key: string): void {
+  const open = !openStats.has(key);
+  open ? openStats.add(key) : openStats.delete(key);
+  const row = rowEl(key);
+  const r = STATE.rides.find((x) => x.key === key);
+  const main = row?.querySelector<HTMLElement>(":scope > .rmain");
+  if (!row || !r || !main) {
+    render();
+    return;
+  }
+  main.querySelector(":scope > .rdetails")?.remove();
+  if (open) {
+    const box = document.createElement("div");
+    box.className = "rdetails";
+    box.innerHTML = detailsBlock(r);
+    main.appendChild(box);
+  }
+  mountMaps();
+  lastSig = stateSig(); // openStats is part of the signature — keep it current
+}
+
+/** Apply a selection change in place: row stripes + checkboxes, the group
+ *  checkboxes' tri-state, and the top-bar toolbar — never a list rebuild. */
+let selectionRaf = 0;
+function applySelection(): void {
+  if (selectionRaf) return;
+  selectionRaf = requestAnimationFrame(() => {
+    selectionRaf = 0;
+    timed("ui:selection", applySelectionNow);
+  });
+}
+function applySelectionNow(): void {
+  for (const row of document.querySelectorAll<HTMLElement>(".rrow")) {
+    const on = selected.has(row.dataset.key ?? "");
+    row.classList.toggle("sel", on);
+    const cb = row.querySelector<HTMLInputElement>("input.chk");
+    if (cb && cb.checked !== on) cb.checked = on;
+  }
+  const vis = visibleRides(filters, STATE.rides);
+  const byMonth = new Map<string, string[]>();
+  const byYear = new Map<string, string[]>();
+  for (const r of vis) {
+    const m = r.month_key || "";
+    (byMonth.get(m) ?? byMonth.set(m, []).get(m)!).push(r.key);
+    const y = m.slice(0, 4);
+    (byYear.get(y) ?? byYear.set(y, []).get(y)!).push(r.key);
+  }
+  const state = (keys: string[]): boolean | null => {
+    const n = keys.filter((k) => selected.has(k)).length;
+    return n === 0 ? false : n === keys.length ? true : null;
+  };
+  for (const cb of document.querySelectorAll<HTMLInputElement>(".selall[data-selmonth]"))
+    setChecked(cb, state(byMonth.get(cb.dataset.selmonth!) ?? []));
+  for (const cb of document.querySelectorAll<HTMLInputElement>(".selall[data-selyear]"))
+    setChecked(cb, state(byYear.get(cb.dataset.selyear!) ?? []));
+  renderSelectionBar(STATE.rides);
+  lastSig = stateSig(); // the selection is part of the signature — keep it current
+}
+
+/** Open / close the ⋯ menus in place. The per-ride menu's eight entries are built
+ *  only when it opens (2,000 rows × 8 buttons was most of the list's HTML). */
+function syncOpenMenu(): void {
+  document
+    .getElementById("stateMenu")
+    ?.closest(".split")
+    ?.classList.toggle("open", openMenu === "state");
+  const key = openMenu?.startsWith("ovr-r:") ? openMenu.slice(6) : null;
+  for (const b of document.querySelectorAll<HTMLElement>(".rbtns.open")) {
+    const row = b.closest<HTMLElement>(".rrow");
+    if (row?.dataset.key === key) continue;
+    b.classList.remove("open");
+    b.querySelector(".ovr")?.setAttribute("aria-expanded", "false");
+    const items = b.querySelector(".ovr-items");
+    if (items) items.innerHTML = "";
+    row?.closest(".month")?.classList.remove("menu-open");
+  }
+  if (!key) return;
+  const row = rowEl(key);
+  const b = row?.querySelector<HTMLElement>(".rbtns");
+  if (!row || !b || b.classList.contains("open")) return;
+  const r = STATE.rides.find((x) => x.key === key);
+  const items = b.querySelector(".ovr-items");
+  if (!r || !items) return;
+  items.innerHTML = rideMenuHtml(r);
+  b.classList.add("open");
+  b.querySelector(".ovr")?.setAttribute("aria-expanded", "true");
+  row.closest(".month")?.classList.add("menu-open");
 }
 
 /** Apply a weather-only state change without a full list rebuild: toggle the wind
  *  badge on each visible ride row in place (so mounted maps survive) and refresh the
  *  filter bar (the Wind chip/range gate on resolved-wind diversity). If a wind-based
  *  filter is active the visible SET depends on weather, so fall back to a full render. */
+let lastWeatherByKey = new Map<string, boolean>();
 function applyWeatherUpdate(): void {
   if (filters.wind !== "any" || filters.windMin !== null || filters.windMax !== null) {
     render();
     return;
   }
+  // Only the rides whose resolved flag flipped get their title re-rendered: during a
+  // bulk resolve that is one or two rows per tick, not a 2,000-row sweep.
   const multiSource = new Set(STATE.rides.map((r) => r.source)).size > 1;
+  const next = new Map<string, boolean>();
   for (const r of STATE.rides) {
-    const titleEl = document.querySelector<HTMLElement>(
-      `.rrow[data-key="${(window.CSS?.escape ?? cssEscape)(r.key)}"] .rtitle`,
-    );
-    if (!titleEl) continue; // off-screen / collapsed group
-    const next = rtitleHtml(r, multiSource);
-    if (titleEl.innerHTML !== next) titleEl.innerHTML = next;
+    const on = !!r.wind_resolved;
+    next.set(r.key, on);
+    if (lastWeatherByKey.get(r.key) === on) continue;
+    const main = rowEl(r.key)?.querySelector<HTMLElement>(".rtitle-main");
+    if (!main) continue; // not built yet / off the list
+    const html = rtitleHtml(r, multiSource);
+    if (main.innerHTML !== html) main.innerHTML = html;
   }
+  lastWeatherByKey = next;
   syncFilterBar(STATE.rides);
 }
 
@@ -2495,7 +3193,8 @@ const earlyClickActions: Record<string, () => void> = {
   btnGpxSource: () => goGpx(),
   btnPickClose: () => hideSources(),
   btnRideMapFull: () => fetchRideMapFull(),
-  btnRideMapWind: () => toggleRideMapWind(),
+  btnRideMapWeather: () => toggleRideMapWeather(),
+  btnRideMapCollapse: () => toggleRideMapChrome(),
   btnRideMapProfileStops: () => toggleRideMapProfileStops(),
   btnRideMapProfile: () => toggleRideMapProfile(),
   btnRideMapClose: () => closeRideMap(),
@@ -2513,6 +3212,7 @@ const lateClickActions: Record<string, () => void> = {
   btnSource: () => showSources(),
   btnSettings: () => showSettings(),
   btnSettingsClose: () => hideSettings(),
+  segDemoToggle: () => toggleSegmentDemo(),
   btnImport: () => void ($("#importFile") as HTMLInputElement).click(),
   btnExport: () => exportRides(),
   btnExportAll: () => void exportAll(),
@@ -2525,12 +3225,22 @@ const lateClickActions: Record<string, () => void> = {
   jobHandle: () => showJob(),
   selClear: () => {
     selected.clear();
-    render();
+    applySelection();
   },
 };
 
 document.addEventListener("click", (e) => {
   const target = e.target as HTMLElement;
+  if (target?.classList?.contains("chk")) {
+    // A ride checkbox: the browser has already flipped it; `change` records the single
+    // ride. Shift extends its new state over the range from the anchor; a plain click
+    // becomes the anchor.
+    const cb = target as HTMLInputElement;
+    const key = cb.dataset.key ?? "";
+    if (e.shiftKey && selAnchor && selAnchor !== key) selectRange(key, cb.checked);
+    else selAnchor = key;
+    return;
+  }
   if (target && target.tagName === "INPUT") return; // checkboxes handled on 'change'
   const t = (target.closest("button, a, .mhead, .yhead") as HTMLElement) || target;
 
@@ -2606,7 +3316,7 @@ document.addEventListener("click", (e) => {
   // Split-button: toggle its dropdown. Any click outside an open menu closes it.
   if (t.dataset?.splitmenu) {
     openMenu = openMenu === t.dataset.splitmenu ? null : t.dataset.splitmenu;
-    render();
+    syncOpenMenu();
     return;
   }
   // Picking any real action from an open mobile "⋯" overflow menu dismisses it
@@ -2615,17 +3325,18 @@ document.addEventListener("click", (e) => {
   // them — close here so every entry behaves the same.
   if (openMenu?.startsWith("ovr-") && t.dataset?.act) {
     openMenu = null;
+    syncOpenMenu();
   }
   // The consolidated actions menu's entries live inside `.split`, so the outside-click
   // guard below skips them — dismiss the open menu here once one of its items is picked.
   if (openMenu === "state" && target.closest("#stateMenu")) {
     openMenu = null;
-    render();
+    syncOpenMenu();
     // fall through so the click still triggers the chosen action
   }
   if (openMenu !== null && !target.closest(".split, .rbtns.open")) {
     openMenu = null;
-    render();
+    syncOpenMenu();
     // fall through so this same click can still trigger whatever it landed on
   }
   // The global filter panel closes on any click outside it. Its chips, fields and
@@ -2642,6 +3353,10 @@ document.addEventListener("click", (e) => {
 
   if (t.dataset?.view) {
     setView(t.dataset.view as ViewName);
+    return;
+  }
+  if (t.dataset?.group === "weather") {
+    setView(lastWeatherView());
     return;
   }
   if (t.dataset?.rangereset) {
@@ -2746,14 +3461,15 @@ document.addEventListener("click", (e) => {
     showSources();
     return;
   }
+  // The chart's own controls redraw only the chart — never the ride list.
   if (t.dataset?.gran) {
     statGran.set(t.dataset.gran as Granularity | "auto");
-    render();
+    renderStats(visibleRides(filters, STATE.rides));
     return;
   }
   if (t.dataset?.metric) {
     statMetric.set(t.dataset.metric as "distance" | "speed");
-    render();
+    renderStats(visibleRides(filters, STATE.rides));
     return;
   }
   if (t.dataset?.clear === "gpx") return void flushGpxCache();
@@ -2968,16 +3684,35 @@ document.addEventListener("click", (e) => {
     const rrow = target.closest(".rrow") as HTMLElement | null;
     if (rrow?.dataset.key) {
       const k = rrow.dataset.key;
-      openStats.has(k) ? openStats.delete(k) : openStats.add(k);
-      render();
+      // Shift-click a row: select the range from the anchor (file-manager idiom);
+      // Ctrl/⌘-click: toggle just this ride. A plain click opens the details.
+      if (e.shiftKey) {
+        selectRange(k, true);
+        return;
+      }
+      if (e.ctrlKey || e.metaKey) {
+        selected.has(k) ? selected.delete(k) : selected.add(k);
+        selAnchor = k;
+        applySelection();
+        return;
+      }
+      toggleRowDetails(k);
       return;
     }
   }
 
+  // A group checkbox (`.selall`) sits inside the header row; its click selects the
+  // group (handled on `change`) and must not also navigate / toggle the group.
+  if (t.tagName === "INPUT") return;
   const yhead = t.classList?.contains("yhead")
     ? t
     : t.closest && (t.closest(".yhead") as HTMLElement | null);
   if (yhead) {
+    // Split layout: the year row navigates (its caret still collapses the tree).
+    if (exploreSplit() && !target.closest(".caret")) {
+      scrollToGroup(`.rp-year[data-y="${CSS.escape(yhead.dataset.y!)}"]`);
+      return;
+    }
     const c = `c${yhead.dataset.y}`;
     openYears.has(c) ? openYears.delete(c) : openYears.add(c);
     render();
@@ -2989,14 +3724,40 @@ document.addEventListener("click", (e) => {
     : t.closest && (t.closest(".mhead") as HTMLElement | null);
   if (mhead) {
     const m = mhead.dataset.m!;
+    if (exploreSplit()) {
+      scrollToGroup(`.rp-month[data-m="${CSS.escape(m)}"]`);
+      return;
+    }
     openMonths.has(m) ? openMonths.delete(m) : openMonths.add(m);
     render();
   }
 });
 
+// Shift-click selects a range of rows — not a run of text.
+document.addEventListener("mousedown", (e) => {
+  if (e.shiftKey && (e.target as HTMLElement).closest?.(".rrow")) e.preventDefault();
+});
+
+// Explore re-renders when a resize crosses the split breakpoint or moves the chart's
+// Auto granularity (both are part of the render signature, so this is cheap when
+// nothing changed).
+let exploreResizeTimer: ReturnType<typeof setTimeout> | null = null;
+window.addEventListener("resize", () => {
+  if (activeView() !== "explore") return;
+  if (exploreResizeTimer) clearTimeout(exploreResizeTimer);
+  exploreResizeTimer = setTimeout(() => {
+    exploreResizeTimer = null;
+    render();
+  }, 150);
+});
+
 // Escape closes an open split-button menu (GPX or Check), or the source picker.
 document.addEventListener("keydown", (e) => {
   if (e.key !== "Escape") return;
+  if (document.getElementById("selBar")?.classList.contains("menu-open")) {
+    setSelMenu(false);
+    return;
+  }
   const settingsM = document.getElementById("settingsModal");
   if (settingsM && !settingsM.classList.contains("hidden")) {
     hideSettings();
@@ -3023,7 +3784,7 @@ document.addEventListener("keydown", (e) => {
   }
   if (openMenu !== null) {
     openMenu = null;
-    render();
+    syncOpenMenu();
   }
 });
 
@@ -3095,7 +3856,7 @@ document.addEventListener("change", (e) => {
   const cb = e.target as HTMLInputElement;
   if (cb.classList?.contains("chk")) {
     cb.checked ? selected.add(cb.dataset.key!) : selected.delete(cb.dataset.key!);
-    render();
+    applySelection();
     return;
   }
   if (cb.dataset?.selmonth) {
@@ -3196,9 +3957,11 @@ document.addEventListener("input", (e) => {
     return;
   }
   if (el.id === "heatRadius") {
+    // Live preview only (a cheap redraw of the existing layer); the setting is
+    // committed on `change` — see the rule in the change handler below.
     const v = parseInt(el.value, 10) || 12;
     ($("#heatRadiusOut") as HTMLOutputElement).value = String(v);
-    run(() => controller.setHeatRadius(v));
+    setHeatRadiusPreview(v);
     return;
   }
   // Grade / speed / crosswind / headwind / tailwind band filters: cheap post-filters
@@ -3222,9 +3985,10 @@ document.addEventListener("input", (e) => {
     return;
   }
   if (el.id === "segLookAhead" || el.id === "segTurn") {
-    // Live label only while dragging; the re-sweeping recompute commits on `change`.
+    // Live label + explainer while dragging; the re-sweeping recompute commits on `change`.
     const out = document.getElementById(`${el.id}Out`) as HTMLOutputElement | null;
     if (out) out.value = segTuneLabel(el.id, parseInt(el.value, 10) || 0);
+    renderSegmentDemo();
     return;
   }
   if (el.id === "setMovingThresh") {
@@ -3238,11 +4002,12 @@ document.addEventListener("input", (e) => {
     return;
   }
   if (el.id !== "trimSlow" && el.id !== "trimFast") return;
+  // Live preview: redraw only the chart with the dragged values. Writing the store
+  // here re-rendered the whole ride list on every tick and froze the page.
   const slow = parseInt($<HTMLInputElement>("#trimSlow").value, 10) || 0;
   const fast = parseInt($<HTMLInputElement>("#trimFast").value, 10) || 0;
-  ($("#trimSlowOut") as HTMLOutputElement).value = `${slow}%`;
-  ($("#trimFastOut") as HTMLOutputElement).value = `${fast}%`;
-  run(() => controller.setSpeedTrim(slow, fast));
+  liveTrim = { slow, fast };
+  renderStats(visibleRides(filters, STATE.rides));
 });
 
 // Commit the moving-speed threshold once when the slider is released (`change`),
@@ -3250,6 +4015,21 @@ document.addEventListener("input", (e) => {
 // whole-blob save + re-render for the whole drag.
 document.addEventListener("change", (e) => {
   const el = e.target as HTMLInputElement;
+  // RULE (portal-wide): a slider's `input` ticks only preview — cheap, visual, local.
+  // The store write + the one full render happen here, once, on release.
+  if (el.id === "trimSlow" || el.id === "trimFast") {
+    const slow = parseInt($<HTMLInputElement>("#trimSlow").value, 10) || 0;
+    const fast = parseInt($<HTMLInputElement>("#trimFast").value, 10) || 0;
+    liveTrim = null;
+    run(() => controller.setSpeedTrim(slow, fast));
+    return;
+  }
+  if (el.id === "heatRadius") {
+    const v = parseInt(el.value, 10) || 12;
+    setHeatRadiusPreview(null);
+    run(() => controller.setHeatRadius(v));
+    return;
+  }
   if (el.id === "setSuggestTags") {
     run(() => controller.setSuggestTagsAfterImport(el.checked));
     return;
@@ -3268,11 +4048,35 @@ initRideMap({
   getController: () => controller,
   getState: () => STATE,
   toast,
-  esc,
+  esc: escHtml, // the ride map interpolates text into HTML (never ids)
   withBeelineAccess,
   withGpxRelayConsent,
   osmAttribution: OSM_ATTRIBUTION,
 });
+
+// Collapsible panels: the Explore chart, the Stats totals band and the Forecast
+// legend fold away (remembered) so a big screen's room goes to the data.
+initCollapse(
+  document.getElementById("spCollapse"),
+  document.getElementById("statsPanel"),
+  "gpx_toolkit.collapse.explore_chart",
+  { open: "Collapse the chart", closed: "Expand the chart" },
+  "collapsed",
+  () => render(), // the chart measures its width when it draws
+);
+initCollapse(
+  document.getElementById("statsKpisCollapse"),
+  document.getElementById("statsKpis"),
+  "gpx_toolkit.collapse.stats_totals",
+  { open: "Compact the totals and records", closed: "Expand the totals and records" },
+);
+initCollapse(
+  document.getElementById("forecastLegendToggle"),
+  document.getElementById("forecastView"),
+  "gpx_toolkit.collapse.forecast_legend",
+  { open: "Hide the legend", closed: "Show the legend" },
+  "legend-collapsed",
+);
 
 initRangeView({
   getRides: () => STATE.rides,
@@ -3321,6 +4125,7 @@ initTimelineView({
 initClimateView({
   getPointWind: (lat, lon, startYear, endYear, onStage) =>
     controller.getPointWind(lat, lon, startYear, endYear, onStage),
+  cachedYears: (lat, lon) => controller.cachedWindYears(lat, lon),
   toast,
   osmAttribution: OSM_ATTRIBUTION,
   onPointChange: (point) => onRoutedPointChange("climate", point),
@@ -3463,6 +4268,14 @@ if (initialRoute) {
   writeRoute(routeForView(activeView()), "replace");
 }
 window.addEventListener("hashchange", applyHashRoute);
+decorateIcons();
+initTheme();
+initShell();
+initSegSliding();
+window.addEventListener("themechange", () => {
+  applyView();
+  render();
+});
 applyView();
 
 // Ask the browser to keep our IndexedDB ride cache durable (best-effort; a no-op

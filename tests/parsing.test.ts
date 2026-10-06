@@ -53,6 +53,14 @@ describe("date helpers", () => {
     ).toBe("year");
     // no parseable dates -> month
     expect(autoGranularity([day("garbage")])).toBe("month");
+    // Density: the same ~4-year span is months when 60 bars fit, years when only 20 do.
+    const span = [day("Mon Jan 1 2023 at 10:00"), day("Sat Jun 13 2026 at 14:22")];
+    expect(autoGranularity(span, 60)).toBe("month");
+    expect(autoGranularity(span, 20)).toBe("year");
+    // …and a six-week span is days once ~50 bars fit.
+    const weeks = [day("Fri May 1 2026 at 10:00"), day("Sat Jun 13 2026 at 14:22")];
+    expect(autoGranularity(weeks, 50)).toBe("day");
+    expect(autoGranularity(weeks, 20)).toBe("week");
   });
 
   it("rideLabel is name-driven with the reference date, never the uid", () => {

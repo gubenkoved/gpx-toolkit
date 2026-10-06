@@ -19,8 +19,10 @@
 import { activeView } from "./app-state";
 import type { RideView } from "./controller";
 import { fmtKm, fmtKmDetail, fmtSpeed } from "./format";
+import { icon } from "./icons";
 import type { DateRange } from "./mapview";
 import { compareRidesByDateDesc, rideShortLabel } from "./parsing";
+import { segmentDemo } from "./segment-demo";
 import type { LatLon } from "./track";
 import { escHtml, statNum } from "./ui";
 import {
@@ -276,6 +278,26 @@ function renderColorLegend(mode: ColorBy, maxKmh: number): void {
 /** Default segment-geometry tuning (also the values the Reset button restores). */
 export const SEG_TUNE_DEFAULTS = { lookAheadM: 15, turnDeg: 35 };
 
+/** Draw the segmentation explainer for the current knobs (live while dragging —
+ *  the sample ride is tiny, so re-chopping it is instant). */
+export function renderSegmentDemo(): void {
+  const host = document.getElementById("segDemo");
+  if (!host || host.classList.contains("hidden")) return; // summoned on demand only
+  const { svg, caption } = segmentDemo(segmentTuning());
+  host.innerHTML = `${svg}<p class="sd-cap">${caption}</p>`;
+}
+
+/** Show / hide the explainer ("How are segments cut?"). */
+export function toggleSegmentDemo(): void {
+  const host = document.getElementById("segDemo");
+  const btn = document.getElementById("segDemoToggle");
+  if (!host) return;
+  const show = host.classList.contains("hidden");
+  host.classList.toggle("hidden", !show);
+  btn?.setAttribute("aria-expanded", String(show));
+  if (show) renderSegmentDemo();
+}
+
 /** Read + clamp the segment-geometry knobs from their sliders. These feed BOTH the
  *  chopper (`SegmentOpts`) and the segment-cache key, so they must be read in one
  *  canonical place. Unlike the max-speed / flat-only post-filters, changing any of
@@ -302,14 +324,14 @@ function renderAnalyticsEmpty(kind: "wind" | "gpx", n: number): void {
       "See how much the wind speeds you up or slows you down. This needs rides with " +
       "<b>resolved wind</b> — once some are resolved, each roughly-straight stretch of a " +
       "ride becomes a point: headwind on the left, tailwind on the right, your speed up the " +
-      'side. <button type="button" class="linkbtn" id="analyticsResolveEmpty">' +
+      `side. <button type="button" class="linkbtn" id="analyticsResolveEmpty">${icon("wind")}` +
       "Resolve wind for these rides</button>";
   } else {
     el.innerHTML =
       `Wind is resolved, but charting speed needs each ride's <b>full GPX</b> (real ` +
       `timestamps). Without it, a segment's speed would be guessed from evenly-spaced ` +
       `points rather than your real pace, so ${n === 1 ? "this ride is" : `these ${n} rides are`} ` +
-      `left out. <button type="button" class="linkbtn" id="analyticsFetchGpxEmpty">` +
+      `left out. <button type="button" class="linkbtn" id="analyticsFetchGpxEmpty">${icon("cloudDown")}` +
       `Fetch full GPX for these rides</button>`;
   }
 }
@@ -327,15 +349,9 @@ function kpiLabels(x: WindDim): { intercept: string; slope: string } {
 /** Blank the KPI cards to placeholders (used while the confirm gate is shown — no
  *  analysis has run yet, so there are no numbers to report). */
 function setAnalyticsCardsPlaceholder(): void {
+  // Nothing to report yet — hide the row rather than show four empty numerals.
   const cards = document.getElementById("analyticsCards");
-  if (!cards) return;
-  const lab = kpiLabels(analyticsXAxis());
-  cards.innerHTML = [
-    statNum({ value: "—", label: lab.intercept }),
-    statNum({ value: "—", label: lab.slope }),
-    statNum({ value: "—", label: "R² (wind explains)" }),
-    statNum({ value: "—", label: "segments" }),
-  ].join("");
+  if (cards) cards.classList.add("hidden");
 }
 
 /** Context-aware gating of the "Colour by" segmented control: the option whose
@@ -348,10 +364,12 @@ export function syncColorByGating(): void {
   const seg = document.getElementById("analyticsColorBy");
   if (!seg) return;
   const opposite: WindDim = x === "along" ? "cross" : "along";
-  for (const btn of seg.querySelectorAll<HTMLElement>("button[data-colorby]")) {
+  for (const btn of seg.querySelectorAll<HTMLButtonElement>("button[data-colorby]")) {
     const dim = btn.dataset.colorby;
     const clash = dim === x; // colouring by the axis dimension
-    btn.classList.toggle("hidden", clash);
+    // Disable rather than hide, so the control keeps its width and nothing shifts.
+    btn.disabled = clash;
+    btn.title = clash ? "Already on the X axis" : "";
     if (clash && btn.classList.contains("active")) {
       // The hidden option was selected — move the selection to the opposite dimension.
       btn.classList.remove("active");
@@ -379,23 +397,29 @@ function renderAnalyticsGate(
   // Prep actions appear only when they can act on rides in range, with the affected
   // count in the label. They reuse the delegated #analyticsResolve / #analyticsFetchGpx
   // handlers (no per-render wiring), so the IDs must stay stable.
+  // When nothing is analysable yet the first prep step IS the primary action; once
+  // some rides qualify, Analyse leads and the prep steps become quiet alternatives.
+  const ready = analyzable > 0;
   const actions: string[] = [];
+  const prepClass = (i: number): string => (ready || i > 0 ? "ghost small" : "primary small");
   if (unresolved) {
     actions.push(
-      `<button type="button" class="accent small" id="analyticsResolve">` +
-        `Resolve wind for ${unresolved} ${unresolved === 1 ? "ride" : "rides"}</button>`,
+      `<button type="button" class="${prepClass(actions.length)}" id="analyticsResolve">` +
+        `${icon("wind")}Resolve wind for ${unresolved} ${unresolved === 1 ? "ride" : "rides"}</button>`,
     );
   }
   if (needGpx) {
     actions.push(
-      `<button type="button" class="accent small" id="analyticsFetchGpx">` +
-        `Fetch full GPX for ${needGpx} ${needGpx === 1 ? "ride" : "rides"}</button>`,
+      `<button type="button" class="${prepClass(actions.length)}" id="analyticsFetchGpx">` +
+        `${icon("cloudDown")}Fetch full GPX for ${needGpx} ${needGpx === 1 ? "ride" : "rides"}</button>`,
     );
   }
   // The detail line makes the analysable subset explicit so the counter never reads as
   // "all N rides will be analysed" when most lack the GPX needed to chart them.
-  const detail =
-    analyzable === windowCount
+  const detail = !ready
+    ? `None of the ${windowCount} rides in the window can be charted yet — a ride needs ` +
+      `resolved wind and its full GPX.`
+    : analyzable === windowCount
       ? `<b>${windowCount}</b> ${windowCount === 1 ? "ride" : "rides"} in the selected date window`
       : `<b>${analyzable}</b> of ${windowCount} rides in the window ${
           analyzable === 1 ? "is" : "are"
@@ -404,11 +428,12 @@ function renderAnalyticsGate(
     `<span class="cm-card cm-gate">` +
     `<b class="cm-head">Analyse wind vs speed</b>` +
     `<span class="cm-detail">${detail}</span>` +
-    `<button type="button" class="primary small cm-go" id="analyticsRun"${
-      analyzable === 0 ? " disabled" : ""
-    }>Analyse ${analyzable} ${ridesWord}</button>` +
+    (ready
+      ? `<button type="button" class="primary small cm-go" id="analyticsRun">` +
+        `${icon("play")}Analyse ${analyzable} ${ridesWord}</button>`
+      : "") +
     (actions.length
-      ? `<span class="cm-detail cm-or">or first prepare the data:</span>` +
+      ? (ready ? `<span class="cm-detail cm-or">or first prepare the data:</span>` : "") +
         `<span class="cm-actions">${actions.join("")}</span>`
       : "") +
     `</span>`;
@@ -461,6 +486,7 @@ function clearChart(): void {
 
 /** Entry point: (re)render the Wind/Speed view, coalescing reruns during a sweep. */
 export async function mountWindSpeedView(opts: { fit?: boolean } = {}): Promise<void> {
+  renderSegmentDemo();
   if (analyticsRunning) {
     analyticsRerunQueued = true;
     return;
@@ -828,7 +854,7 @@ function renderSelectedCard(seg: WindSeg): void {
   );
   card.innerHTML =
     `<div class="ms-mhead"><h3>Selected segment</h3>` +
-    `<button class="ms-clear" title="Clear the selection">Clear</button></div>` +
+    `<button class="ms-clear" title="Clear the selection" aria-label="Clear the selection">${icon("x")}</button></div>` +
     `<div class="ms-seg">${escHtml(segStatsText(seg))}</div>` +
     `<div class="ms-mhint">Open the ride this segment came from:</div>` +
     `<div class="ms-list"><div class="ms-item matched" data-key="${escHtml(ride.key)}" title="${name}">` +

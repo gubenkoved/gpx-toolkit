@@ -108,10 +108,16 @@ export function renderSources(): void {
   card.classList.toggle("connected", connected);
   const status = document.getElementById("beelineStatus");
   if (status) {
-    status.textContent = connected
-      ? deps.isDemo()
-        ? "Connected — demo account"
-        : `Connected — ${state.device || "Beeline account"}`
-      : "";
+    // A quiet state row — a dot, the word, the account in muted text — never a line
+    // of coloured prose.
+    status.textContent = "";
+    if (connected) {
+      const word = document.createElement("b");
+      word.textContent = "Connected";
+      const who = document.createElement("span");
+      who.className = "srcopt-who";
+      who.textContent = deps.isDemo() ? "demo account" : state.device || "Beeline account";
+      status.append(word, who);
+    }
   }
 }

@@ -13,6 +13,8 @@ function seg(uid: string): WindSeg {
     distanceKm: 1,
     movingSec: 180,
     netGradePct: 0,
+    startIdx: 0,
+    endIdx: 1,
   };
 }
 

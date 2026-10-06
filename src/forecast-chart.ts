@@ -46,7 +46,9 @@ interface ForecastChartLayout {
 }
 
 const HOUR_MS = 3_600_000;
-const PLOT_LEFT = 58;
+/** Left gutter: a 12px margin, the unit, the tick figures, then the plot. */
+const PLOT_LEFT = 70;
+const GUTTER = 12;
 const PLOT_RIGHT = 12;
 
 export function speedUnitLabel(unit: ForecastSpeedUnit): string {
@@ -113,8 +115,12 @@ export function forecastChartHeight(metrics: ReadonlySet<ForecastMetric>): numbe
 }
 
 /** A comparison is the primary analytical canvas, not another compact model row. */
-export function forecastComparisonHeight(viewportHeight: number): number {
-  return Math.max(420, Math.min(680, Math.round(viewportHeight * 0.64)));
+/** Combined-chart height: ~64% of the viewport, or most of it when the map is
+ *  collapsed and the chart is the whole show. */
+export function forecastComparisonHeight(viewportHeight: number, roomy = false): number {
+  return roomy
+    ? Math.max(480, Math.min(960, Math.round(viewportHeight * 0.8)))
+    : Math.max(420, Math.min(680, Math.round(viewportHeight * 0.64)));
 }
 
 /** Return the metric lane under a canvas-local y coordinate. */
@@ -150,47 +156,111 @@ export function unwrapDirections(values: Array<number | null>): Array<number | n
   });
 }
 
-function directionDomain(values: Array<number | null>): [number, number] {
-  const present = values.filter((value): value is number => value != null);
-  if (!present.length) return [0, 360];
-  const low = Math.min(...present);
-  const high = Math.max(...present);
-  const padding = Math.max(12, (high - low) * 0.18);
-  return [low - padding, high + padding];
-}
-
-function directionTick(value: number): string {
-  return `${((Math.round(value) % 360) + 360) % 360}°`;
-}
-
-function drawDirectionArrow(
+/** An arrow of `size` px, centred on (x, y), pointing where the wind blows TO. */
+function drawDirectionGlyph(
   ctx: CanvasRenderingContext2D,
   x: number,
   y: number,
   fromDeg: number,
   color: string,
+  size = 14,
+  width = 1.6,
+  alpha = 1,
 ): void {
   const rad = (windTravelDeg(fromDeg) * Math.PI) / 180;
   const ux = Math.sin(rad);
   const uy = -Math.cos(rad);
   const px = -uy;
   const py = ux;
+  const half = size / 2;
+  const head = Math.max(3, size * 0.34);
+  const wing = Math.max(2.2, size * 0.2);
   ctx.save();
+  ctx.globalAlpha = alpha;
   ctx.strokeStyle = color;
   ctx.fillStyle = color;
-  ctx.lineWidth = 1.6;
+  ctx.lineWidth = width;
   ctx.lineCap = "round";
+  ctx.lineJoin = "round";
   ctx.beginPath();
-  ctx.moveTo(x - ux * 6, y - uy * 6);
-  ctx.lineTo(x + ux * 3, y + uy * 3);
+  ctx.moveTo(x - ux * half, y - uy * half);
+  ctx.lineTo(x + ux * (half - head * 0.6), y + uy * (half - head * 0.6));
   ctx.stroke();
   ctx.beginPath();
-  ctx.moveTo(x + ux * 8, y + uy * 8);
-  ctx.lineTo(x + ux * 2 + px * 3.5, y + uy * 2 + py * 3.5);
-  ctx.lineTo(x + ux * 2 - px * 3.5, y + uy * 2 - py * 3.5);
+  ctx.moveTo(x + ux * half, y + uy * half);
+  ctx.lineTo(x + ux * (half - head) + px * wing, y + uy * (half - head) + py * wing);
+  ctx.lineTo(x + ux * (half - head) - px * wing, y + uy * (half - head) - py * wing);
   ctx.closePath();
   ctx.fill();
   ctx.restore();
+}
+
+/** The models' angular spread at one sample: a fan ± `spreadDeg` around the mean,
+ *  in the travel direction, behind the mean arrow. */
+function drawDirectionFan(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  fromDeg: number,
+  spreadDeg: number,
+  radius: number,
+  color: string,
+): void {
+  if (!(spreadDeg > 0.5)) return;
+  const spread = Math.min(180, spreadDeg);
+  const travel = windTravelDeg(fromDeg);
+  // Canvas angles run clockwise from +x; north (up) is −90°.
+  const a0 = ((travel - spread - 90) * Math.PI) / 180;
+  const a1 = ((travel + spread - 90) * Math.PI) / 180;
+  ctx.save();
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.moveTo(x, y);
+  ctx.arc(x, y, radius, a0, a1);
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+}
+
+/** The direction lane has no numeric axis: a centre line and, in the margin, a
+ *  north-up arrow with "N" — the arrows on the lane point where the wind blows. */
+function drawDirectionAxis(
+  ctx: CanvasRenderingContext2D,
+  lane: readonly [number, number],
+  left: number,
+  plotRight: number,
+  grid: string,
+  muted: string,
+): void {
+  const cy = (lane[0] + lane[1]) / 2;
+  ctx.save();
+  ctx.strokeStyle = grid;
+  ctx.globalAlpha = 0.55;
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(left, cy + 0.5);
+  ctx.lineTo(plotRight, cy + 0.5);
+  ctx.stroke();
+  ctx.restore();
+  drawDirectionGlyph(ctx, left - 24, cy - 7, 180, muted, 12, 1.4);
+  ctx.save();
+  ctx.font = "11px Ubuntu, system-ui, sans-serif";
+  ctx.fillStyle = muted;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText("N", left - 24, cy + 9);
+  ctx.restore();
+}
+
+/** Arrow size and sampling step for a direction lane: arrows ≥ 6px apart. */
+function directionRibbon(
+  lane: readonly [number, number],
+  pxPerSample: number,
+): { cy: number; size: number; step: number; radius: number } {
+  const height = lane[1] - lane[0];
+  const size = Math.min(26, Math.max(14, height * 0.5));
+  const step = Math.max(1, Math.ceil((size + 6) / Math.max(1e-6, pxPerSample)));
+  return { cy: (lane[0] + lane[1]) / 2, size, step, radius: Math.min(24, height / 2 - 1) };
 }
 
 interface DirectionConsensus {
@@ -367,8 +437,8 @@ function drawTimeAxis(
     hour: "2-digit",
     hour12: false,
   });
-  const dayFont = "600 10px Ubuntu, system-ui, sans-serif";
-  const hourFont = "9px Ubuntu, system-ui, sans-serif";
+  const dayFont = "600 11.5px Ubuntu, system-ui, sans-serif";
+  const hourFont = "11px Ubuntu, system-ui, sans-serif";
   interface AxisLabel {
     text: string;
     x: number;
@@ -400,7 +470,7 @@ function drawTimeAxis(
   for (let i = 0; i < boundaries.length; i++) {
     if (i % 2 === 0) continue;
     const end = boundaries[i + 1] ?? width - PLOT_RIGHT;
-    ctx.fillStyle = "rgba(255,255,255,.025)";
+    ctx.fillStyle = css("--fc-zebra", "rgba(255, 255, 255, 0.025)");
     ctx.fillRect(boundaries[i], 0, Math.max(0, end - boundaries[i]), 19);
   }
   ctx.strokeStyle = gridStrong;
@@ -505,6 +575,89 @@ function css(name: string, fallback: string): string {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
 }
 
+/** Theme-dependent chart chrome, read from the stylesheet at draw time so both
+ *  themes render correctly (the light theme overrides every `--fc-*` token). */
+function chartTheme(): {
+  dim: string;
+  tipBg: string;
+  tipLine: string;
+  cursor: string;
+  zebra: string;
+  cloudRgb: string;
+  panel: string;
+  direction: string;
+  now: string;
+} {
+  return {
+    now: css("--fc-now", "#ff7a33"),
+    dim: css("--fc-dim", "rgba(6, 8, 12, 0.28)"),
+    tipBg: css("--fc-tip-bg", "rgba(11, 13, 17, 0.95)"),
+    tipLine: css("--fc-tip-line", "rgba(255, 255, 255, 0.12)"),
+    cursor: css("--fc-cursor", "rgba(255, 255, 255, 0.8)"),
+    zebra: css("--fc-zebra", "rgba(255, 255, 255, 0.025)"),
+    cloudRgb: css("--fc-cloud", "155, 176, 196"),
+    panel: css("--panel", "#14171d"),
+    direction: css("--fc-direction", "#b8c9d9"),
+  };
+}
+
+/** The current moment: a 2px dashed rule in the themed `--fc-now` colour (readable on
+ *  the light panel too) capped by a small "now" tag, so it is never mistaken for a
+ *  grid line or the hover cursor. */
+function drawNowLine(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  top: number,
+  bottom: number,
+  color: string,
+): void {
+  const xs = Math.round(x);
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 2;
+  ctx.setLineDash([5, 4]);
+  ctx.beginPath();
+  ctx.moveTo(xs, top + 14);
+  ctx.lineTo(xs, bottom);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.font = "600 10px system-ui, -apple-system, 'Segoe UI', sans-serif";
+  const label = "now";
+  const tw = ctx.measureText(label).width;
+  const w = tw + 10;
+  const h = 15;
+  const rx = Math.round(xs - w / 2);
+  const ry = Math.round(top);
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.roundRect(rx, ry, w, h, 4);
+  ctx.fill();
+  ctx.fillStyle = "#fff";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(label, xs, ry + h / 2 + 0.5);
+  ctx.restore();
+}
+
+/** Lane caption drawn inside the plot's top-left corner ("WIND", "RAIN"…), so a
+ *  reader never has to decode a bare unit in the margin. */
+function drawLaneCaption(
+  ctx: CanvasRenderingContext2D,
+  name: string,
+  lane: readonly [number, number],
+  left: number,
+  muted: string,
+): void {
+  ctx.save();
+  ctx.font = "600 10.5px Ubuntu, system-ui, sans-serif";
+  ctx.fillStyle = muted;
+  ctx.textAlign = "left";
+  ctx.textBaseline = "top";
+  ctx.globalAlpha = 0.9;
+  ctx.fillText(name.toUpperCase(), left + 6, lane[0] + 1);
+  ctx.restore();
+}
+
 function line(
   ctx: CanvasRenderingContext2D,
   values: Array<number | null>,
@@ -559,6 +712,7 @@ export function drawForecastRow(
   const grid = css("--line", "#2a3340");
   const gridStrong = css("--line-strong", "#3a4655");
   const accent = css("--accent", "#fc5200");
+  const th = chartTheme();
   const left = PLOT_LEFT;
   const right = PLOT_RIGHT;
   const plotW = Math.max(1, w - left - right);
@@ -573,8 +727,6 @@ export function drawForecastRow(
     max: number,
     lane: readonly [number, number],
   ): number => lane[1] - ((value - min) / Math.max(1e-6, max - min)) * (lane[1] - lane[0]);
-  const directionLine = layout.direction ? unwrapDirections(forecast.windDirectionDeg) : null;
-  const [directionMin, directionMax] = directionDomain(directionLine ?? []);
 
   const focusedBounds = options.focusedLane ? layout[options.focusedLane] : undefined;
   if (focusedBounds) {
@@ -601,7 +753,7 @@ export function drawForecastRow(
     format: (value: number) => string = (value) => value.toFixed(digits),
   ): void => {
     ctx.save();
-    ctx.font = "10px Ubuntu, system-ui, sans-serif";
+    ctx.font = "11.5px Ubuntu, system-ui, sans-serif";
     ctx.textBaseline = "middle";
     for (const value of ticks(min, max)) {
       const y = sy(value, min, max, lane);
@@ -619,10 +771,10 @@ export function drawForecastRow(
       ctx.fillText(format(value), left - 5, y);
       ctx.globalAlpha = 1;
     }
-    ctx.font = "9px Ubuntu, system-ui, sans-serif";
+    ctx.font = "11px Ubuntu, system-ui, sans-serif";
     ctx.fillStyle = muted;
     ctx.textAlign = "left";
-    ctx.fillText(unit, 3, (lane[0] + lane[1]) / 2);
+    ctx.fillText(unit, GUTTER, (lane[0] + lane[1]) / 2);
     ctx.restore();
   };
   if (layout.wind) {
@@ -634,8 +786,7 @@ export function drawForecastRow(
       decimals(scales.windMax, 20),
     );
   }
-  if (layout.direction)
-    drawScale("from", layout.direction, directionMin, directionMax, 0, directionTick);
+  if (layout.direction) drawDirectionAxis(ctx, layout.direction, left, w - right, grid, muted);
   if (layout.rain) {
     drawScale("mm", layout.rain, 0, scales.rainMax, decimals(scales.rainMax, 4));
   }
@@ -659,6 +810,15 @@ export function drawForecastRow(
       max,
       hasPressure ? decimals(max - min, 2) : 0,
     );
+  }
+  for (const [laneName, lane] of [
+    ["Wind", layout.wind],
+    ["Direction · blowing to", layout.direction],
+    ["Rain", layout.rain],
+    ["Temperature", layout.temp],
+    [options.metrics.has("pressure") ? "Pressure" : "Cloud cover", layout.pressure],
+  ] as const) {
+    if (lane) drawLaneCaption(ctx, laneName, lane, left, muted);
   }
   ctx.strokeStyle = grid;
   ctx.lineWidth = 1;
@@ -688,7 +848,7 @@ export function drawForecastRow(
       if (cloud == null) continue;
       const x0 = Math.max(left, x(i) - hourWidth / 2);
       const x1 = Math.min(w - right, x(i) + hourWidth / 2);
-      ctx.fillStyle = `rgba(155, 176, 196, ${0.03 + (cloud / 100) * 0.24})`;
+      ctx.fillStyle = `rgba(${th.cloudRgb}, ${0.03 + (cloud / 100) * 0.24})`;
       ctx.fillRect(x0, layout.pressure[0], x1 - x0, layout.pressure[1] - layout.pressure[0]);
     }
   }
@@ -743,29 +903,14 @@ export function drawForecastRow(
     );
   }
 
-  // The direction lane follows the heading continuously across north crossings.
-  if (layout.direction && directionLine) {
-    line(
-      ctx,
-      directionLine,
-      x,
-      (value) => sy(value, directionMin, directionMax, layout.direction!),
-      "#9bb0c4",
-      [],
-      1.5,
-    );
-    const arrowEvery = n <= 72 ? 3 : n <= 168 ? 6 : 12;
-    for (let i = 0; i < n; i += arrowEvery) {
+  // The direction lane is a ribbon of arrows on a centre line (north up, pointing
+  // where the wind blows) — a heading is not a quantity to plot against an axis.
+  if (layout.direction) {
+    const rib = directionRibbon(layout.direction, n > 1 ? x(1) - x(0) : plotW);
+    for (let i = 0; i < n; i += rib.step) {
       const from = forecast.windDirectionDeg[i];
-      const value = directionLine[i];
-      if (from == null || value == null) continue;
-      drawDirectionArrow(
-        ctx,
-        x(i),
-        sy(value, directionMin, directionMax, layout.direction),
-        from,
-        text,
-      );
+      if (from == null) continue;
+      drawDirectionGlyph(ctx, x(i), rib.cy, from, th.direction, rib.size, 1.7);
     }
   }
 
@@ -776,7 +921,7 @@ export function drawForecastRow(
     for (const laneName of ["wind", "direction", "rain", "temp", "pressure"] as const) {
       const bounds = layout[laneName];
       if (!bounds || laneName === options.focusedLane) continue;
-      ctx.fillStyle = "rgba(6, 8, 12, .28)";
+      ctx.fillStyle = th.dim;
       ctx.fillRect(left, bounds[0] - 3, plotW, bounds[1] - bounds[0] + 6);
     }
     const laneBorder: Record<ForecastChartLane, string> = {
@@ -798,18 +943,12 @@ export function drawForecastRow(
 
   const now = Date.now();
   if (n > 1 && now >= timeline.startMs && now <= timeline.endMs) {
-    ctx.strokeStyle = "rgba(252,82,0,.8)";
-    ctx.setLineDash([3, 3]);
-    ctx.beginPath();
-    ctx.moveTo(xAtTime(now) + 0.5, layout.top);
-    ctx.lineTo(xAtTime(now) + 0.5, layout.bottom);
-    ctx.stroke();
-    ctx.setLineDash([]);
+    drawNowLine(ctx, xAtTime(now), layout.top, layout.bottom, th.now);
   }
 
   if (selectedTimeMs != null) {
     const selectedX = xAtTime(selectedTimeMs);
-    ctx.strokeStyle = "rgba(255,255,255,.8)";
+    ctx.strokeStyle = th.cursor;
     ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.moveTo(selectedX + 0.5, 0);
@@ -830,7 +969,7 @@ export function drawForecastRow(
       host ? host.getBoundingClientRect().right - canvasRect.left - 4 : w - right,
     );
     const drawBadge = (label: string, centerY: number, border: string): void => {
-      ctx.font = "600 11px Ubuntu, system-ui, sans-serif";
+      ctx.font = "600 12px Ubuntu, system-ui, sans-serif";
       const width = Math.ceil(ctx.measureText(label).width) + 14;
       const height = 21;
       const roomRight = visibleRight - selectedX - 8;
@@ -839,7 +978,7 @@ export function drawForecastRow(
         roomRight >= width || roomRight >= roomLeft ? selectedX + 8 : selectedX - width - 8;
       const bx = Math.max(visibleLeft, Math.min(visibleRight - width, preferred));
       const by = Math.max(1, Math.min(h - height - 1, centerY - height / 2));
-      ctx.fillStyle = "rgba(11, 13, 17, .94)";
+      ctx.fillStyle = th.tipBg;
       ctx.strokeStyle = border;
       ctx.lineWidth = 1;
       ctx.beginPath();
@@ -858,7 +997,7 @@ export function drawForecastRow(
     ): void => {
       if (value == null) return;
       ctx.fillStyle = color;
-      ctx.strokeStyle = "rgba(11, 13, 17, .9)";
+      ctx.strokeStyle = th.panel;
       ctx.lineWidth = 2;
       ctx.beginPath();
       ctx.arc(selectedX, y(value), 4, 0, Math.PI * 2);
@@ -898,19 +1037,13 @@ export function drawForecastRow(
     }
     if (layout.direction && (!options.focusedLane || options.focusedLane === "direction")) {
       const from = forecast.windDirectionDeg[index];
-      const value = directionLine?.[index];
-      if (from != null && value != null) {
-        drawDirectionArrow(
-          ctx,
-          selectedX,
-          sy(value, directionMin, directionMax, layout.direction),
-          from,
-          text,
-        );
+      if (from != null) {
+        const rib = directionRibbon(layout.direction, n > 1 ? x(1) - x(0) : plotW);
+        drawDirectionGlyph(ctx, selectedX, rib.cy, from, text, rib.size + 6, 2.3);
         drawBadge(
           `From ${compassFrom(from)} (${Math.round(from)}°)`,
           (layout.direction[0] + layout.direction[1]) / 2,
-          "#9bb0c4",
+          th.direction,
         );
       }
     }
@@ -1246,6 +1379,7 @@ export function drawForecastComparison(
   const grid = css("--line", "#2a3340");
   const gridStrong = css("--line-strong", "#3a4655");
   const accent = css("--accent", "#fc5200");
+  const th = chartTheme();
   const left = PLOT_LEFT;
   const right = PLOT_RIGHT;
   const plotW = Math.max(1, w - left - right);
@@ -1279,13 +1413,10 @@ export function drawForecastComparison(
       }),
     );
   const directions = layout.direction ? directionConsensus(aligned("windDirectionDeg")) : null;
-  const [directionMin, directionMax] = directionDomain(
-    directions ? [...directions.low, ...directions.high] : [],
-  );
 
   const focusedBounds = options.focusedLane ? layout[options.focusedLane] : undefined;
   if (focusedBounds) {
-    ctx.fillStyle = "rgba(255, 255, 255, .025)";
+    ctx.fillStyle = th.zebra;
     ctx.fillRect(left, focusedBounds[0] - 3, plotW, focusedBounds[1] - focusedBounds[0] + 6);
   }
 
@@ -1308,7 +1439,7 @@ export function drawForecastComparison(
     format: (value: number) => string = (value) => value.toFixed(digits),
   ): void => {
     ctx.save();
-    ctx.font = "10px Ubuntu, system-ui, sans-serif";
+    ctx.font = "11.5px Ubuntu, system-ui, sans-serif";
     ctx.textBaseline = "middle";
     for (const value of ticks(min, max, lane)) {
       const y = sy(value, min, max, lane);
@@ -1324,10 +1455,10 @@ export function drawForecastComparison(
       ctx.fillText(format(value), left - 5, y);
     }
     ctx.globalAlpha = 1;
-    ctx.font = "9px Ubuntu, system-ui, sans-serif";
+    ctx.font = "11px Ubuntu, system-ui, sans-serif";
     ctx.fillStyle = muted;
     ctx.textAlign = "left";
-    ctx.fillText(unit, 3, (lane[0] + lane[1]) / 2);
+    ctx.fillText(unit, GUTTER, (lane[0] + lane[1]) / 2);
     ctx.restore();
   };
   if (layout.wind) {
@@ -1339,8 +1470,7 @@ export function drawForecastComparison(
       decimals(scales.windMax, 20),
     );
   }
-  if (layout.direction)
-    drawScale("from", layout.direction, directionMin, directionMax, 0, directionTick);
+  if (layout.direction) drawDirectionAxis(ctx, layout.direction, left, w - right, grid, muted);
   if (layout.rain)
     drawScale("mm", layout.rain, 0, scales.rainMax, decimals(scales.rainMax, 4));
   if (layout.temp)
@@ -1422,7 +1552,7 @@ export function drawForecastComparison(
       for (let i = 0; i < times.length; i++) {
         const value = cloud.median[i];
         if (value == null) continue;
-        ctx.fillStyle = `rgba(155, 176, 196, ${0.025 + (value / 100) * 0.18})`;
+        ctx.fillStyle = `rgba(${th.cloudRgb}, ${0.025 + (value / 100) * 0.18})`;
         ctx.fillRect(
           Math.max(left, x(i) - hourWidth / 2),
           layout.pressure[0],
@@ -1433,7 +1563,14 @@ export function drawForecastComparison(
     } else {
       stats.set(
         "cloudCoverPct",
-        drawCollection(rows, layout.pressure, 0, 100, "rgba(155,176,196,.14)", "#9bb0c4"),
+        drawCollection(
+          rows,
+          layout.pressure,
+          0,
+          100,
+          `rgba(${th.cloudRgb}, 0.14)`,
+          `rgb(${th.cloudRgb})`,
+        ),
       );
     }
   }
@@ -1497,15 +1634,10 @@ export function drawForecastComparison(
     );
   }
 
+  // Direction: a ribbon of consensus arrows on a centre line. Behind each, the
+  // models' spread — a fan in Consensus mode, each model's own arrow in All lines.
   if (layout.direction && directions) {
-    comparisonBand(
-      ctx,
-      directions.low,
-      directions.high,
-      x,
-      (value) => sy(value, directionMin, directionMax, layout.direction!),
-      "rgba(155,176,196,.13)",
-    );
+    const rib = directionRibbon(layout.direction, times.length > 1 ? x(1) - x(0) : plotW);
     const ordered = directions.rows.map((row, index) => ({ row, index }));
     if (options.focusedModelId)
       ordered.sort(
@@ -1513,46 +1645,44 @@ export function drawForecastComparison(
           Number(forecasts[a.index].modelId === options.focusedModelId) -
           Number(forecasts[b.index].modelId === options.focusedModelId),
       );
-    const visibleRows = options.showModelTracks
-      ? ordered
-      : ordered.filter(({ index }) => forecasts[index].modelId === options.focusedModelId);
-    for (const { row, index } of visibleRows) {
-      const focused = forecasts[index].modelId === options.focusedModelId;
-      ctx.globalAlpha = options.focusedModelId ? (focused ? 1 : 0.13) : 0.58;
-      line(
-        ctx,
-        row,
-        x,
-        (value) => sy(value, directionMin, directionMax, layout.direction!),
-        colors[index],
-        [],
-        focused ? 2.5 : 1,
-      );
-    }
-    ctx.globalAlpha = 1;
-    line(
-      ctx,
-      directions.mean,
-      x,
-      (value) => sy(value, directionMin, directionMax, layout.direction!),
-      "#b8c9d9",
-      [],
-      1.9,
-    );
-    const arrowEvery = timeline.hours <= 96 ? 4 : timeline.hours <= 192 ? 8 : 12;
-    for (let i = 0; i < times.length; i += arrowEvery) {
+    for (let i = 0; i < times.length; i += rib.step) {
       const from = directions.mean[i];
       if (from == null) continue;
-      drawDirectionArrow(
-        ctx,
-        x(i),
-        sy(from, directionMin, directionMax, layout.direction),
-        from,
-        text,
-      );
+      if (options.showModelTracks || options.focusedModelId) {
+        for (const { row, index } of ordered) {
+          const v = row[i];
+          if (v == null) continue;
+          const focused = forecasts[index].modelId === options.focusedModelId;
+          if (!options.showModelTracks && !focused) continue;
+          drawDirectionGlyph(
+            ctx,
+            x(i),
+            rib.cy,
+            v,
+            colors[index],
+            focused ? rib.size + 4 : rib.size - 2,
+            focused ? 2.4 : 1.1,
+            options.focusedModelId ? (focused ? 1 : 0.14) : 0.5,
+          );
+        }
+      } else {
+        const spread = ((directions.high[i] ?? from) - (directions.low[i] ?? from)) / 2;
+        drawDirectionFan(ctx, x(i), rib.cy, from, spread, rib.radius, "rgba(155,176,196,.16)");
+      }
+      if (!options.focusedModelId)
+        drawDirectionGlyph(ctx, x(i), rib.cy, from, th.direction, rib.size, 1.9);
     }
   }
 
+  for (const [laneName, lane] of [
+    ["Wind", layout.wind],
+    ["Direction · blowing to", layout.direction],
+    ["Rain", layout.rain],
+    ["Temperature", layout.temp],
+    [options.metrics.has("pressure") ? "Pressure" : "Cloud cover", layout.pressure],
+  ] as const) {
+    if (lane) drawLaneCaption(ctx, laneName, lane, left, muted);
+  }
   for (const lane of [
     layout.wind,
     layout.direction,
@@ -1571,25 +1701,19 @@ export function drawForecastComparison(
     for (const laneName of ["wind", "direction", "rain", "temp", "pressure"] as const) {
       const bounds = layout[laneName];
       if (!bounds || laneName === options.focusedLane) continue;
-      ctx.fillStyle = "rgba(6, 8, 12, .25)";
+      ctx.fillStyle = th.dim;
       ctx.fillRect(left, bounds[0] - 3, plotW, bounds[1] - bounds[0] + 6);
     }
   }
 
   const now = Date.now();
   if (now >= timeline.startMs && now <= timeline.endMs) {
-    ctx.strokeStyle = "rgba(252,82,0,.8)";
-    ctx.setLineDash([3, 3]);
-    ctx.beginPath();
-    ctx.moveTo(xAtTime(now) + 0.5, layout.top);
-    ctx.lineTo(xAtTime(now) + 0.5, layout.bottom);
-    ctx.stroke();
-    ctx.setLineDash([]);
+    drawNowLine(ctx, xAtTime(now), layout.top, layout.bottom, th.now);
   }
 
   if (selectedTimeMs == null) return;
   const selectedX = xAtTime(selectedTimeMs);
-  ctx.strokeStyle = "rgba(255,255,255,.8)";
+  ctx.strokeStyle = th.cursor;
   ctx.lineWidth = 1;
   ctx.beginPath();
   ctx.moveTo(selectedX + 0.5, 0);
@@ -1620,7 +1744,7 @@ export function drawForecastComparison(
   if (options.cursorDetails !== "external") {
     const laneColor: Record<ForecastChartLane, string> = {
       wind: accent,
-      direction: "#9bb0c4",
+      direction: th.direction,
       rain: "#42a5f5",
       temp: "#ef6c6c",
       pressure: "#72b7d2",
@@ -1656,7 +1780,7 @@ export function drawForecastComparison(
       3,
       Math.min(h - badgeHeight - 4, (bounds[0] + bounds[1] - badgeHeight) / 2),
     );
-    ctx.fillStyle = "rgba(11,13,17,.95)";
+    ctx.fillStyle = th.tipBg;
     ctx.strokeStyle = laneColor[options.focusedLane];
     ctx.beginPath();
     ctx.roundRect(bx, by, badgeWidth, badgeHeight, 5);
@@ -1680,9 +1804,9 @@ export function drawForecastComparison(
     ctx.fillStyle = text;
     ctx.textAlign = "left";
     ctx.textBaseline = "middle";
-    ctx.font = "600 11px Ubuntu, system-ui, sans-serif";
+    ctx.font = "600 12px Ubuntu, system-ui, sans-serif";
     ctx.fillText(`${date} · ${details.title}`, innerLeft, by + 14, innerWidth);
-    ctx.font = "9px Ubuntu, system-ui, sans-serif";
+    ctx.font = "11px Ubuntu, system-ui, sans-serif";
     ctx.fillStyle = muted;
     ctx.fillText("MODEL", innerLeft + 9, by + 37, nameWidth - 12);
     ctx.textAlign = "right";
@@ -1694,7 +1818,7 @@ export function drawForecastComparison(
         columnWidth - 6,
       );
     });
-    ctx.font = "600 10px Ubuntu, system-ui, sans-serif";
+    ctx.font = "600 11.5px Ubuntu, system-ui, sans-serif";
     ctx.fillStyle = text;
     ctx.textAlign = "left";
     ctx.fillText("Range (median)", innerLeft + 9, by + 55, nameWidth - 12);
@@ -1702,12 +1826,12 @@ export function drawForecastComparison(
     details.columns.forEach((column, index) => {
       ctx.fillText(column.summary, columnRight(index) - 2, by + 55, columnWidth - 6);
     });
-    ctx.strokeStyle = "rgba(255,255,255,.12)";
+    ctx.strokeStyle = th.tipLine;
     ctx.beginPath();
     ctx.moveTo(innerLeft, by + 65.5);
     ctx.lineTo(innerLeft + innerWidth, by + 65.5);
     ctx.stroke();
-    ctx.font = "10px Ubuntu, system-ui, sans-serif";
+    ctx.font = "11.5px Ubuntu, system-ui, sans-serif";
     modelRows.forEach((row, index) => {
       const cy = by + 75 + index * rowHeight;
       ctx.fillStyle = row.color;
@@ -1758,7 +1882,7 @@ export function drawForecastComparison(
   dotValues.forEach((value, index) => {
     if (value == null) return;
     ctx.fillStyle = colors[index];
-    ctx.strokeStyle = "rgba(11,13,17,.9)";
+    ctx.strokeStyle = th.panel;
     ctx.lineWidth = 1.5;
     ctx.beginPath();
     ctx.arc(selectedX, sy(value, domain[0], domain[1], bounds), 3.2, 0, Math.PI * 2);

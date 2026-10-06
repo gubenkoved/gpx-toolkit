@@ -234,25 +234,31 @@ describe("forecast presentation view", () => {
     expect(sheet.style.height).toBe("255px");
 
     document.querySelector<HTMLButtonElement>("[data-presentation='textual']")!.click();
-    const headings = [...document.querySelectorAll(".fc-hour-heading")];
-    expect(headings).toHaveLength(20);
-    expect(headings[0].querySelector("b")?.textContent).toBe("Mon 21");
-    expect(headings[6].querySelector("b")).toBeNull();
-    expect(headings[16].querySelector("b")?.textContent).toBe("Tue 22");
+    // The timetable: hours down, a day heading between days, models across.
+    const rows = [...document.querySelectorAll(".fc-tt-row")];
+    expect(rows).toHaveLength(20);
+    const days = [...document.querySelectorAll(".fc-tt-day")].map((d) => d.textContent);
+    expect(days).toHaveLength(2);
+    expect(days[0]).toContain("Monday");
+    expect(days[1]).toContain("Tuesday");
     const table = document.getElementById("forecastCharts")!;
-    expect(table.style.getPropertyValue("--fc-now-progress")).toBe("0.000000");
-    expect(table.style.getPropertyValue("--fc-now-duration")).toBe("3600000ms");
-    expect(table.querySelectorAll("[data-time].current")).toHaveLength(2);
-    const compact = document.querySelector(".fc-model-compact")!;
-    expect(compact.querySelector("b")?.textContent).toBe("ECMWF");
-    expect(compact.textContent).toBe("ECMWF IFS HRES");
+    expect(table.querySelectorAll("[data-time].current")).toHaveLength(1);
+    expect(table.querySelector(".fc-tt-row.current .fc-tt-time")?.textContent).toMatch(
+      /^\d\d:\d\d$/,
+    );
+    const col = document.querySelector(".fc-tt-col:not(.cons)")!;
+    expect(col.querySelector("b")?.textContent).toBe("ECMWF");
+    expect(col.querySelector("span")?.textContent).toBe("IFS HRES");
     expect(
       [...document.querySelectorAll<HTMLButtonElement>("[data-table-metric]")].map(
         (button) => button.textContent,
       ),
-    ).toEqual(["Wind + gust", "Direction", "Rain", "Temperature", "Pressure", "Cloud"]);
-    expect(document.querySelectorAll(".fc-table-metric-icon")).toHaveLength(6);
-    expect(document.querySelector(".fc-hour-cell")?.children).toHaveLength(2);
+    ).toEqual(["Wind", "Gusts", "Direction", "Rain", "Temperature", "Pressure", "Cloud"]);
+    expect(document.querySelectorAll(".fc-table-metric-icon")).toHaveLength(7);
+    // Wind cells carry the direction arrow and a tint that grows with the speed.
+    const windCell = rows[0].querySelector<HTMLElement>(".fc-tt-cell")!;
+    expect(windCell.querySelector(".fc-tt-arrow")).not.toBeNull();
+    expect(windCell.style.getPropertyValue("--heat")).toBe("var(--fc-heat-wind)");
 
     const modelReveal = document.querySelector<HTMLButtonElement>("[data-table-model]")!;
     modelReveal.click();
@@ -267,11 +273,13 @@ describe("forecast presentation view", () => {
     expect(document.getElementById("forecastCharts")?.getAttribute("aria-label")).toBe(
       "Hourly Rain comparison table",
     );
-    expect(document.querySelector(".fc-hour-primary.rain")?.textContent).toBe("0.0");
-    expect(document.querySelector(".fc-hour-cell")?.children).toHaveLength(1);
+    const rainCell = document.querySelector<HTMLElement>(".fc-tt-row .fc-tt-cell")!;
+    expect(rainCell.textContent).toBe("0");
+    expect(rainCell.classList.contains("quiet")).toBe(true);
+    expect(rainCell.querySelector(".fc-tt-arrow")).toBeNull();
 
-    document.querySelector<HTMLElement>(".fc-hour-cell")!.click();
-    expect(document.querySelectorAll("[data-time].selected")).toHaveLength(2);
+    document.querySelector<HTMLElement>(".fc-tt-row .fc-tt-cell")!.click();
+    expect(document.querySelectorAll("[data-time].selected")).toHaveLength(1);
     expect(document.getElementById("forecastReadout")?.textContent).toContain("Showing Rain");
   });
 

@@ -102,7 +102,7 @@ describe("routed view points", () => {
     const fresh = { cell: { lat: 51, lon: 5, gridKm: 25 }, days: [] };
     const toast = vi.fn();
     const getPointWind = vi.fn((lat: number) => (lat === 52 ? old : Promise.resolve(fresh)));
-    initClimateView({ getPointWind, toast, osmAttribution: "" });
+    initClimateView({ getPointWind, cachedYears: () => [], toast, osmAttribution: "" });
     setClimateRoutePoint({ lat: 52, lon: 4 });
     mountClimateView();
     setClimateRoutePoint({ lat: 51, lon: 5 });

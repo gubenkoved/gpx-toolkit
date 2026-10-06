@@ -11,6 +11,7 @@
 
 import type { RideView } from "./controller";
 import { fmtKm, fmtSpeed } from "./format";
+import { icon } from "./icons";
 import { compareRidesByDateDesc, rideShortLabel } from "./parsing";
 import { browserZone, formatOffset, localTime, offsetMinutes, zoneCity } from "./tz";
 import { escHtml } from "./ui";
@@ -106,7 +107,7 @@ export function renderMatchedCards(keys: string[]): string {
   return (
     `<div class="ms-matched">` +
     `<div class="ms-mhead"><h3>Selected · ${matched.length} ${noun}</h3>` +
-    `<button class="ms-clear" title="Clear the selection">Clear</button></div>` +
+    `<button class="ms-clear" title="Clear the selection" aria-label="Clear the selection">${icon("x")}</button></div>` +
     `<div class="ms-mhint">Click a ride below to open it in Explore.</div>` +
     `<div class="ms-list">${cards}</div></div>`
   );

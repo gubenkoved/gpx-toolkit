@@ -404,7 +404,10 @@ export function trimmedSpeed(
  * never collapses to a single lonely bar. Thresholds (on the min→max span):
  * ≤ 21 days → day, ≤ 120 days → week, ≤ ~3 years → month, otherwise year.
  */
-export function autoGranularity(rides: ReadonlyArray<{ key: string }>): Granularity {
+export function autoGranularity(
+  rides: ReadonlyArray<{ key: string }>,
+  maxBuckets = 40,
+): Granularity {
   let min = Infinity;
   let max = -Infinity;
   for (const r of rides) {
@@ -415,10 +418,15 @@ export function autoGranularity(rides: ReadonlyArray<{ key: string }>): Granular
     if (t > max) max = t;
   }
   if (!Number.isFinite(min) || !Number.isFinite(max)) return "month";
-  const days = (max - min) / 86_400_000;
-  if (days <= 21) return "day";
-  if (days <= 120) return "week";
-  if (days <= 1100) return "month";
+  // The finest resolution whose bucket count still fits the chart: `maxBuckets`
+  // comes from the chart's real width (one slot per bar), so a wide screen gets
+  // months across five years where a phone gets years — information density
+  // scales with the room, instead of a fixed span→resolution table.
+  const days = (max - min) / 86_400_000 + 1;
+  const limit = Math.max(4, maxBuckets);
+  if (days <= limit) return "day";
+  if (days / 7 <= limit) return "week";
+  if (days / 30.44 <= limit) return "month";
   return "year";
 }
 

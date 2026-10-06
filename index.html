@@ -22,10 +22,25 @@
      connected" + "Pull from Beeline" controls and the whole filter bar would paint
      and then vanish a frame later. `body.booting` is removed after the first render. */
   html { background: #0b0d11; color-scheme: dark; }
+  html[data-theme="light"] { background: #f3f4f7; color-scheme: light; }
   body.booting #connState,
   body.booting #btnScan,
   body.booting .filterwrap { display: none; }
 </style>
+<!-- Apply the stored colour theme before the first paint (no flash); src/theme.ts
+     takes over from here. Must stay in sync with THEME_KEY in src/theme.ts. -->
+<script>
+  (() => {
+    try {
+      const p = localStorage.getItem("gpx_toolkit.theme");
+      const light =
+        p === "light" || (p === "system" && matchMedia("(prefers-color-scheme: light)").matches);
+      document.documentElement.dataset.theme = light ? "light" : "dark";
+    } catch {
+      /* storage blocked — the stylesheet default (dark) stands */
+    }
+  })();
+</script>
 <!-- GoatCounter: privacy-friendly, cookieless page-view counter (no personal data,
      no cross-site tracking). Loaded async so it never blocks first paint; it no-ops
      on localhost, so dev runs aren't counted. -->
@@ -36,24 +51,75 @@
 ></script>
 </head>
 <body class="booting">
-<header>
+<div class="shell">
+<nav class="sidebar" id="sidebar" aria-label="Main navigation">
+  <div class="sb-brand">
+    <div class="brand"><img class="brand-logo" src="/logo.svg" alt="" width="22" height="22" /><h1>GPX Toolkit</h1><span class="ver" id="appVer"></span></div>
+    <button class="sb-toggle" id="btnSidebar" type="button" aria-expanded="true" aria-label="Collapse sidebar" title="Collapse sidebar"><svg class="mi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M14 6l-6 6 6 6"/></svg></button>
+  </div>
+  <div class="sb-nav" id="viewTabs" role="tablist">
+    <div class="sb-group">
+      <div class="sb-sec">Rides</div>
+      <button class="navlink" data-view="explore" role="tab"><svg class="mi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M4 6h16M4 12h16M4 18h10"/></svg><span>Explore</span></button>
+      <button class="navlink" data-view="map" role="tab"><svg class="mi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M3 6l6-2 6 2 6-2v14l-6 2-6-2-6 2z"/><path d="M9 4v14M15 6v14"/></svg><span>Map</span></button>
+      <button class="navlink" data-view="stats" role="tab"><svg class="mi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg><span>Stats</span></button>
+    </div>
+    <div class="sb-group">
+      <div class="sb-sec">Weather</div>
+      <button class="navlink" data-view="forecast" role="tab"><svg class="mi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M3 8h11a3 3 0 1 0-3-3M3 13h15a3 3 0 1 1-3 3M3 18h8a2.5 2.5 0 1 1 2.5 2.5"/></svg><span>Forecast</span></button>
+      <button class="navlink" data-view="climate" role="tab"><svg class="mi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9"/><path d="M15.5 8.5l-2 5-5 2 2-5z"/></svg><span>Wind rose</span></button>
+    </div>
+    <div class="sb-group" id="sbResearch">
+      <div class="sb-sec">Research</div>
+      <button class="navlink" data-view="analytics" role="tab"><svg class="mi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M3 20h18M3 20V4"/><circle cx="8" cy="14" r="1.3"/><circle cx="12" cy="9" r="1.3"/><circle cx="16" cy="11" r="1.3"/><circle cx="19" cy="6" r="1.3"/><path d="M6 17l13-11" stroke-dasharray="2 3"/></svg><span>Wind vs speed</span></button>
+      <button class="navlink" data-view="timeline" role="tab"><svg class="mi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg><span>Timeline</span></button>
+    </div>
+  </div>
+  <div class="sb-foot" id="sbFoot">
+    <button class="navlink navlink--status" id="btnSource" data-conn="none" title="Connect or manage data sources (Beeline account, GPX files, demo)"><svg class="mi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M16 3l4 4-4 4M20 7H9M8 21l-4-4 4-4M4 17h11"/></svg><span class="nav-text"><span>Sources</span><span class="cstate off" id="connState" style="display:none">not connected</span></span></button>
+    <button class="navlink" id="btnSettings" title="Open application settings"><svg class="mi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l-1.87 1.87A1.7 1.7 0 0 0 16 18.4a1.7 1.7 0 0 0-1.45 1.08L14 21h-4l-.55-1.52A1.7 1.7 0 0 0 8 18.4a1.7 1.7 0 0 0-1.87.34l-1.87-1.87A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.08-1.45L2 13v-2l1.52-.55A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.34-1.87l1.87-1.87A1.7 1.7 0 0 0 8 5.6a1.7 1.7 0 0 0 1.45-1.08L10 3h4l.55 1.52A1.7 1.7 0 0 0 16 5.6a1.7 1.7 0 0 0 1.87-.34l1.87 1.87A1.7 1.7 0 0 0 19.4 9a1.7 1.7 0 0 0 1.08 1.45L22 11v2l-1.52.55A1.7 1.7 0 0 0 19.4 15Z"/></svg><span>Settings</span></button>
+  </div>
+</nav>
+<div class="content">
+<header class="topbar">
   <div class="row">
-    <span class="hdr-info">
-      <div class="brand"><img class="brand-logo" src="/logo.svg" alt="" width="22" height="22" /><h1>GPX Toolkit</h1><span class="ver" id="appVer"></span></div>
-      <span class="totals" id="totals"></span>
-    </span>
+    <div class="tb-title">
+      <img class="tb-logo" src="/logo.svg" alt="" width="22" height="22" />
+      <h2 id="viewTitle">Explore</h2>
+      <span class="tb-sub hidden" id="viewSub"></span>
+      <!-- biome-ignore lint/a11y/useSemanticElements: matches the app's compact segmented controls -->
+      <span class="seg tb-weather hidden" id="weatherSeg" role="group" aria-label="Weather view">
+        <button type="button" class="navlink" data-view="forecast">Forecast</button>
+        <button type="button" class="navlink" data-view="climate">Wind rose</button>
+      </span>
+    </div>
+      <div class="selbar hidden" id="selBar" role="toolbar" aria-label="Selected rides">
+        <button type="button" class="selbar-x" id="selClear" data-icon="x" aria-label="Clear selection" title="Clear selection"></button>
+        <b class="selbar-count" id="selGroupLabel">0 selected</b>
+        <span class="selbar-hint hidden" id="selHint">Shift+click another ride for the range · Ctrl+click toggles one</span>
+        <!-- The batch actions: inline labelled buttons on wide screens; below 1700px the
+             same buttons become the Actions menu (selbar-acts) under one labelled button. -->
+        <button type="button" class="small selbar-more" id="selMore" aria-haspopup="menu" aria-expanded="false" aria-controls="selActs">Actions<svg class="selbar-caret" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button>
+        <span class="selbar-acts" id="selActs" role="menu" aria-label="Actions on the selected rides">
+          <button class="small ghost" id="btnUploadSel" data-icon="upload" title="Push the selected pending rides to Strava (via Beeline)"><span class="btn-label">Push selected to Strava</span></button>
+          <button class="small ghost" id="btnGpxSaveSel" data-icon="download" title="Save the route-only GPX (the stored shape — no timestamps or elevation; instant, works offline) for the selected rides"><span class="btn-label">Save route GPX</span></button>
+          <button class="small ghost" id="btnGpxSaveSelFull" data-icon="download" title="Download the full recorded GPX (real per-point timestamps + elevation) for the selected rides and save them to disk"><span class="btn-label">Save full GPX</span></button>
+          <button class="small ghost" id="btnGpxFetchSel" data-icon="cloudDown" title="Fetch the full recorded GPX (real timestamps + elevation) for the selected rides into the local cache, without saving any file — pre-warms offline use and the per-ride map"><span class="btn-label">Fetch full GPX</span></button>
+          <button class="small ghost" id="btnResolveWindSel" data-icon="wind" title="Resolve historical wind (from Open-Meteo) for the selected rides into the local cache — colours each ride's big map by head/tailwind"><span class="btn-label">Resolve wind</span></button>
+          <button class="small ghost" id="btnTagSel" data-icon="tag" title="Add or remove tags for the selected rides"><span class="btn-label">Manage tags</span></button>
+          <button class="small ghost danger" id="btnDeleteSel" data-icon="trash" title="Delete the selected rides — Beeline rides from your account, imported rides from this browser; they stay listed, marked as deleted"><span class="btn-label">Delete selected</span></button>
+        </span>
+      </div>
     <span class="hdr-actions">
       <span class="conn">
-        <span class="cstate off" id="connState">not connected</span>
-        <button class="primary small" id="btnScan" title="Pull your whole ride history from the connected Beeline account"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v5h-5"/></svg><span class="scan-label" id="scanLabel">Pull from Beeline</span></button>
-        <button class="small accent" id="btnSource" title="Connect or manage data sources (Beeline account, GPX files, demo)"><svg class="mi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 3l4 4-4 4M20 7H9M8 21l-4-4 4-4M4 17h11"/></svg><span class="btn-label">Sources</span></button>
+        <button class="small ghost" id="btnScan" title="Pull your whole ride history from the connected Beeline account"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v5h-5"/></svg><span class="scan-label" id="scanLabel">Pull from Beeline</span></button>
       </span>
       <span class="filterwrap">
         <button class="small ghost ffilters-toggle" id="fToggle" aria-haspopup="true" aria-expanded="false" aria-controls="filterPanel" title="Filter the rides shown across every view"><svg class="mi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 5h18l-7 8v6l-4 2v-8z"/></svg><span class="btn-label">Filters</span><span class="fcount" id="fCount" hidden></span></button>
         <div class="filter-panel hidden" id="filterPanel" role="dialog" aria-label="Filter rides">
           <div class="fp-head">
             <span class="fp-title">Filter rides</span>
-            <button class="small ghost hidden" id="fClear">Clear filters</button>
+            <button class="small ghost hidden" id="fClear" data-icon="x">Clear filters</button>
             <button class="fp-close" id="fClose" aria-label="Close filters" title="Close filters"><svg class="mi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
           </div>
           <div class="fp-body">
@@ -90,24 +156,13 @@
       <span class="split">
         <button class="ghost small menubtn iconmenu" data-splitmenu="state" aria-haspopup="true" aria-expanded="false" aria-label="Actions: push to Strava, selected-ride exports, and app data" title="Actions: push to Strava, selected-ride exports, and app data"><svg class="ki" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="12" cy="5" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="12" cy="19" r="1.8"/></svg></button>
         <span class="splitmenu" id="stateMenu">
-          <span class="menu-group" id="selGroup">
-            <span class="menu-section" id="selGroupLabel">Selected</span>
-            <button class="ghost small" id="btnGpxSaveSel" title="Save the route-only GPX (the stored shape — no timestamps or elevation; instant, works offline) for the selected rides">Save route GPX</button>
-            <button class="ghost small" id="btnGpxSaveSelFull" title="Download the full recorded GPX (real per-point timestamps + elevation) for the selected rides and save them to disk">Save full GPX</button>
-            <button class="ghost small" id="btnGpxFetchSel" title="Fetch the full recorded GPX (real timestamps + elevation) for the selected rides into the local cache, without saving any file — pre-warms offline use and the per-ride map">Fetch full GPX</button>
-            <button class="ghost small" id="btnResolveWindSel" title="Resolve historical wind (from Open-Meteo) for the selected rides into the local cache — colours each ride's big map by head/tailwind">Resolve wind</button>
-            <button class="ghost small" id="btnTagSel" title="Add or remove tags for the selected rides">Manage tags</button>
-            <button class="ghost small" id="btnUploadSel" title="Push the selected pending rides to Strava (via Beeline)">Push selected to Strava</button>
-            <button class="ghost small danger" id="btnDeleteSel" title="Delete the selected rides — Beeline rides from your account, imported rides from this browser; they stay listed, marked as deleted">Delete selected</button>
-          </span>
-          <button class="ghost small danger" id="btnDropDeleted" title="Permanently remove every deleted ride (and its stored GPX) from this device">Drop deleted</button>
+          <button class="ghost small danger" id="btnDropDeleted" data-icon="trash" title="Permanently remove every deleted ride (and its stored GPX) from this device">Drop deleted</button>
           <span class="menu-section">App data</span>
           <span class="menu-storage" id="storageInfo" aria-live="polite"></span>
-          <button class="ghost small" id="btnSettings" title="Open application settings">Settings</button>
-          <button class="ghost small" id="btnImport" title="Merge a previously exported (or Python tool) state file into this browser">Import</button>
-          <button class="ghost small" id="btnExport" title="Download all locally stored rides, settings and status as a JSON backup">Export</button>
-          <button class="ghost small" id="btnExportAll" title="Download all state (rides, settings, cached GPX, wind and forecasts) in a single ZIP file for complete backup">Export All</button>
-          <button class="ghost small danger" id="btnReset" title="Erase ALL locally stored data — rides, settings, locations, cached downloads and imported GPX files — then return to the source-selection screen.">Reset</button>
+          <button class="ghost small" id="btnImport" data-icon="import" title="Merge a previously exported (or Python tool) state file into this browser">Import</button>
+          <button class="ghost small" id="btnExport" data-icon="download" title="Download all locally stored rides, settings and status as a JSON backup">Export</button>
+          <button class="ghost small" id="btnExportAll" data-icon="archive" title="Download all state (rides, settings, cached GPX, wind and forecasts) in a single ZIP file for complete backup">Export All</button>
+          <button class="ghost small danger" id="btnReset" data-icon="alert" title="Erase ALL locally stored data — rides, settings, locations, cached downloads and imported GPX files — then return to the source-selection screen.">Reset</button>
         </span>
       </span>
       <input type="file" id="importFile" accept="application/json,.json,application/zip,.zip" style="display:none" />
@@ -119,31 +174,27 @@
 
 <main>
   <div class="errstack" id="errstack"></div>
-  <div class="viewtabs" id="viewTabs" role="tablist">
-    <button class="vtab active" data-view="explore" role="tab">Explore</button>
-    <button class="vtab" data-view="map" role="tab">Map</button>
-    <button class="vtab" data-view="stats" role="tab">Stats</button>
-    <button class="vtab" data-view="analytics" role="tab">Wind/Speed</button>
-    <button class="vtab" data-view="climate" role="tab">Wind rose</button>
-    <button class="vtab" data-view="forecast" role="tab">Forecast</button>
-    <button class="vtab" data-view="timeline" role="tab">Timeline</button>
-  </div>
   <div id="exploreView">
   <div class="panel stats-panel hidden" id="statsPanel">
     <div class="sp-head">
-      <span class="sp-title">Distance per month</span>
-      <div class="seg sp-metric" id="statMetric">
-        <button data-metric="distance" class="active">Distance</button>
-        <button data-metric="speed">Speed</button>
+      <!-- Everything but the chevron wraps inside its own column, so nothing can
+           ever run under the chevron at any width. -->
+      <div class="sp-head-main">
+        <span class="sp-title">Distance per month</span>
+        <div class="seg sp-metric" id="statMetric">
+          <button data-metric="distance" class="active" data-icon="ruler">Distance</button>
+          <button data-metric="speed" data-icon="gauge">Speed</button>
+        </div>
+        <div class="seg sp-gran" id="statGran">
+          <button data-gran="auto" class="active">Auto</button>
+          <button data-gran="day">Day</button>
+          <button data-gran="week">Week</button>
+          <button data-gran="month">Month</button>
+          <button data-gran="year">Year</button>
+        </div>
+        <div class="sp-kpis" id="spKpis"></div>
       </div>
-      <div class="seg sp-gran" id="statGran">
-        <button data-gran="auto" class="active">Auto</button>
-        <button data-gran="day">Day</button>
-        <button data-gran="week">Week</button>
-        <button data-gran="month">Month</button>
-        <button data-gran="year">Year</button>
-      </div>
-      <div class="sp-kpis" id="spKpis"></div>
+      <button type="button" class="small ghost collapse-btn sp-collapse" id="spCollapse" aria-expanded="true" aria-controls="statsPanel"></button>
     </div>
     <div class="sp-trim hidden" id="spTrim">
       <label class="trim slow">Trim slowest
@@ -158,7 +209,10 @@
     <div class="sp-note hidden" id="spNote"></div>
     <div class="chart" id="chart"></div>
   </div>
-    <div id="months"></div>
+    <div class="explore-split" id="exploreSplit">
+      <div id="months"></div>
+      <div class="ride-pane" id="rideList"></div>
+    </div>
     <div class="onb-empty" id="empty">
       Loading your ride library…
     </div>
@@ -189,20 +243,24 @@
       lifetime totals, records and a route-frequency heatmap.
     </div>
     <div class="stats-body" id="statsBody">
-      <section class="stats-section">
-        <h2 class="stats-h">Lifetime totals<span class="stats-flag" id="totalsFlag"></span></h2>
-        <div class="stats-cards" id="statsTotals"></div>
-      </section>
-      <section class="stats-section">
-        <h2 class="stats-h">Records<span class="stats-flag" id="recordsFlag"></span></h2>
-        <div class="stats-cards" id="statsRecords"></div>
-      </section>
-      <section class="stats-section">
-        <h2 class="stats-h">Route frequency<span class="stats-sub" id="statsHeatNote"></span></h2>
-        <label class="heat-thickness trim" title="How thick each track renders on the heatmap">Thickness
-          <input type="range" class="uslider" id="heatRadius" min="2" max="30" step="1" value="12" />
-          <output id="heatRadiusOut">12</output>
-        </label>
+      <div class="stats-kpis" id="statsKpis">
+        <button type="button" class="small ghost collapse-btn stats-kpis-collapse" id="statsKpisCollapse" aria-expanded="true" aria-controls="statsKpis"></button>
+        <section class="stats-section">
+          <h2 class="stats-h">Lifetime totals<span class="stats-flag" id="totalsFlag"></span></h2>
+          <div class="stats-cards" id="statsTotals"></div>
+        </section>
+        <section class="stats-section">
+          <h2 class="stats-h">Records<span class="stats-flag" id="recordsFlag"></span></h2>
+          <div class="stats-cards" id="statsRecords"></div>
+        </section>
+      </div>
+      <section class="stats-section stats-fill">
+        <h2 class="stats-h">Route frequency<span class="stats-sub" id="statsHeatNote"></span><span class="stats-sub stats-hint" id="statsHeatHint">· select an area or click a route to list its rides</span>
+          <label class="heat-thickness trim" title="How thick each track renders on the heatmap">Thickness
+            <input type="range" class="uslider" id="heatRadius" min="2" max="30" step="1" value="12" />
+            <output id="heatRadiusOut">12</output>
+          </label>
+        </h2>
         <div class="freq-wrap">
           <div class="freq-main">
             <div id="freqHeatMap"></div>
@@ -230,16 +288,16 @@
       See how much the wind speeds you up or slows you down. This needs rides with
       <b>resolved wind</b> — once some are resolved, each roughly-straight stretch of a ride
       becomes a point: headwind on the left, tailwind on the right, your speed up the side.
-      <button type="button" class="linkbtn" id="analyticsResolveEmpty">Resolve wind for these rides</button>
+      <button type="button" class="linkbtn" id="analyticsResolveEmpty" data-icon="wind">Resolve wind for these rides</button>
     </div>
     <div class="stats-body hidden" id="analyticsBody">
       <section class="stats-section">
-        <h2 class="stats-h">Wind vs speed<span class="stats-sub" id="analyticsNote"></span></h2>
+        <p class="stats-h stats-h--note"><span class="stats-sub" id="analyticsNote"></span></p>
         <div class="stats-cards" id="analyticsCards"></div>
       </section>
-      <section class="stats-section">
+      <section class="stats-section stats-fill">
         <div class="ctl-accordions">
-          <details class="ctl-acc" id="accSettings" open>
+          <details class="ctl-acc" id="accSettings">
             <summary title="Tune what the scatter is built from — which axes to plot, how dots are coloured, which segments to keep, and how rides are split into points">
               <span class="ctl-acc-cap">Settings</span>
               <span class="ctl-acc-hint">segments · filters · axes</span>
@@ -258,8 +316,10 @@
                     <input type="range" class="uslider" id="segTurn" min="5" max="120" step="5" value="35" />
                     <output id="segTurnOut">35°</output>
                   </label>
-                  <button type="button" class="ghost small" id="segReset" title="Reset segment tuning to its defaults">Reset</button>
+                  <button type="button" class="ghost small" id="segReset" data-icon="undo" title="Reset segment tuning to its defaults">Reset</button>
+                  <button type="button" class="linkbtn seg-demo-toggle" id="segDemoToggle" data-icon="help" aria-expanded="false" aria-controls="segDemo">How are segments cut?</button>
                 </div>
+                <div class="seg-demo hidden" id="segDemo" title="A sample ride chopped with the current settings — each colour is one segment (one dot on the chart)"></div>
               </div>
               <div class="ctl-grp">
                 <div class="ctl-grp-head">Segment filters</div>
@@ -344,12 +404,17 @@
     <section class="fc-top">
       <div class="fc-map-wrap">
         <div id="forecastMap"></div>
+        <div class="map-banner map-banner--corner hidden" id="forecastWeatherPill" aria-live="polite"></div>
         <button class="iconbtn fc-map-locate" id="forecastLocate" type="button" aria-label="Use my location" title="Use my current location">
           <svg class="mi" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="7" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 1v3M12 20v3M1 12h3M20 12h3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="12" r="2.4" fill="currentColor"/></svg>
         </button>
         <button class="iconbtn fc-map-search" id="forecastSearchToggle" type="button" aria-label="Search locations" title="Search locations" aria-expanded="false" aria-controls="forecastLocationPicker">
           <svg class="mi" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="10.5" cy="10.5" r="6.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="m16 16 5 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
         </button>
+        <button class="iconbtn fc-map-hide" id="forecastMapHide" type="button" aria-label="Hide the map" title="Hide the map — the charts get the room">
+          <svg class="mi" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+      </div>
         <aside class="panel fc-controls" id="forecastLocationPicker" aria-label="Choose a forecast location" hidden>
           <div class="fc-location-head">
             <b>Choose location</b>
@@ -381,11 +446,19 @@
               </form>
               <small id="forecastStatus">Pick a point or search for a place.</small>
             </div>
-            <button type="button" class="ghost fc-pin" id="forecastPin" disabled aria-pressed="false" title="Pin or unpin this point">★</button>
+            <button type="button" class="ghost fc-pin" id="forecastPin" data-icon="star" disabled aria-pressed="false" aria-label="Pin this location" title="Pin or unpin this point"></button>
           </div>
         </aside>
+      <div class="fc-strip" id="forecastStrip">
+        <svg class="mi fc-strip-pin" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 21s-6-5.5-6-11a6 6 0 0 1 12 0c0 5.5-6 11-6 11z" fill="none" stroke="currentColor" stroke-width="1.9"/><circle cx="12" cy="10" r="2.2" fill="none" stroke="currentColor" stroke-width="1.9"/></svg>
+        <b class="fc-strip-label" id="forecastStripLabel">No point selected</b>
+        <span class="fc-strip-wind" id="forecastStripWind" aria-live="polite"></span>
+        <button type="button" class="small ghost" id="forecastStripSearch" data-icon="search" aria-haspopup="dialog" aria-expanded="false" aria-controls="forecastLocationPicker">Change location</button>
+        <button type="button" class="small ghost" id="forecastMapShow" data-icon="map" title="Show the map">Show map</button>
       </div>
     </section>
+    <!-- biome-ignore lint/a11y/useSemanticElements: a draggable pane divider has no native element; role="separator" + keyboard handling is the accessible pattern -->
+    <div class="fc-splitter" id="forecastSplitter" role="separator" aria-orientation="vertical" aria-valuemin="0" aria-valuemax="100" aria-valuenow="32" aria-label="Resize the map pane — drag, or use the arrow keys; double-click to reset" tabindex="0" title="Drag to resize the map pane · double-click to reset"><i></i></div>
     <section class="panel fc-options" aria-label="Forecast display options">
       <div class="fc-option-row">
         <div class="fc-option-group">
@@ -410,6 +483,7 @@
           <button type="button" class="ghost fc-refresh" id="forecastRefresh" aria-label="Refresh forecast" title="Refresh forecast now">
             <svg class="mi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v5h-5"/></svg>
           </button>
+          <button type="button" class="small ghost collapse-btn" id="forecastLegendToggle" aria-expanded="true" aria-controls="forecastLegend"></button>
         </div>
       </div>
     </section>
@@ -428,6 +502,7 @@
         </div>
         <fieldset id="forecastMetricList" class="fc-metric-list">
           <legend>Displayed data</legend>
+          <div class="fc-metric-grid">
           <label><input type="checkbox" data-forecast-metric="windSpeed" checked><span>Average wind</span></label>
           <label><input type="checkbox" data-forecast-metric="windGust" checked><span>Gusts</span></label>
           <label><input type="checkbox" data-forecast-metric="windDirection" checked><span>Direction</span></label>
@@ -435,12 +510,13 @@
           <label><input type="checkbox" data-forecast-metric="temperature" checked><span>Temperature</span></label>
           <label><input type="checkbox" data-forecast-metric="pressure" checked><span>Pressure</span></label>
           <label><input type="checkbox" data-forecast-metric="cloudCover" checked><span>Cloud cover</span></label>
+                  </div>
         </fieldset>
         <details class="fc-models">
           <summary>Forecast models <span id="forecastModelCount"></span></summary>
           <fieldset class="fc-model-actions">
             <legend>Forecast model selection presets</legend>
-            <button type="button" class="ghost small" id="forecastModelsRecommended" title="Use five diverse models recommended for Europe and the Netherlands">Recommended 5</button>
+            <button type="button" class="ghost small" id="forecastModelsRecommended" title="The best models for the picked spot: the finest regional models whose domain covers it, plus the leading global models — chosen afresh for every location">Best for this spot</button>
             <button type="button" class="ghost small" id="forecastModelsReset" title="Select every available model">All on</button>
             <button type="button" class="ghost small" id="forecastModelsClear" title="Clear the selection, then add only the models you want">All off</button>
           </fieldset>
@@ -484,31 +560,46 @@
     </div>
   </div>
 </main>
+</div>
+</div>
+
+<nav class="bottomnav" aria-label="Main navigation">
+  <button class="navlink" data-view="explore"><svg class="mi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M4 6h16M4 12h16M4 18h10"/></svg><span>Explore</span></button>
+  <button class="navlink" data-view="map"><svg class="mi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M3 6l6-2 6 2 6-2v14l-6 2-6-2-6 2z"/><path d="M9 4v14M15 6v14"/></svg><span>Map</span></button>
+  <button class="navlink" data-view="stats"><svg class="mi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg><span>Stats</span></button>
+  <button class="navlink" id="navWeather" data-group="weather"><svg class="mi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M3 8h11a3 3 0 1 0-3-3M3 13h15a3 3 0 1 1-3 3M3 18h8a2.5 2.5 0 1 1 2.5 2.5"/></svg><span>Weather</span></button>
+  <button class="navlink" id="btnMore" aria-haspopup="dialog" aria-expanded="false" aria-controls="moreSheet"><svg class="mi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="5" cy="12" r="1.6" fill="currentColor"/><circle cx="12" cy="12" r="1.6" fill="currentColor"/><circle cx="19" cy="12" r="1.6" fill="currentColor"/></svg><span>More</span></button>
+</nav>
+<div class="more-sheet scrim hidden" id="moreSheet" role="dialog" aria-modal="true" aria-label="More">
+  <div class="more-card">
+    <div class="more-head"><span class="fp-title">More</span><button class="fp-close" id="moreClose" type="button" aria-label="Close" title="Close"><svg class="mi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+    <div class="more-body" id="moreBody"></div>
+  </div>
+</div>
 
 
 <div class="job" id="job">
   <div class="job-list" id="jobList"></div>
   <div class="job-head">
-    <span class="spin"></span>
     <div class="job-now">
       <span class="job-title" id="jobTitle"></span>
+      <span class="job-count" id="jobCount"></span>
       <span class="msg" id="jobMsg"></span>
     </div>
-    <span class="qcount" id="qcount"></span>
     <button class="small ghost job-toggle" id="btnQueueToggle" aria-expanded="true"></button>
     <button class="small ghost job-icon" id="btnClear" title="Clear queue" aria-label="Clear queue">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6l-1 14a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1L5 6"/><path d="M10 11v6M14 11v6"/></svg>
     </button>
-    <button class="small" id="btnCancel">Stop</button>
+    <button class="small job-stop" id="btnCancel" data-icon="stop" title="Stop — work already done is kept" aria-label="Stop"><span class="btn-label">Stop</span></button>
     <button class="small ghost job-icon job-hide" id="btnJobHide" title="Hide — work keeps running" aria-label="Hide">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
     </button>
   </div>
-  <div class="job-bar" id="jobBar"><div class="job-bar-fill" id="jobBarFill"></div></div>
+  <div class="thread job-bar" id="jobBar"><i id="jobBarFill"></i></div>
 </div>
 <button class="job-handle" id="jobHandle" title="Show activity" aria-label="Show activity">
-  <span class="spin"></span>
   <span id="jobHandleText"></span>
+  <span class="thread jh-thread" id="jobHandleBar"><i></i></span>
 </button>
 <div class="toast" id="toast"></div>
 
@@ -517,35 +608,51 @@
     <span class="ridemap-title" id="rideMapTitle"></span>
     <span class="ridemap-hover" id="rideMapHover"></span>
     <span class="ridemap-est" id="rideMapEst" title="Beeline's route polyline has no per-point timestamps, so the time/clock shown on hover is estimated — interpolated from the ride's start/end (total elapsed) time assuming an even pace, not measured. Fetch the full track for the real recorded time.">~ time is estimated</span>
-    <span class="ridemap-tools">
-      <span class="ridemap-status" id="rideMapStatus" role="status" aria-live="polite"></span>
-      <button class="small ghost rmb" id="btnRideMapFull" type="button" title="Download the full recorded track (real per-point timestamps + elevation) and use it for this map"><svg class="rmb-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0l-4-4m4 4l4-4M5 21h14"/></svg><span class="lbl">Fetch full track</span></button>
-      <button class="small ghost rmb" id="btnRideMapWind" type="button" title="Resolve historical wind for this ride (from Open-Meteo) and colour the route by head/tailwind"><svg class="rmb-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 8h10a2.5 2.5 0 1 0-2.5-2.5M3 16h14a2.5 2.5 0 1 1-2.5 2.5M3 12h7"/></svg><span class="lbl">Resolve wind</span></button>
+    <button type="button" class="small ghost collapse-btn ridemap-collapse" id="btnRideMapCollapse" aria-expanded="true" aria-controls="rideMapModal"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m6 15 6-6 6 6"/></svg></button>
+    <button class="small ghost rmb ridemap-close" id="btnRideMapClose" type="button" title="Close (Esc)" aria-label="Close"><svg class="rmb-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg><span class="lbl">Close</span></button>
+  </div>
+  <div class="ridemap-tools" role="toolbar" aria-label="Ride map controls">
+    <div class="rmt-group">
+      <b>Colour route by</b>
       <!-- biome-ignore lint/a11y/useSemanticElements: role="group" with aria-label is correct for this labelled segmented-control toolbar; no native element fits -->
-      <span class="seg ridemap-color hidden" id="rideMapColor" role="group" aria-label="Colour the route by">
-        <button data-color="none" class="active rmb" type="button" title="Plain route line"><svg class="rmb-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20L20 4"/><circle cx="4" cy="20" r="1.6" fill="currentColor" stroke="none"/><circle cx="20" cy="4" r="1.6" fill="currentColor" stroke="none"/></svg><span class="lbl">Route</span></button>
-        <button data-color="height" class="rmb" type="button" title="Colour the route by elevation"><svg class="rmb-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 20l6-9 4 5 2-3 6 7z"/></svg><span class="lbl">Height</span></button>
-        <button data-color="speed" class="rmb" type="button" title="Colour the route by speed"><svg class="rmb-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 18a8 8 0 1 1 14 0"/><path d="M12 14l4-4"/></svg><span class="lbl">Speed</span></button>
-        <button data-color="wind" class="rmb" type="button" title="Colour the route by head/tailwind (resolves historical wind from Open-Meteo)"><svg class="rmb-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 8h10a2.5 2.5 0 1 0-2.5-2.5M3 16h14a2.5 2.5 0 1 1-2.5 2.5M3 12h7"/></svg><span class="lbl">Wind</span></button>
+      <span class="seg ridemap-color" id="rideMapColor" role="group" aria-label="Colour the route by">
+        <button data-color="none" class="active rmb" type="button" title="One plain route line"><svg class="rmb-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20L20 4"/><circle cx="4" cy="20" r="1.6" fill="currentColor" stroke="none"/><circle cx="20" cy="4" r="1.6" fill="currentColor" stroke="none"/></svg><span class="lbl">Route</span></button>
+        <button data-color="height" class="rmb" type="button" title="Colour the route by elevation (needs the full recorded track)"><svg class="rmb-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 20l6-9 4 5 2-3 6 7z"/></svg><span class="lbl">Height</span></button>
+        <button data-color="speed" class="rmb" type="button" title="Colour the route by speed (needs the full recorded track)"><svg class="rmb-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 18a8 8 0 1 1 14 0"/><path d="M12 14l4-4"/></svg><span class="lbl">Speed</span></button>
+        <button data-color="wind" class="rmb" type="button" title="Colour the route green where the wind pushed you and red where it held you back (resolves the ride's historical wind from Open-Meteo on first use)"><svg class="rmb-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 8h10a2.5 2.5 0 1 0-2.5-2.5M3 16h14a2.5 2.5 0 1 1-2.5 2.5M3 12h7"/></svg><span class="lbl">Wind</span></button>
       </span>
+    </div>
+    <div class="rmt-group">
+      <b>Weather</b>
+      <button class="small ghost rmb rmb-toggle" id="btnRideMapWeather" type="button" aria-pressed="false" title="Show the weather you rode in: wind streaks and rain on the map, following the point you hover, with a readout of wind, rain and temperature (resolves the ride's historical weather from Open-Meteo on first use)"><svg class="rmb-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 17a4 4 0 0 1-.6-7.95A6 6 0 0 1 18 7.5a4 4 0 0 1 .5 7.97"/><path d="M8 19l-1 2M12 19l-1 2M16 19l-1 2"/></svg><span class="lbl">Rain &amp; wind</span></button>
+    </div>
+    <div class="rmt-group hidden" id="rmtGraph">
+      <b>Graph</b>
+      <button class="small ghost rmb rmb-toggle" id="btnRideMapProfile" type="button" aria-pressed="true" title="Show the profile graph under the map"><svg class="rmb-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19V5m0 14h16M8 15l3-4 3 2 4-6"/></svg><span class="lbl">Profile</span></button>
       <!-- biome-ignore lint/a11y/useSemanticElements: role="group" with aria-label is correct for this labelled segmented-control toolbar; no native element fits -->
       <span class="seg ridemap-profmetric hidden" id="rideMapProfileMetric" role="group" aria-label="Profile metric">
-        <button data-profile="elevation" class="active rmb" type="button" title="Graph elevation vs distance"><svg class="rmb-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 20l6-9 4 5 2-3 6 7z"/></svg><span class="lbl">Elevation</span></button>
-        <button data-profile="speed" class="rmb" type="button" title="Graph speed vs distance"><svg class="rmb-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 18a8 8 0 1 1 14 0"/><path d="M12 14l4-4"/></svg><span class="lbl">Speed</span></button>
+        <button data-profile="elevation" class="active rmb" type="button" title="Graph elevation"><svg class="rmb-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 20l6-9 4 5 2-3 6 7z"/></svg><span class="lbl">Elevation</span></button>
+        <button data-profile="speed" class="rmb" type="button" title="Graph speed"><svg class="rmb-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 18a8 8 0 1 1 14 0"/><path d="M12 14l4-4"/></svg><span class="lbl">Speed</span></button>
       </span>
       <!-- biome-ignore lint/a11y/useSemanticElements: role="group" with aria-label is correct for this labelled segmented-control toolbar; no native element fits -->
       <span class="seg ridemap-profaxis hidden" id="rideMapProfileAxis" role="group" aria-label="Profile x-axis">
-        <button data-axis="distance" class="active rmb" type="button" title="Plot the profile against distance along the route"><svg class="rmb-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 9h18v6H3z"/><path d="M8 9v3M13 9v3M18 9v3"/></svg><span class="lbl">Distance</span></button>
-        <button data-axis="time" class="rmb" type="button" title="Plot the profile against recorded time — stops show their true duration"><svg class="rmb-ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/></svg><span class="lbl">Time</span></button>
+        <button data-axis="distance" class="active rmb" type="button" title="Plot against distance along the route"><svg class="rmb-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 9h18v6H3z"/><path d="M8 9v3M13 9v3M18 9v3"/></svg><span class="lbl">By distance</span></button>
+        <button data-axis="time" class="rmb" type="button" title="Plot against recorded time — stops show their true duration"><svg class="rmb-ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/></svg><span class="lbl">By time</span></button>
       </span>
-      <button class="small ghost rmb hidden" id="btnRideMapProfileStops" type="button" aria-pressed="false" title="Hide the stretches where you weren't moving — collapse them out of the profile (a dashed rule marks each cut)"><svg class="rmb-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M4 8l4 4-4 4M20 8l-4 4 4 4"/></svg><span class="lbl">Hide stops</span></button>
-      <button class="small ghost rmb hidden" id="btnRideMapProfile" type="button" aria-pressed="true" title="Show or hide the profile graph"><svg class="rmb-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19V5m0 14h16M8 15l3-4 3 2 4-6"/></svg><span class="lbl">Hide profile</span></button>
-    </span>
-    <button class="small ghost rmb" id="btnRideMapClose" type="button" title="Close (Esc)" aria-label="Close"><svg class="rmb-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg><span class="lbl">Close</span></button>
+      <button class="small ghost rmb rmb-toggle hidden" id="btnRideMapProfileStops" type="button" aria-pressed="false" title="Leave out the stretches where you weren't moving, so the moving sections fill the graph (a dashed rule marks each cut)"><svg class="rmb-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M4 8l4 4-4 4M20 8l-4 4 4 4"/></svg><span class="lbl">Skip stops</span></button>
+    </div>
+    <div class="rmt-group" id="rmtTrack">
+      <b>Track</b>
+      <button class="small ghost rmb" id="btnRideMapFull" type="button" title="Download the full recorded track (real per-point timestamps + elevation) and use it for this map"><svg class="rmb-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0l-4-4m4 4l4-4M5 21h14"/></svg><span class="lbl">Fetch full track</span></button>
+    </div>
+    <span class="ridemap-status" id="rideMapStatus" role="status" aria-live="polite"></span>
   </div>
   <div class="ridemap-summary hidden" id="rideMapSummary" aria-live="polite"></div>
   <div class="ridemap-wind hidden" id="rideMapWind" aria-live="polite"></div>
-  <div class="ridemap-canvas" id="rideMapBig"></div>
+  <div class="ridemap-map">
+    <div class="ridemap-canvas" id="rideMapBig"></div>
+    <div class="map-banner map-banner--corner ridemap-weather hidden" id="rideMapWeather" aria-live="polite"></div>
+  </div>
   <div class="ridemap-profile hidden" id="rideMapProfile" aria-hidden="true"></div>
 </div>
 
@@ -556,7 +663,7 @@
     </button>
     <div class="srcpick-head">
       <div class="brand"><img class="brand-logo" src="/logo.svg" alt="" width="22" height="22" /><h1>GPX Toolkit</h1><span class="ver" id="pickVer"></span></div>
-      <p class="srcpick-welcome">Welcome! <b>GPX Toolkit</b> is one home for all your rides. Connect a <b>source</b> — your <b>Beeline</b> account or your own <b>GPX files</b> — and they live together in one library you can explore, map, analyze and push to Strava. You can add or change sources any time from <b>Sources</b> in the header.</p>
+      <p class="srcpick-welcome">Welcome! <b>GPX Toolkit</b> is one home for all your rides. Connect a <b>source</b> — your <b>Beeline</b> account or your own <b>GPX files</b> — and they live together in one library you can explore, map, analyze and push to Strava. You can add or change sources any time from <b>Sources</b> in the sidebar (under <b>More</b> on a phone).</p>
       <p class="srcpick-sub">Connect the sources your rides come from. They all live together in one library.</p>
     </div>
     <div class="srcpick-options">
@@ -568,15 +675,15 @@
         <form class="srcopt-form" id="beelineForm" autocomplete="on">
           <input type="email" id="beelineEmail" class="field" placeholder="Email" autocomplete="username" required />
           <input type="password" id="beelinePass" class="field" placeholder="Password" autocomplete="current-password" required />
-          <button class="primary small" type="submit" id="btnBeelineSignIn">Sign in</button>
-          <button class="ghost small" type="button" id="btnDemoBeeline" title="Explore the Beeline cloud experience with a simulated account">Try demo</button>
+          <button class="primary small" type="submit" id="btnBeelineSignIn" data-icon="login">Sign in</button>
+          <button class="ghost small" type="button" id="btnDemoBeeline" data-icon="play" title="Explore the Beeline cloud experience with a simulated account">Try demo</button>
           <span class="srcopt-err" id="beelineErr"></span>
         </form>
         <div class="srcopt-connected">
           <span class="srcopt-status" id="beelineStatus"></span>
           <div class="srcopt-actions">
-            <button class="primary small" type="button" id="btnBeelinePull" title="Pull your whole ride history from Beeline again">Pull from Beeline</button>
-            <button class="ghost small" type="button" id="btnBeelineDisconnect" title="Drop the live account connection (your downloaded rides are kept)">Disconnect</button>
+            <button class="primary small" type="button" id="btnBeelinePull" data-icon="refresh" title="Pull your whole ride history from Beeline again">Pull from Beeline</button>
+            <button class="ghost small" type="button" id="btnBeelineDisconnect" data-icon="logout" title="Drop the live account connection (your downloaded rides are kept)">Disconnect</button>
           </div>
         </div>
       </div>
@@ -586,7 +693,7 @@
           <div class="srcopt-desc">Import rides from <code>.gpx</code> files (or a <code>.zip</code> bundle) recorded by any device or app — explore, map and analyze them alongside your Beeline rides. No account needed.</div>
         </div>
         <div class="srcopt-form">
-          <button class="primary small" type="button" id="btnGpxSource">Choose GPX files…</button>
+          <button class="primary small" type="button" id="btnGpxSource" data-icon="folder">Choose GPX files…</button>
         </div>
       </div>
     </div>
@@ -599,6 +706,16 @@
       <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
     </button>
     <h2 class="settings-title" id="settingsTitle">Settings</h2>
+    <div class="settings-row">
+      <span class="settings-label">Theme</span>
+      <!-- biome-ignore lint/a11y/useSemanticElements: matches the app's compact segmented controls -->
+      <span class="seg" id="setTheme" role="group" aria-label="Colour theme">
+        <button type="button" data-theme-pref="dark" class="active" data-icon="moon">Dark</button>
+        <button type="button" data-theme-pref="light" data-icon="sun">Light</button>
+        <button type="button" data-theme-pref="system" data-icon="monitor">System</button>
+      </span>
+      <p class="settings-hint">System follows your device's light/dark preference.</p>
+    </div>
     <div class="settings-row">
       <label class="settings-label" for="setMovingThresh">Treat as stopped below</label>
       <div class="settings-control">
@@ -640,7 +757,7 @@
     <div class="tagmodal-chips" id="tagModalChips"></div>
     <form class="tagmodal-add" id="tagModalAdd">
       <input class="confirm-input field" id="tagModalInput" type="text" autocomplete="off" placeholder="Add a tag…" aria-label="New tag" />
-      <button class="small" id="tagModalAddBtn" type="submit">Add</button>
+      <button class="small" id="tagModalAddBtn" data-icon="plus" type="submit">Add</button>
     </form>
     <div class="confirm-actions">
       <button class="ghost small" id="tagModalCancel" type="button">Cancel</button>
