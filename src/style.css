@@ -1390,45 +1390,40 @@ details.help kbd {
 .job-bar {
   order: -1; /* the top edge, above the Up-next list and the row */
 }
-/* Minimized: a small pill in the pane's corner, its thread along the bottom edge. */
-.job-handle {
-  position: fixed;
-  right: 16px;
-  bottom: 14px;
-  z-index: 50;
+/* Minimized: a chip at the head of the top bar's actions — in flow, so it never
+   covers a view's controls. Verb + "3/12", the thread along its bottom edge; a click
+   brings the strip back. */
+.job-chip {
   display: none;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 0;
-  padding: 0;
+  position: relative;
   overflow: hidden;
-  background: var(--glass-strong);
-  backdrop-filter: blur(10px);
-  border: 1px solid var(--line);
-  border-radius: 9px;
-  color: var(--text);
-  font-size: 12.5px;
+  align-items: baseline;
+  gap: 6px;
+  max-width: 220px;
   font-weight: 600;
-  box-shadow: var(--shadow-float);
-  opacity: 0;
-  pointer-events: none;
-  cursor: pointer;
-  transform: translateY(10px);
-  transition:
-    opacity 0.18s ease,
-    transform 0.18s ease;
 }
-.job-handle > span:first-child {
-  padding: 7px 13px 6px;
-}
-.job-handle.show {
+.job-chip.show {
   display: inline-flex;
-  opacity: 1;
-  pointer-events: auto;
-  transform: translateY(0);
 }
-.job-handle:hover {
-  border-color: var(--border-hover);
+.job-chip .jc-verb {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.job-chip .jc-count {
+  flex: 0 0 auto;
+  color: var(--accent-soft-text);
+  font-variant-numeric: tabular-nums;
+}
+.job-chip .jc-count:empty {
+  display: none;
+}
+.job-chip .jc-thread {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
 }
 /* While a job runs, the scrolling views keep their last rows clear of the strip. */
 body.job-active main {
@@ -8360,6 +8355,16 @@ body.ridemap-open .toast {
   .hdr-actions button .mi {
     display: block;
   }
+  /* The activity chip keeps its count (or a short verb) at the 32px icon height. */
+  .hdr-actions .job-chip {
+    height: var(--tap-min);
+    align-items: center;
+    max-width: 120px;
+    padding: 0 9px;
+  }
+  .job-chip:has(.jc-count:not(:empty)) .jc-verb {
+    display: none;
+  }
   .conn {
     display: contents;
   }
@@ -9951,14 +9956,10 @@ body.sb-rail .sb-toggle .mi {
     max-width: none;
     bottom: calc(80px + var(--vv-bottom, 0px) + env(safe-area-inset-bottom, 0px));
   }
-  .job,
-  .job-handle {
+  .job {
     left: 10px;
     right: 10px;
     bottom: calc(80px + var(--vv-bottom, 0px) + env(safe-area-inset-bottom, 0px));
-  }
-  .job-handle {
-    left: auto;
   }
   .job-now {
     gap: 8px;

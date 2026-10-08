@@ -17,6 +17,16 @@ humans and the assistant can read this file as a compressed history of decisions
 
 ---
 
+## move the minimized activity into the top bar
+- **What:** Hiding the activity strip now leaves a chip at the head of the top bar's
+  actions (the verb and "3/12", with the thread along its bottom edge; the count alone on
+  phones) instead of a pill floating in the pane's bottom-right corner. A click brings the
+  strip back, and the views drop the strip's bottom padding while it's minimized.
+- **Why:** The floating pill sat over whatever the view had in that corner (map
+  attribution and controls, the last rows, chart controls) and read as off-place. The top
+  bar is chrome every view already has, so the chip is always findable and never covers
+  anything.
+
 ## docs: actualized
 - **What:** The README is a short overview: a link to the live app, the three ways to get
   rides in, privacy (every outside service the app calls), local dev, and a gallery of

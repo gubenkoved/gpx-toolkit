@@ -111,6 +111,9 @@
         </span>
       </div>
     <span class="hdr-actions">
+      <!-- The minimized activity strip: a chip in the top bar (in flow, so it never
+           covers a view's controls). Click to bring the strip back. -->
+      <button type="button" class="small ghost job-chip" id="jobHandle" title="Show activity" aria-label="Show activity"><span class="jc-verb" id="jobHandleVerb"></span><span class="jc-count" id="jobHandleCount"></span><span class="thread jc-thread" id="jobHandleBar"><i></i></span></button>
       <span class="conn">
         <button class="small ghost" id="btnScan" title="Pull your whole ride history from the connected Beeline account"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v5h-5"/></svg><span class="scan-label" id="scanLabel">Pull from Beeline</span></button>
       </span>
@@ -591,16 +594,12 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6l-1 14a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1L5 6"/><path d="M10 11v6M14 11v6"/></svg>
     </button>
     <button class="small job-stop" id="btnCancel" data-icon="stop" title="Stop — work already done is kept" aria-label="Stop"><span class="btn-label">Stop</span></button>
-    <button class="small ghost job-icon job-hide" id="btnJobHide" title="Hide — work keeps running" aria-label="Hide">
+    <button class="small ghost job-icon job-hide" id="btnJobHide" title="Hide — work keeps running; its progress stays in the top bar" aria-label="Hide">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
     </button>
   </div>
   <div class="thread job-bar" id="jobBar"><i id="jobBarFill"></i></div>
 </div>
-<button class="job-handle" id="jobHandle" title="Show activity" aria-label="Show activity">
-  <span id="jobHandleText"></span>
-  <span class="thread jh-thread" id="jobHandleBar"><i></i></span>
-</button>
 <div class="toast" id="toast"></div>
 
 <div class="ridemap hidden" id="rideMapModal" role="dialog" aria-modal="true" aria-label="Ride route">

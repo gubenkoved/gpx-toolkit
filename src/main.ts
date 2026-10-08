@@ -4290,11 +4290,11 @@ document.addEventListener("visibilitychange", () => {
 });
 window.addEventListener("pagehide", () => void controller?.flush());
 
-// Keep the floating job pill/handle clear of browser chrome that overlays the
+// Keep the floating job strip clear of browser chrome that overlays the
 // bottom of the layout viewport — chiefly Chrome on Android's retractable
 // address bar (and the on-screen keyboard). The visual viewport shrinks from the
 // bottom when that chrome is shown; we publish that gap as `--vv-bottom` so the
-// pill's `bottom` can lift by exactly that much (see .job / .job-handle in CSS).
+// pill's `bottom` can lift by exactly that much (see .job in CSS).
 function trackViewportInset(): void {
   const vv = window.visualViewport;
   if (!vv) return; // unsupported: CSS falls back to env(safe-area-inset-bottom)
