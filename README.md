@@ -1,217 +1,124 @@
-# GPX Toolkit
+<p align="center">
+  <img src="public/logo.svg" width="72" alt="">
+</p>
 
-A **backend-free** browser app to explore, map, analyze and export your bike rides. Bring
-your rides in as plain **GPX files** — no account, no sign-up, nothing to install — and the
-app gives you an interactive library: a distance/speed chart with KPIs, year/month grouping,
-per-ride maps and elevation, a route-frequency heatmap, rich filters, and re-export. That's
-the whole app, and it works entirely on its own.
+<h1 align="center">GPX Toolkit</h1>
 
-On top of that, it has a first-class **Beeline Velo 2** integration: connect your Beeline
-account and it pulls your **entire** ride history in one shot and batch-uploads rides to
-**Strava** server-side. Beeline is a *great optional source*, not a requirement — every
-feature except the Beeline-specific ones (history pull, Strava upload) works with GPX files
-alone.
+<p align="center">
+  Explore, map and analyze your bike rides, right in the browser.<br>
+  No sign-up, no server, nothing to install.
+</p>
 
-Rides from every source **coexist in one unified library** — each tagged by its source, with
-a source filter — and source-dependent actions are gated per ride (e.g. *Push to Strava*
-shows only on Beeline rides). Two sources today:
+<p align="center">
+  <a href="https://gubenkoved.github.io/gpx-toolkit/"><b>Open the app</b></a> ·
+  <a href="#run-it-locally">Run it locally</a> ·
+  <a href="#privacy">Privacy</a>
+</p>
 
-- **GPX files** *(no account needed)* — drag-and-drop `.gpx` files (or a `.zip` bundle)
-  recorded by any device or app. They're parsed **locally**, metrics derived from the
-  recorded track, and stored in your browser. Explore, map, analyze and re-export them — the
-  app is fully functional with just this source.
-- **Beeline account** *(optional)* — sign in with your Beeline email/password and the app
-  downloads your **entire** ride history (routes, stats, Strava status) in a single request
-  from Beeline's own cloud backend, then uploads to Strava server-side (fast, several rides
-  at once). Beeline only lets you upload one-by-one; this lists your rides with their upload
-  status, lets you select them, and uploads in a batch. Works in any modern browser.
+<p align="center">
+  <img src="docs/screenshot-explore.png" width="75%" alt="Explore view: a distance chart with totals above a month-by-month ride list">
+  <img src="docs/screenshot-phone.png" width="21%" alt="The same library on a phone, with bottom navigation">
+</p>
 
-There's also a **demo** so you can explore the Beeline experience with no account and no data
-of your own.
+## What it does
 
-> **Your Beeline password is never stored.** Sign-in uses it once to obtain a short-lived
-> token held only in memory; nothing is written to disk. On reload (or whenever an action
-> needs the account) the app shows your last-downloaded rides and asks you to sign in again
-> — so your **browser/password manager** can inject the password on demand. See
-> [Beeline account & your password](#beeline-account--your-password).
-
-> **Vibe coded.** This project is almost entirely "vibe coded" — developed with the help of
-> LLM coding agents. Review accordingly and expect the occasional rough edge.
-
-Everything runs **in the browser**: GPX files are parsed locally, and the optional
-Beeline-account source talks to Beeline's Firebase backend over `fetch` (CORS-friendly, no
-proxy). There is no server and no rooting. State is kept in the browser (IndexedDB), with all
-sources' rides in one unified store.
+**Explore** (above) – every ride in one library, with a distance/speed chart, year → month
+groups, filters, tags, batch actions and GPX download.
 
 <table>
   <tr>
-    <td><img src="docs/screenshot-main.png" alt="Unified ride library with a distance/speed chart, KPIs and month groups, ready to batch-upload to Strava"></td>
-    <td><img src="docs/screenshot-map.png" alt="All-rides map view with overlapping translucent tracks over a dark basemap"></td>
+    <td width="50%" valign="top">
+      <img src="docs/screenshot-map.jpg" width="100%" alt="Map view: every ride's track over a dark basemap, with the ride list beside it"><br>
+      <b>Map</b> – every track on one map. Drag out an area to list the rides that passed
+      through it.
+    </td>
+    <td width="50%" valign="top">
+      <img src="docs/screenshot-stats.jpg" width="100%" alt="Stats view: lifetime totals and records above a route-frequency heatmap"><br>
+      <b>Stats</b> – lifetime totals, records, and a heatmap of the routes you ride most.
+    </td>
   </tr>
   <tr>
-    <td><img src="docs/screenshot-stats.png" alt="Lifetime stats: totals, per-period records and a route-frequency heatmap"></td>
-    <td><img src="docs/screenshot-wind.jpeg" alt="Wind analysis: per-ride wind-vs-speed scatter and wind dial"></td>
+    <td width="50%" valign="top">
+      <img src="docs/screenshot-ride.jpg" width="100%" alt="Full-screen ride map coloured by speed, with rain on the map, a weather readout and an elevation profile"><br>
+      <b>Ride view</b> – a full-screen map coloured by height, speed or head/tailwind, with
+      elevation and speed profiles and the rain and wind you rode in.
+    </td>
+    <td width="50%" valign="top">
+      <img src="docs/screenshot-wind-speed.png" width="100%" alt="Wind vs speed: a scatter of ride segments, speed against head- and tailwind, with a fitted line"><br>
+      <b>Wind vs speed</b> – how much the wind slows you down, measured on the straight
+      stretches of your own rides.
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <img src="docs/screenshot-forecast.jpg" width="100%" alt="Forecast for Amsterdam: wind, direction, rain, temperature and pressure from several weather models on one timeline"><br>
+      <b>Forecast</b> – hourly wind and weather for any spot from the 5–10 models that suit it
+      best (HARMONIE over the Netherlands, HRRR over the US, ECMWF, ICON…), as charts or a
+      timetable. The URL shares the spot.
+    </td>
+    <td width="50%" valign="top">
+      <img src="docs/screenshot-wind-rose.jpg" width="100%" alt="Wind rose for Amsterdam: five years of ERA5 wind by direction and speed, with monthly roses"><br>
+      <b>Wind rose</b> – decades of ERA5 wind history for any point, by hour and month, with
+      pin-to-compare across places or periods.
+    </td>
   </tr>
 </table>
 
-## Requirements
+**Timeline** – import your Google Maps Timeline to see where you spend time, find when you
+were somewhere, and replay a day.
 
-- Any modern browser; the page served over `localhost` or HTTPS. **That's it** to use the
-  app with your own GPX files.
-- *Only for the optional Beeline source:* a **Beeline account**, with **Strava already
-  connected** if you want to upload (in the Beeline app: Settings → Integrations → Strava).
-- For development: Node.js 20+ and npm.
+Dark and light themes; on a phone the sidebar becomes a bottom navigation bar.
 
-## Quick start
+## Get your rides in
+
+- **GPX files** – drop `.gpx` files (or a `.zip`) from any device or app. No account needed.
+- **Beeline Velo** – sign in to pull your whole ride history at once and batch-upload rides
+  to **Strava**. Connect Strava in the Beeline app first (Settings → Integrations → Strava).
+- **Demo** – no rides yet? Click **Try the demo** in the empty library.
+
+Rides from every source live in one library. Back it up or move it to another browser from
+the **⋯** menu (Export / Import).
+
+## Privacy
+
+- **Your rides stay on your device**, in the browser's storage. There is no app server.
+- **Your Beeline password is never stored.** It is exchanged once for a short-lived token
+  kept in memory. After a reload the app asks again only when an action needs the account,
+  so your password manager can fill it in.
+- **Outside services:** Beeline (only if you connect it), map tiles from OpenStreetMap,
+  weather and place search from Open-Meteo, fonts from Google Fonts, and cookieless
+  [GoatCounter](https://www.goatcounter.com/) visit counts (view names only, never ride
+  data or locations).
+
+## Run it locally
+
+Needs Node.js 20+.
 
 ```bash
 npm install
-npm run dev          # open the printed http://localhost:… URL
+npm run dev
 ```
 
-The app boots straight into your (initially empty) **ride library**. On the very first launch
-a short **Sources** dialog explains the model and lets you fill it: **Add GPX files** to start
-with no account, or **connect Beeline** (or try its **demo**). You can open **Sources** from
-the sidebar (the **More** sheet on a phone) any time to connect or manage sources — there's no
-per-source "mode" to switch.
+| Command | What it does |
+|---------|--------------|
+| `npm run dev` | Dev server |
+| `npm run build` | Type-check and build to `dist/` |
+| `npm test` | Run the tests (Vitest) |
+| `npm run verify` | Type-check, lint and test (what CI runs) |
 
-Views are grouped in a left sidebar — **Rides** (Explore, Map, Stats), **Weather** (Forecast,
-Wind rose) and **Research** (Wind vs speed, Timeline); on a phone the same views live in a
-bottom navigation bar. The app ships a **dark** and a **light** theme (Settings → Theme, or
-follow the system preference).
+To self-host, serve `dist/` from any static host over HTTPS. Pushes to `main` deploy to
+GitHub Pages.
 
-The address bar follows the current view. Forecast and Wind rose links include the selected
-map coordinates, so copying the URL shares that point. Browser Back and Forward navigate
-between views; picking another point updates the current history entry.
+**Full-track GPX for Beeline rides (optional).** A browser can't download Beeline's full
+recorded GPX on its own (the final redirect has no CORS header), so downloads fall back to a
+route-only GPX. To get timestamps and elevation, host the small relay in
+[`infra/gpx-relay`](infra/gpx-relay/README.md) and build with `GPX_RELAY_URL` set.
 
-## Beeline account & your password
+## Project docs
 
-The design goal is to **never store your Beeline password in clear** (or at all):
+- [Architecture](docs/architecture.md): how the app is put together and where things live.
+- [`CHANGELOG.md`](CHANGELOG.md): why each change was made.
+- [`docs/capture.mjs`](docs/capture.mjs): regenerates the screenshots above from the demo.
 
-- Signing in sends the password **once** to Beeline's auth endpoint and keeps only the
-  resulting short-lived ID token **in memory**. The password is never persisted, and the
-  token is gone on reload.
-- Only your **email** and the fact that you last used the Beeline source are remembered, to
-  prefill and re-open the sign-in.
-- On reload, the app enters an **offline, cached-rides** mode (everything you already
-  downloaded is fully browsable). The moment you do something that needs the account —
-  **Pull from Beeline** or **Push to Strava** — it asks you to sign in again, which is exactly
-  when your **password manager** can autofill it. The action you triggered then runs.
-
-This keeps the app autonomous offline and leaves password custody entirely to your browser /
-password manager.
-
-## Full-track GPX & the optional export gateway
-
-Saving a ride's **full** recorded GPX (real per-point timestamps + elevation) needs one
-server-side hop: Beeline renders the file to Firebase Storage, and the authenticated
-download there 302-redirects to a Google host that returns **no CORS header**, so a browser
-can't complete it. The app ships an **optional**, stateless relay for this
-([`infra/gpx-relay`](infra/gpx-relay/README.md) — a zero-dependency AWS Lambda you host).
-
-- It's **off by default**: with no relay configured the app is fully backend-free, and the
-  light **route-only** GPX (synthesized from the cached polyline) still works everywhere.
-- When a relay **is** configured (build-time `GPX_RELAY_URL`), the first full-GPX download
-  shows a **one-time consent** prompt explaining that the request is routed through your
-  gateway. It forwards only your **short-lived sign-in token and the ride id** — never your
-  password — and the gateway **stores nothing**. Tick *"Don't ask again"* to remember it.
-- If the gateway is ever **unreachable**, the download **degrades gracefully** to a
-  route-only GPX instead of failing.
-
-See [`infra/gpx-relay/README.md`](infra/gpx-relay/README.md) for the AWS deploy guide and the
-(free, fail-closed) rate-limiting / cost-safety model.
-
-## Usage
-
-- **Fill your library** — **Add GPX files** (drag-and-drop or pick `.gpx`/`.zip`), and/or
-  open **Sources** to connect Beeline and **Pull from Beeline** to download your whole
-  history in one shot.
-- See a **distance/speed chart** with quick KPIs (total km, ride count, averages), bucketed
-  by day / week / month / year.
-- Rides are grouped by **year → month**, each header showing a riding-volume bar (its
-  distance vs the busiest sibling) and a **select-all checkbox** for batch actions.
-  **Shift+click** a ride (its checkbox or the row) to select the range from the last one
-  you picked; **Ctrl/⌘+click** a row toggles just that ride. The selection is yours until
-  you clear it — it survives view switches, jobs and reloads.
-- Expand any ride to see full details (distance, avg/max speed, moving / elapsed time,
-  elevation) and its GPS route on a map. Open the route full-screen for a toolbar of
-  labelled controls: colour the route by height, speed or head/tailwind; switch on
-  **Rain & wind** to see the weather you rode in — wind streaks and rain on the map,
-  following the point you hover, with a readout of wind, rain and temperature; graph the
-  elevation or speed profile by distance or time, skipping stops.
-- **Map** view plots every ride's track as an overlapping heatmap; a **Stats** view adds a
-  route-frequency heatmap and lifetime totals/records. Both have a *locate me* toggle and a
-  rubber-band area filter.
-- **Wind rose** pulls decades of ERA5 wind history for any map point: where the wind blows
-  from by hour and month, with a draggable year window that updates live over loaded years.
-  **Pin to compare** freezes the rose you are looking at; then move the window or pick
-  another spot and a card shows pinned vs now side by side (prevailing direction, mean,
-  steadiness, calm) with the differences — periods, places, or both — and a Swap.
-- **Forecast** compares hourly wind and broader weather models for any map point. Search for
-  a place or postcode, use five recent searches or pinned favourites, and stack every
-  available KNMI/DMI/ECMWF/DWD/NOAA/etc. model on one synchronized timeline. By default it
-  picks the best models for the spot: the finest regional models whose domain covers it
-  (HARMONIE over the Netherlands, HRRR over the US, MSM over Japan…) plus the leading
-  global models, 5–10 in all, chosen afresh for every location. Choose m/s,
-  km/h or knots and independently show only the weather variables you care about. Use a
-  per-model graph stack, a large combined comparison with a clean consensus-band mode or
-  toggleable full model lines, hover-highlighted tracks and per-model cursor values, or a
-  Table mode: a timetable with the hours down the page, the models across, a consensus
-  column first, and every cell tinted by how windy, wet or warm that hour is.
-  Double-click a comparison legend item to isolate it. Pinned coordinates can be given useful
-  names. Data includes the preceding 24 hours when available, comes directly from Open-Meteo,
-  and lives in its own flushable browser cache.
-- **Filter** by source, route presence, distance, whether you've named the ride — plus, for
-  Beeline rides, **Strava status** (Pending / Uploaded / Other) and destination.
-- **Push to Strava** *(Beeline rides only)* — upload one ride, the current selection, or
-  *all* pending, with a live progress indicator. Uploads run **concurrently**, server-side.
-  A bulk action over a mixed selection acts on the upload-capable subset and reports the rest
-  as skipped.
-- **Download GPX** for any ride (synthesized from the stored track — works offline too).
-- **Queue work freely** — requests line up and drain in order, coalescing consecutive
-  sweeps. Use **Stop** to manage it. Local data can be exported/imported as JSON, and the
-  re-fetchable download cache flushed, from the **Data** menu.
-
-## Scripts
-
-```bash
-npm run dev          # Vite dev server
-npm run build        # type-check (tsc --noEmit) + production build to dist/
-npm run preview      # serve the production build
-npm test             # run the vitest suite
-npm run test:watch   # watch mode
-```
-
-## Project layout
-
-| Path | Responsibility |
-|------|----------------|
-| [index.html](index.html) | App shell, styles, markup, and the Sources dialog |
-| [src/main.ts](src/main.ts) | UI entry point — rendering, DOM wiring, Sources dialog, GPX import |
-| [src/controller.ts](src/controller.ts) | App state + source registry + per-ride dispatch |
-| [src/source.ts](src/source.ts) | `RideSource` seam + capabilities + shared GPX/catalog types |
-| [src/gpx-source.ts](src/gpx-source.ts) | `GpxRideSource` — import `.gpx`/`.zip`, local metrics/export |
-| [src/beeline-api.ts](src/beeline-api.ts) | Beeline cloud backend client (auth, rides, upload) |
-| [src/beeline-source.ts](src/beeline-source.ts) | `BeelineRideSource` — the account source over the API |
-| [src/beeline-demo.ts](src/beeline-demo.ts) | Simulated Beeline backend for the account demo |
-| [src/parsing.ts](src/parsing.ts) | Normalized metrics + ride-key/date + uid helpers |
-| [src/jobs.ts](src/jobs.ts) | Single-worker background job queue |
-| [src/store.ts](src/store.ts) | Unified, versioned IndexedDB ride store |
-| [src/forecast.ts](src/forecast.ts) | Provider-neutral forecasts + Open-Meteo adapter/model catalog |
-| [src/forecast-view.ts](src/forecast-view.ts) | Forecast map, search, model picker and comparison UI |
-| [src/track.ts](src/track.ts) | Decode/render ride GPS tracks |
-
-## Tests
-
-```bash
-npm test
-```
-
-The Beeline-account source is tested against a captured backend response in
-[tests/fixtures/beeline/](tests/fixtures/beeline/).
-
-## Notes
-
-- Your **Beeline password is never stored** — see
-  [Beeline account & your password](#beeline-account--your-password).
-- Only the Strava upload path is automated (komoot is detected but left alone).
+> **Vibe coded.** Almost all of this was written with LLM coding agents. Review
+> accordingly and expect the occasional rough edge.

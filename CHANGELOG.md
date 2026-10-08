@@ -17,6 +17,27 @@ humans and the assistant can read this file as a compressed history of decisions
 
 ---
 
+## docs: actualized
+- **What:** The README is a short overview: a link to the live app, the three ways to get
+  rides in, privacy (every outside service the app calls), local dev, and a gallery of
+  current screenshots, one per view (Explore on desktop and phone, Map, Stats, the ride
+  view, Wind vs speed, Forecast, Wind rose), replacing four v0.14-era shots. The screenshots
+  come from the demo library via `docs/capture.mjs`, which now drives every view and zooms
+  the maps onto one city. A new, short `docs/architecture.md` explains the layers, ride
+  identity, storage and where code lives; the README links it instead of the agent
+  instructions. The relay README is rewritten around `deploy.sh`, moves to the Node.js 24
+  Lambda runtime (Node 20 was deprecated in April 2026; `deploy.sh` now sets the runtime on
+  update too, so a re-run migrates an old function) and drops CLI steps that set CORS on
+  the Function URL, which duplicates the relay's own headers. The agent instructions are
+  restructured (how to work, how the app works, UI rules, module map) with the rules that
+  were stated twice merged and no rule dropped; the module map gains `router`, `format`,
+  `datepicker` and `analytics`; stale facts are fixed (map controls, where the full-screen
+  toggles live, the two `RideSource` implementations); and the gates are `npm run verify`
+  (what CI runs) plus `npm run build`.
+- **Why:** The README described an app from 26 versions ago at feature-spec length; a
+  reader needs to see what it is, how to get rides in and what happens to their data. The
+  relay docs told operators to use a runtime the AWS console no longer offers.
+
 ## ux: one loading form, an Actions menu, and a phone pass over every view
 - **What:** Loading is now one form everywhere — the thread, a 2px hairline that fills
   with progress or runs an accent segment while the total is unknown. The job strip is one

@@ -1,295 +1,559 @@
-# GPX Toolkit — Copilot instructions
+# GPX Toolkit: instructions for coding agents
 
-A **backend-free**, framework-free browser SPA (vanilla TypeScript + DOM) to explore, map,
-analyze and export bike rides from multiple **sources**, and batch-upload **Beeline Velo 2**
-rides to **Strava**. Sources sit behind a `RideSource` seam ([src/source.ts](../src/source.ts))
-and their rides **coexist in one unified store**:
+This is the canonical instruction file for every coding agent in this repository;
+[AGENTS.md](../AGENTS.md) only points here. Keep durable guidance in this file. The
+human-facing docs are [README.md](../README.md) and
+[docs/architecture.md](../docs/architecture.md).
 
-- **Beeline account** ([src/beeline-api.ts](../src/beeline-api.ts) +
-  [src/beeline-source.ts](../src/beeline-source.ts)) — talks to Beeline's own Firebase cloud
-  backend over `fetch`: one request returns the **whole** history (routes, stats, Strava
-  status); uploads run server-side and **concurrently**. CORS-friendly, no proxy.
-  `capabilities = { upload: true, import: false }`.
-- **GPX files** ([src/gpx-source.ts](../src/gpx-source.ts)) — imports user-supplied `.gpx`
-  files and `.zip` bundles (drag-and-drop or picker) as rides, deriving metrics from the
-  recorded track locally. No account, no upload. `capabilities = { upload: false, import: true }`.
+## How to work
 
-The Beeline source has a demo ([src/beeline-demo.ts](../src/beeline-demo.ts)) for exploring
-without an account. Everything runs in the browser; ride state is cached in **one unified**,
-**versioned** IndexedDB blob (`gpx-toolkit-state:all`, `schema` + `migrate()` in
-[src/store.ts](../src/store.ts)), each ride tagged by `source`. There is no server.
-
-**Data vs cache (Android-style):** full-GPX blobs live in two physically separate
-[`GpxCache`](../src/gpxcache.ts) stores — a re-fetchable **cache** (`cache` prefix: Beeline
-downloads, safe to flush) and a primary **data vault** (`data` prefix: imported GPX
-originals, the only copy). The Controller routes every per-ride GPX read/write through
-`blobFor(uid)` (gpx-source rides → data vault, else → cache); `flushGpxCache()` clears the
-cache ONLY, so an imported GPX's bytes can never be destroyed by a cache flush (only by
-deleting the ride or a full `reset()`). Don't store re-derivable data in the data vault, or
-irreplaceable data in the cache.
-
-**Multi-source identity:** a ride's cross-source identity is the uid `${source}::${identity}`
-([`rideUid`/`splitUid`](../src/parsing.ts)). For **Beeline** the identity is the ride's
-`${datetime}` (its start instant genuinely IS its identity); for **GPX** it is a **content hash**
-of the file bytes (`gpx::sha256:<128-bit>`, minted in [`GpxRideSource`](../src/gpx-source.ts) —
-`contentId`), so two distinct files that share a start minute stay distinct rides and re-importing
-the same bytes is idempotent. Either way a record's own `key` stays the bare **datetime** (carried
-explicitly on the card via `RideCard.identity` vs `RideCard.key`, and set through `Store.upsert`'s
-`key` field) so all date/month bucketing is unchanged. The Store, GPX cache and UI `data-key` work
-in uids; **never reconstruct a uid as `rideUid(source, datetime)`** (true only for Beeline) — read
-the real Store Map key (`controller.state()` iterates `rides.entries()`). The `RideSource` seam
-speaks each source's **own key** in its namespace (datetime for Beeline, content hash for GPX); the
-Controller translates uid↔key at the boundary and dispatches each ride's action to that ride's
-source (grouping by `splitUid(uid).source`). Source-dependent actions are gated per ride by
-`capabilities` (e.g. Upload to Strava shows only on Beeline rides; a bulk upload over a mixed
-selection acts on the upload-capable subset and reports the rest as skipped). Storage-key strings
-and internal `beeline-*` module names are kept stable (persistence ids) despite the "GPX Toolkit"
-product framing.
-
-**No source "mode".** The app is ONE library over the unified store; there is no per-source
-mode. It boots straight into the library (`openApp()`); a first-ever launch shows the **Sources**
-dialog (`showSources({welcome:true})`, once, gated by `WELCOMED_KEY`) with an onboarding intro,
-and the same dialog is re-openable any time from the sidebar-footer **Sources** entry (inside the
-phone **More** sheet) to connect/manage sources. All Beeline/Strava chrome is driven off **real signals**, never a mode flag: connection
-state + "Pull from Beeline" show when Beeline is in use (`usesBeeline` = connected/demo/has-
-Beeline-rides/remembered-profile); upload chrome + Strava-status filter show when any ride is
-`can_upload`; the Destination/Named filter chips show only when Beeline rides exist. Don't
-reintroduce a `currentSource`/`beelineMode` switch — gate UI on capabilities/connection instead.
-
-### Beeline credentials — never store the password
-
-The Beeline password is used **once** at sign-in to get a short-lived in-memory token; it is
-**never persisted** (and neither is the token — it's gone on reload). Only the email + "last
-used Beeline" flag are remembered. On reload the app enters an **offline, cached-rides** mode
-and only re-prompts for the password when an action actually needs the account (Re-sync,
-upload) — so the user's **password manager** injects it on demand (`withBeelineAccess` defers
-the action behind a focused re-auth picker; the deferred action runs once sign-in succeeds).
-Preserve this: don't add password persistence, and keep cloud actions gated through
-`withBeelineAccess`.
-
-## Review & challenge the request
+### Review and challenge the request
 
 Don't implement blindly. Before acting, review the request critically and surface obviously
 suboptimal or self-contradictory decisions instead of silently complying.
 
-- **Push back when it's warranted**: if an instruction is unworkable, contradicts itself, fights
-  the existing architecture, or there's a clearly better approach, say so and explain why.
-- **Ask, don't guess**: when a request is ambiguous or a decision looks wrong, ask a focused
-  question before writing code — a short clarification beats a confident wrong implementation.
-- **Be direct, not contrarian**: only challenge real problems; once aligned, commit fully. The
-  goal is the best outcome, not deferring to whatever was asked first.
+- **Push back when it's warranted.** If an instruction is unworkable, contradicts itself,
+  fights the existing architecture, or there's a clearly better approach, say so and
+  explain why.
+- **Ask, don't guess.** When a request is ambiguous or a decision looks wrong, ask a
+  focused question before writing code. A short clarification beats a confident wrong
+  implementation.
+- **Be direct, not contrarian.** Only challenge real problems; once aligned, commit fully.
+  The goal is the best outcome, not deferring to whatever was asked first.
 
-## Core values
+### Core values
 
-These are the defaults every change is judged against — prefer them over cleverness, and call
-out when a request pushes against them (see *Review & challenge the request*).
+Every change is judged against these. Prefer them over cleverness, and call out when a
+request pushes against them.
 
 - **Simplicity first.** The smallest change that fully solves the problem wins. Don't add
-  features, layers, options, or abstractions that weren't asked for and aren't needed yet. No
-  speculative generality — solve the case in front of you, not an imagined future one. A short,
-  obvious implementation beats a flexible-but-intricate one; if a helper or config knob earns
-  its keep only once, inline it.
-- **Reuse before you write.** Before adding code, look for an existing function, type, CSS class,
-  or pattern that already does the job and use (or lift) it. One canonical implementation per
-  concern — when the same logic would live in two places, extract a shared, rendering-agnostic
-  helper and have both call it (e.g. the `bucketRide` date bucketer, the `AreaSelect` gesture
-  controller shared by the Map and heatmap, `renderMatchedCards()` shared by both ride lists).
-  Two copies means two behaviours means a bug; duplication is a smell, not a shortcut.
-- **One unified design language.** The app should look and behave like one product, not a pile of
-  screens. Reuse the established visual vocabulary — the dark desaturated basemap treatment,
-  the `.ms-matched`/`.ms-item` ride cards, the click-through `.fchip` filters, the shared range
-  slider, accent colours and spacing — rather than inventing a one-off style. The same
-  interaction (selecting, filtering, listing rides) should work the same way everywhere it
-  appears. When you add a surface, first ask which existing component or class already expresses
-  it; introduce new styling only when nothing fits, and then make it reusable. **Size shared
-  controls from ONE place** — buttons, chips, segmented controls and fields inherit their
-  height / padding / radius / font from the `--ctrl-*` design tokens (`--ctrl-pad-y/x`,
-  `--ctrl-font`, `--ctrl-radius`, the `-sm` compact variants, `--tap-min`) via the canonical
-  recipes (`button` / `button.small`, `.fchip`, `.seg`, `.custom`, the `--tap-min` header
-  icon-square), never ad-hoc per-element px. A one-off button size is exactly how visual
-  drift starts; if you catch yourself writing a literal height/padding/radius on a control,
-  reach for (or extend) the `--ctrl-*` token or its shared class instead, and bring its
-  siblings along.
-- **Proactively keep the UI aligned with itself.** Consistency is an active duty, not a one-off.
-  When you touch one surface, look at its siblings and bring them along: if one filter becomes a
-  click-through chip, the rest should be chips too (the Strava + Source filters were converted
-  from segmented `.seg` controls to match the chip row); if one button loses its label or gains
-  an icon, its row-mates should match. Don't leave a half-migrated bar where one control is the
-  odd one out. When you're unsure whether a change fits the established language, ask before
-  inventing — a quick question beats a one-off that someone later has to reconcile.
-- **No redundancy.** Say each thing once. Don't show the same information twice (the selection
-  count lives in one place, not a header chip *and* a dropdown label), don't offer the same
-  action by two routes (one "Sources" entry point, not a duplicate "Add GPX files" button), and
-  don't stack competing CTAs (one primary action visible at a time). A label that merely repeats
-  what a filter, badge, or icon already conveys is clutter — cut it. Two affordances for one
-  outcome is a smell, just like two copies of one function.
-- **Simplify by consolidating, never by amputating.** Removing chrome must not remove capability.
-  When you drop a control, make sure the same outcome is still reachable a cleaner way: the
-  per-row Strava-status badge went away but the Strava-status *filter* still surfaces it; the
-  per-group "Push pending" buttons went away but selecting the group + the bulk push still does
-  it; the header buttons collapsed into one `⋯` menu but every action is still there. Lighter UI,
-  identical power. If a simplification would actually lose a capability, call it out instead of
-  silently dropping it.
-- **Show only what applies (context-aware, gated on real signals).** Surface a control only when
-  it can act on the rides in front of the user, and gate it on a real signal — never a mode flag.
-  Beeline-only filters (Strava status, route/full-GPX presence, destination, named, deleted) hide
-  in a GPX-only library; the Source chip appears only when >1 source coexists; the per-ride source
-  marker shows only when the library mixes sources; "Push to Strava" shows only on upload-capable
-  rides. Critically, this extends to **behaviour and copy**, not just visibility: a per-ride action
-  must do the right thing *and say the right thing* for that ride's source — a GPX ride's delete
-  must not claim to touch "your Beeline account" or demand a Beeline sign-in (gate per-ride via
-  `withRideAccess(source, …)`, not a blanket `withBeelineAccess`). A control that's shown but
-  inapplicable, or whose wording assumes the wrong source, is a bug.
-- **Guide without overwhelming.** A first-time / empty state should orient the user (what sources
-  are, the two ways in, a demo) in a few quiet lines — not a wall of text or a nag. Lead them to
-  the next step, then get out of the way. Density is for the working surfaces, not the welcome.
-- **Mobile-friendliness is non-negotiable — preserve it across every change.** This is a
-  phone-first PWA; a feature that works on a wide desktop but is broken or unusable on a narrow
-  viewport is NOT done. Every new surface must be verified at a phone width too. The app shell
-  already adapts (desktop sidebar → phone bottom nav + **More** sheet, ≤768px; the top-bar action
-  buttons collapse to equal 32×32 icon squares ≤819px); overlays/menus must be
-  reachable and dismissable with a thumb — prefer a full-width bottom sheet (with a scrim, a
-  grabber, a visible close, sticky header and `env(safe-area-inset-bottom)` padding) over a tiny
-  anchored dropdown on phones (see the global filter panel: desktop dropdown → mobile bottom
-  sheet). Touch targets stay ≥ ~32px. When you touch layout/CSS, re-check the ≤768px and ≤560px
-  media blocks so nothing regresses; if you can't verify a phone width, say so.
+  features, layers, options or abstractions that weren't asked for and aren't needed yet.
+  No speculative generality: solve the case in front of you, not an imagined future one. A
+  short, obvious implementation beats a flexible but intricate one; if a helper or config
+  knob earns its keep only once, inline it.
+- **Reuse before you write.** Before adding code, look for an existing function, type, CSS
+  class or pattern that already does the job and use (or lift) it. One canonical
+  implementation per concern: when the same logic would live in two places, extract a
+  shared, rendering-agnostic helper and have both call it (e.g. the `bucketRide` date
+  bucketer, the `AreaSelect` gesture controller shared by the Map and heatmap,
+  `renderMatchedCards()` shared by both ride lists). Two copies means two behaviours means
+  a bug.
+- **One unified design language.** The app should look and behave like one product, not a
+  pile of screens. Reuse the established vocabulary (the dark desaturated basemap, the
+  `.ms-matched`/`.ms-item` ride cards, the click-through `.fchip` filters, the shared range
+  slider, accent colours and spacing) instead of inventing a one-off style, and make the
+  same interaction (selecting, filtering, listing rides) work the same way everywhere. When
+  you add a surface, first ask which existing component already expresses it; add new
+  styling only when nothing fits, and then make it reusable. If you're unsure whether
+  something fits, ask before inventing.
+- **Keep the UI aligned with itself.** Consistency is an active duty. When you touch one
+  surface, bring its siblings along: if one filter becomes a click-through chip, the rest
+  become chips too (the Strava and Source filters were converted from `.seg` controls to
+  match the chip row); if one button loses its label or gains an icon, its row-mates
+  match. When a fix or convention has obvious siblings (the other selection actions, the
+  other filter chips, the Map vs heatmap pair, the two basemap filter rules), apply it to
+  all of them in the same change or ask whether it should span. Never leave a half-migrated
+  bar. If you agree a broader rule with the user, record it in this file.
+- **No redundancy.** Say each thing once. Don't show the same information twice (the
+  selection count lives in one place, not a header chip *and* a dropdown label), don't
+  offer the same action by two routes (one "Sources" entry point, not a duplicate "Add GPX
+  files" button), and don't stack competing calls to action (one primary action visible at
+  a time). A label that only repeats what a filter, badge or icon already says is clutter.
+- **Simplify by consolidating, never by amputating.** Removing chrome must not remove
+  capability. When you drop a control, make the same outcome reachable a cleaner way: the
+  per-row Strava badge went away but the Strava-status *filter* still surfaces it; the
+  per-group "Push pending" buttons went away but selecting the group and the bulk push
+  still do it; the header buttons collapsed into one `⋯` menu but every action is still
+  there. If a simplification would lose a capability, call it out.
+- **Show only what applies, gated on real signals.** Surface a control only when it can act
+  on the rides in front of the user, and gate it on a real signal, never a mode flag.
+  Beeline-only filters (Strava status, route/full-GPX presence, destination, named,
+  deleted) hide in a GPX-only library; the Source chip appears only when more than one
+  source coexists; the per-ride source marker shows only in a mixed library; "Push to
+  Strava" shows only on upload-capable rides. This covers **behaviour and copy** too: a
+  GPX ride's delete must not mention "your Beeline account" or demand a Beeline sign-in
+  (gate per ride with `withRideAccess(source, …)`, not a blanket `withBeelineAccess`). A
+  control that is shown but inapplicable, or worded for the wrong source, is a bug.
+- **Guide without overwhelming.** A first-time or empty state orients the user (what
+  sources are, the two ways in, a demo) in a few quiet lines, not a wall of text or a nag.
+  Lead to the next step, then get out of the way. Density is for the working surfaces.
+- **Mobile is non-negotiable.** This is a phone-first PWA: a feature that works on a wide
+  desktop but breaks on a narrow viewport is not done. Verify every new surface at a phone
+  width (see [Mobile](#mobile)); if you can't, say so.
 
-## Data ingestion integrity (read this first)
+### Before you call a change done
 
-**This is the foundation — if numbers come in wrong, nothing else matters.** Every total,
-filter, chart, record, and rollup in this app is downstream of one thing: turning each source's
-raw figures into correct normalized numbers. A single mis-read value silently corrupts every
-aggregate that touches it, and the user has no way to tell. Treat ingestion correctness as
-non-negotiable, not a nicety.
+1. `npm run verify` passes (type-check, Biome lint and format check, tests; exactly what
+   CI runs), and so does `npm run build`.
+2. Layout or CSS changes are checked at a phone width and in both themes.
+3. The [module map](#module-map) is updated if you added, split, renamed or removed a
+   module or changed what one is responsible for.
+4. The change has a [CHANGELOG](#changelog) entry and a
+   [version bump](#versioning-and-the-lockfile), with the lockfile regenerated.
+5. Then stop and summarize. Commit or push only when asked (see [Commits](#commits-and-pushes)).
 
-Both sources hand us **structured numbers**, never localized display strings: the Beeline cloud
-API returns SI fields (`totalDistance` in metres, `averageSpeed`/`topSpeed` in m/s, `movingTime`/
-`duration` in ms — see [`mapBeelineRide`](../src/beeline-api.ts)), and a GPX ride derives its
-metrics from the recorded track geometry. (An earlier build screen-scraped the Beeline app and
-had to parse localized strings like `13,5km`; that source and its locale-aware string parsers are
-gone — don't reintroduce string-to-number parsing on the ingestion path.)
+### Scratch workspace
 
-Hard rules:
+- Put every temporary artifact (previews, screenshots, experiments, generated diagnostics,
+  disposable downloads) under `.tmp/YYYYMMDD-topic/`, with the current date and a short
+  kebab-case topic, e.g. `.tmp/20260920-forecast-marker/`.
+- `.tmp/` is gitignored. Never put scratch material in `.codex/`, the repository root,
+  source directories, ad hoc `work/` or `tmp/` directories, or documentation directories
+  where it would look like a product change.
+- Keep one dated directory per task with all related artifacts together. Keep these
+  directories as local history; delete one only when the user asks. Files that ship belong
+  in their normal tracked location, not `.tmp/`.
 
-- **Normalize once, at the boundary.** Convert a source's raw figure into the app's canonical
-  unit (`RideMetrics`: km, seconds, km/h, metres) exactly where the ride enters app state (the
-  source mapper), then compute and display from those numbers. Downstream code consumes the
-  normalized numbers — it must never re-derive a metric from a raw source field ad hoc.
-- **`null` means unknown, not zero.** A metric that a source didn't report stays `null`
-  (`blankMetrics`), distinct from a real `0`; only overwrite a stored metric when the incoming
-  figure is actually known, so a partial update never clears a richer value.
-- **Convert units explicitly at the mapper.** Every unit conversion (m→km, m/s→km/h, ms→s) lives
-  in the source mapper, spelled out, so the constant and direction are auditable in one place.
-- **Test the mapper, both present and absent.** Any change touching a source mapper or aggregation
-  must keep coverage green for both a fully-populated ride and one missing fields (so `null`
-  propagates, never a spurious `0`).
+### Changelog
 
-## Tech stack & commands
+[CHANGELOG.md](../CHANGELOG.md) is an **internal** intent log, not public release notes.
+Humans and agents read it as a compressed history of decisions and values, so the "why"
+matters more than the "what". Add an entry when a logical change is finished and its gates
+pass.
 
-- **TypeScript 5.6** (strict), **Vite 6** (`base: "./"`, `target: "esnext"`), **Vitest 2** + **jsdom**, **leaflet** for maps.
-- Beeline-account source: plain `fetch` to Beeline's Firebase backend (CORS-friendly, no proxy).
-- `npm run dev` — Vite dev server (boots straight into the library; a first-launch welcome explains sources, and the Beeline source has a demo).
-- `npm run build` — `tsc --noEmit` type-check **then** `vite build`. Always type-check before considering a change done.
-- `npm test` / `npm run test:watch` — Vitest.
-- **Never hand-edit `package-lock.json` — but NEVER leave it stale either.** It's a generated
-  artifact (name, version, dependency tree and integrity hashes must stay mutually consistent).
-  **Any** change to `package.json` — including the routine `version` bump that accompanies almost
-  every logical change, a `name` change, or any dependency add/remove/upgrade — makes the lockfile
-  stale and MUST be regenerated **in the same change**, never in a follow-up. Regenerate with npm
-  (never by hand): `npm install --package-lock-only` (refreshes the lockfile without touching
-  `node_modules`) or `npm install`, then review the diff and confirm the lockfile's `version`
-  matches `package.json`. A manual edit — or a forgotten regen — risks a partial/inconsistent
-  lockfile that `npm ci` will reject.
-
-## Scratch workspace
-
-- Put every temporary artifact created while working — previews, screenshots, experiments,
-  generated diagnostics and disposable downloads — under `.tmp/YYYYMMDD-topic/`, using the
-  current date and a short kebab-case topic (for example, `.tmp/20260920-forecast-marker/`).
-- `.tmp/` is gitignored. Never put scratch material in `.codex/`, the repository root, source
-  directories, ad hoc `work/` or `tmp/` directories, or documentation directories where it
-  appears as a product change.
-- Keep one dated topic directory per task, with all related artifacts together. Preserve these
-  ignored directories by default as local working history and future reference; delete one only
-  when the user explicitly asks. Files intended to ship belong in their normal tracked location,
-  not `.tmp/`.
-
-## Changelog
-
-Maintain [CHANGELOG.md](../CHANGELOG.md) — an **internal** intent log (not public release notes).
-Whenever you finish a logical change and its acceptance checks pass (`npm run build` + `npm test`
-green), add an entry. This file is read by humans **and** the assistant as a compressed history of
-decisions and values, so the "why" matters more than the "what".
-
-- **One entry per logical change**, newest at the top. Squash `fixup!`-style follow-ups into the
-  entry they belong to rather than adding a new one.
-- **Capture intent**, not just the diff: the motivation, the decision, the trade-off — the context
-  the terse commit message omits. Ground it in what the change actually did.
+- **One entry per logical change**, newest at the top. Fold `fixup!`-style follow-ups into
+  the entry they belong to.
+- **Capture intent**, not just the diff: the motivation, the decision, the trade-off, the
+  context the terse commit message omits. Ground it in what the change actually did.
 - **Format:**
   ```
   ## <short title>
-  - **What:** one line — what changed.
-  - **Why:** 1–2 lines — the motivation / decision / value behind it.
+  - **What:** one line: what changed.
+  - **Why:** 1–2 lines: the motivation, decision or value behind it.
   ```
 
-## Versioning
+### Versioning and the lockfile
 
-Bump the `version` in [package.json](../package.json) (semver `major.minor.patch`) as part of
-the same change, so the build hash shown in the UI tracks a real version.
+Bump `version` in [package.json](../package.json) (semver) in the same change, so the build
+hash shown in the UI tracks a real version. One bump per logical change, committed with the
+code and the CHANGELOG entry.
 
-- **Patch** (`0.11.0` → `0.11.1`): bug fixes and small UI/layout corrections — do this
-  **automatically** whenever the logical change is a fix, no need to ask.
+- **Patch** (`0.11.0` → `0.11.1`): bug fixes and small UI or layout corrections. Do this
+  automatically for any fix; no need to ask.
 - **Minor** (`0.11.1` → `0.12.0`): a new feature or user-visible capability.
-- **Major**: reserved for breaking reworks — confirm with the user first.
-- One bump per logical change, committed alongside the code + CHANGELOG entry.
-- **Regenerate `package-lock.json` in the SAME change as the version bump.** The lockfile carries
-  the `version` too, so bumping `package.json` without regenerating leaves it stale. Run
-  `npm install --package-lock-only` and stage the lockfile alongside `package.json` (see
-  *Tech stack & commands* → the lockfile rule). Don't defer this to a follow-up.
+- **Major**: breaking reworks only; confirm with the user first.
 
-  (e.g. `compact state & selection actions into menus`, `more resilient error handling`).
-- **One commit per logical change.** Stage the related files and commit; don't bundle
+**Never hand-edit `package-lock.json`, and never leave it stale.** Its name, version,
+dependency tree and integrity hashes must stay consistent, so **any** change to
+`package.json` (the routine version bump, a rename, a dependency change) needs the
+lockfile regenerated **in the same change**: run `npm install --package-lock-only` (leaves
+`node_modules` alone) or `npm install`, review the diff, and check the lockfile's `version`
+matches. A hand edit or a forgotten regeneration leaves a lockfile that `npm ci` rejects.
+
+### Commits and pushes
+
+- **Commit only when asked.** Committing and amending are the user's call. Make the edits,
+  run the gates, then stop and summarize. Run `git commit` or `--amend` only on an explicit
+  request ("commit this", "make a commit"). The rules below describe *how* to commit once
+  asked; they are not a licence to commit unprompted.
+- **Push only when asked.** Pushing is shared and hard to undo; leave `git push` to the
+  user unless they explicitly request it.
+- **One commit per logical change.** Stage the related files together; don't bundle
   unrelated work.
-- **Lower-case commit messages.** Write the commit subject in all lower case (e.g.
-  `unify single-thumb sliders onto one styled .uslider component`), not Sentence/Title case.
-  Only deviate for things that are inherently cased — proper nouns, acronyms, identifiers,
-  filenames or code (`Strava`, `GPX`, `IndexedDB`, `RideSource`, `.uslider`). When the agent
-  makes a commit, match this style.
-- **Never push unless explicitly asked.** Pushing is a shared/irreversible action — always
-  leave `git push` to the user unless they explicitly request it.
-- **Don't commit unless explicitly asked.** Committing (and amending) is the user's call, not
-  the agent's. Make the edits, run the gates (`npm run build` + `npm test`), then STOP and
-  summarize — let the user review and decide. Only run `git commit`/`--amend` when the user
-  explicitly asks ("commit this", "make a commit"). The guidance above about *how* to commit
-  (one per logical change, lower-case message, version + CHANGELOG alongside) applies **when**
-  the user has asked for a commit — it is not a licence to commit unprompted.
+- **Short, lower-case subject that names the intent**, e.g.
+  `compact state & selection actions into menus` or
+  `unify single-thumb sliders onto one styled .uslider component`. Keep inherently cased
+  words as they are: proper nouns, acronyms, identifiers, filenames and code (`Strava`,
+  `GPX`, `IndexedDB`, `RideSource`, `.uslider`).
 
-## Architecture / module map
+## How the app works
 
-UI → Controller → RideSource (registry) → BeelineApi / local GPX ; + JobQueue · Store.
-The Controller is source-agnostic: it holds a `Map<SourceKind, RideSource>`, dispatches each
-ride's action to that ride's source (via `splitUid`), and never touches a concrete backend.
-`main.ts` builds one shared multi-source controller (GPX always registered; Beeline on sign-in).
+### Overview
 
-**Maintain this table.** It is the canonical map of the codebase — when you add, split, rename,
-or remove a `src/*.ts` module (or change what one is fundamentally responsible for), update the
-relevant row in the **same change** (alongside the CHANGELOG entry). A stale map is worse than
-none. The table is grouped by concern; keep new modules in the group they belong to.
+A **backend-free**, framework-free single-page app (vanilla TypeScript and the DOM) to
+explore, map, analyze and export bike rides from several **sources**, and to batch-upload
+**Beeline Velo 2** rides to **Strava**. Everything runs in the browser; there is no server.
+Sources sit behind the `RideSource` seam ([src/source.ts](../src/source.ts)):
+
+- **Beeline account** ([src/beeline-api.ts](../src/beeline-api.ts),
+  [src/beeline-source.ts](../src/beeline-source.ts)) talks to Beeline's Firebase backend
+  over `fetch` (CORS-friendly, no proxy). One request returns the **whole** history
+  (routes, stats, Strava status); uploads run server-side and concurrently.
+  `capabilities = { upload: true, import: false }`. A simulated backend
+  ([src/beeline-demo.ts](../src/beeline-demo.ts)) powers the demo.
+- **GPX files** ([src/gpx-source.ts](../src/gpx-source.ts)) imports `.gpx` files and `.zip`
+  bundles (drag-and-drop or picker) and derives metrics from the recorded track locally.
+  No account, no upload. `capabilities = { upload: false, import: true }`.
+
+The Controller is source-agnostic: it holds a `Map<SourceKind, RideSource>`, sends each
+ride's action to that ride's source, and never touches a concrete backend. `main.ts` builds
+one shared controller (GPX always registered, Beeline on sign-in). If you add a source,
+code to the `RideSource` interface.
+
+### One library, no source mode
+
+Rides from every source live in **one unified store**, each tagged with its `source`.
+There is no per-source mode. The app boots straight into the library (`openApp()`); the
+first-ever launch shows the **Sources** dialog with an onboarding intro
+(`showSources({welcome:true})`, once, gated by `WELCOMED_KEY`), and the same dialog is
+always reachable from the sidebar footer's **Sources** entry (inside the **More** sheet on
+a phone).
+
+All Beeline and Strava chrome follows **real signals**: the connection state and "Pull
+from Beeline" show when Beeline is in use (`usesBeeline`: connected, demo, has Beeline
+rides, or a remembered profile); upload chrome and the Strava-status filter show when any
+ride is `can_upload`; the Destination and Named chips show only when Beeline rides exist.
+Source-dependent actions are gated per ride by `capabilities`: a bulk upload over a mixed
+selection acts on the upload-capable subset and reports the rest as skipped. Don't
+reintroduce a `currentSource`/`beelineMode` switch.
+
+### Ride identity, dates and labels
+
+- **Identity is the uid** `${source}::${identity}` (`rideUid`/`splitUid` in
+  [src/parsing.ts](../src/parsing.ts)). For Beeline the identity is the ride's start
+  datetime; for GPX it is a **content hash** of the file (`gpx::sha256:<128-bit>`, minted by
+  `GpxRideSource.contentId`), so two files that start in the same minute stay separate and
+  re-importing the same bytes is a no-op.
+- The Store, the GPX cache and the UI's `data-key` all work in uids. **Never reconstruct a
+  uid as `rideUid(source, datetime)`** (that only holds for Beeline); read the real Store
+  key (`controller.state()` iterates `rides.entries()`). The `RideSource` seam speaks each
+  source's **own key** (datetime for Beeline, content hash for GPX); the Controller
+  translates uid ↔ key at the boundary and groups actions by `splitUid(uid).source`.
+- **The reference date is the only axis for ordering, bucketing and filtering.** A ride's
+  `key` (`RideRecord.key`, `RideView.date_key`) is its display datetime, a human date like
+  `"Sat Jun 13 2026 at 14:22"`; months are `"2026-06"` / `"June 2026"`. `RideCard.identity`
+  vs `RideCard.key` keeps the two apart, and `Store.upsert`'s `key` field sets it. Every
+  sort, month or period bucket, date-range filter, granularity pick and date label reads
+  the reference date; never parse a date out of a uid (a GPX uid yields `null`, which once
+  sorted imports after every Beeline ride and printed raw hashes as labels).
+- **Where the reference date comes from.** Beeline: the server's start instant
+  (`beelineRideKey(startMs)` builds the key, `rideDatetime()` is its inverse). GPX: the
+  track's first `<time>`, else a `YYYY-MM-DD` filename prefix, else the **upload instant**,
+  stamped once on first import and stable across re-imports (`Store.upsert` only sets `key`
+  on a new record).
+- **User-facing labels are name-driven, never the uid.** Use `rideLabel(name, dateKey)`
+  (parsing) or the controller's `uidLabel(uid)`: they return "Name (Jun 13, 2026, 14:22)"
+  and degrade to name, date or "ride", but never show a `gpx::sha256:…` identity. A GPX
+  ride's name comes from `<name>`, then the filename, then the time of day, and is
+  user-editable.
+- Storage-key strings and the internal `beeline-*` module names stay as they are
+  (persistence ids), despite the "GPX Toolkit" product name.
+
+### Data ingestion integrity
+
+**This is the foundation.** Every total, filter, chart, record and rollup is downstream of
+turning each source's raw figures into correct normalized numbers. One mis-read value
+silently corrupts every aggregate that touches it, and the user can't tell.
+
+Both sources hand over **structured numbers**, never localized display strings: the
+Beeline API returns SI fields (`totalDistance` in metres, `averageSpeed`/`topSpeed` in m/s,
+`movingTime`/`duration` in ms; see [`mapBeelineRide`](../src/beeline-api.ts)), and a GPX ride
+derives its metrics from the track geometry. An earlier build screen-scraped the Beeline
+app and parsed localized strings like `13,5km`; that code is gone, so don't reintroduce
+string-to-number parsing on the ingestion path.
+
+- **Normalize once, at the boundary.** Convert a raw figure into the app's unit
+  (`RideMetrics`: km, seconds, km/h, metres) where the ride enters app state (the source
+  mapper). Downstream code uses those numbers and never re-derives a metric from a raw
+  field.
+- **`null` means unknown, not zero.** An unreported metric stays `null` (`blankMetrics`).
+  Only overwrite a stored metric when the incoming figure is known, so a partial update
+  never clears a richer value.
+- **Convert units explicitly in the mapper.** Every conversion (m → km, m/s → km/h,
+  ms → s) is spelled out there, so constants and directions are auditable in one place.
+- **Test the mapper with fields present and absent.** A change to a mapper or an
+  aggregation keeps coverage for a fully populated ride and one missing fields (so `null`
+  propagates instead of a spurious `0`).
+
+### Storage: data vs cache
+
+- Ride state is **one versioned IndexedDB blob** (`gpx-toolkit-state:all`, with `schema` and
+  `migrate()` in [src/store.ts](../src/store.ts)). Mutate the `Store` only through
+  `store.upsert(key, partial)` and let the Controller emit a change event to re-render.
+- Full GPX files live in two physically separate [`GpxCache`](../src/gpxcache.ts) stores,
+  Android-style: a re-fetchable **cache** (`cache` prefix: Beeline downloads, safe to
+  flush) and a **data vault** (`data` prefix: imported GPX originals, the only copy). The
+  Controller routes every per-ride GPX read and write through `blobFor(uid)` (GPX rides to
+  the vault, everything else to the cache). `flushGpxCache()` clears the cache **only**, so
+  an imported file is lost only by deleting its ride or a full `reset()`. Never put
+  re-derivable data in the vault, or irreplaceable data in the cache.
+
+### Beeline credentials: never store the password
+
+The password is used **once** at sign-in to get a short-lived token kept in memory. It is
+**never persisted**, and neither is the token (it's gone on reload). Only the email and a
+"last used Beeline" flag are remembered. After a reload the app shows the cached rides
+offline and asks for the password only when an action needs the account (re-sync,
+upload), so the user's **password manager** can fill it: `withBeelineAccess` defers the
+action behind a focused re-auth picker and runs it once sign-in succeeds. Don't add
+password persistence, and keep every cloud action behind `withBeelineAccess`.
+
+### Other domain rules
+
+- **Deletions need a complete scan.** A ride known locally but missing from a freshly
+  fetched history is marked **deleted** only when the scan ran to completion
+  (`enumerateCatalog` returns a `complete` flag). A cancelled or partial scan never
+  reconciles deletions.
+- **Job coalescing.** Consecutive `upload`/`status`/`download-gpx` tasks merge into one
+  sweep; keep this when touching `JobQueue`.
+- Only the **Strava** upload path is automated (komoot is detected but left alone).
+
+## Tech stack and commands
+
+- **TypeScript 5.6** (strict), **Vite 6** (`base: "./"`, `target: "esnext"`), **Vitest 2**
+  with **jsdom**, **Leaflet** for maps, **Biome 2** for lint and format.
+- `npm run dev`: Vite dev server. It boots into the library; the first launch explains the
+  sources, and the Beeline source has a demo.
+- `npm run build`: `tsc --noEmit`, then `vite build`.
+- `npm test` / `npm run test:watch`: Vitest.
+- `npm run verify`: type-check, `biome check` and Vitest; exactly what CI runs.
+  `npm run check:fix` applies Biome's safe fixes and formatting.
+
+## Code conventions
+
+- **Strict TS**: full null-safety; `noUnusedLocals`/`noUnusedParameters` are on, so no dead
+  variables or parameters and no implicit `any`.
+- **Naming**: `camelCase` functions with a verb prefix (`parse…`, `upload…`), `PascalCase`
+  classes and interfaces, `snake_case` string constants for storage keys.
+- **Types**: `interface` for public contracts (`RideSource`, `RideRecord`); type aliases and
+  discriminated unions for state (e.g. `TaskStatus = "queued" | "running" | …`).
+- **Comments**: a module-level docstring explains purpose and design; `// -- section ----`
+  headers group blocks; inline comments explain **why**, not what.
+- **Async-first**: everything is `async`/`await` (`fetch` is async). Never block.
+- **Subscriptions**: `onChange(fn)` returns an unsubscribe function; store it and call it on
+  teardown.
+- **Errors**: surface failures with `toast(message, isError)` / `pushError()` and the
+  persistent error card instead of crashing. Wrap `localStorage` access in `try/catch`
+  (private mode can throw; that's non-fatal).
+- **Dependencies**: keep them minimal. The app deliberately has no backend and a tiny
+  dependency set.
+
+## UI rules
+
+### Design system
+
+- **Two themes, one token sheet.** Every colour in [style.css](../src/style.css) is a
+  `:root` token; the light theme is the single `:root[data-theme="light"]` override block
+  (`--tile-filter` swaps the basemap treatment). Status chrome has semantic families
+  (`--ok-*`, `--info-*`, `--err-*`, `--accent-soft-*`, `--accent-wash*`, `--job-*`,
+  `--src-*`). Never type a hex literal into a rule; if no token fits, add one to **both**
+  blocks. Check every screen in both themes.
+- **No literal white or black on a themed surface.** A hover, cursor, ring or wash drawn
+  with `#fff` / `rgba(255,255,255,…)` vanishes in the light theme; use `var(--text)`,
+  `var(--surface-hover)`, `var(--line)` or
+  `color-mix(in srgb, var(--text) N%, transparent)`. Literal white is right only on an
+  accent or blue fill.
+- **Canvas reads tokens at draw time.** Charts read colours through `getComputedStyle`
+  when they draw (`--fc-*`, `--fc-now`) and redraw on the `themechange` event; never cache
+  colours across frames.
+- **No Tailwind.** One hand-written stylesheet over one token sheet; a utility layer would
+  be a second styling system that bypasses the tokens.
+- **Size shared controls from one place.** Buttons, chips, segmented controls and fields
+  take height, padding, radius and font from the `--ctrl-*` tokens (`--ctrl-pad-y/x`,
+  `--ctrl-font`, `--ctrl-radius`, the `-sm` variants, `--tap-min`) through the canonical
+  recipes (`button` / `button.small`, `.fchip`, `.seg`, `.custom`, the `--tap-min` header
+  icon square). Never write a literal height, padding or radius on a control; extend the
+  token or the shared class, and bring the siblings along.
+- **Text fields are one family.** Every text-like input (`text`, `email`, `password`,
+  `search`, `number`, `textarea`, `select`, `.field`) gets its look from the shared rule and
+  the `--field-*` tokens. Add sizing and layout only; never restyle a field's border,
+  background or focus ring. The underlined `.custom input` range fields in the filter bar
+  are the one exception.
+- **A segmented control is a `.seg` with `button.active`**, nothing else: the sliding thumb
+  ([seg.ts](../src/seg.ts)) finds it by that shape. Toggle `.active`; never set a
+  background on the active button (the thumb carries the fill).
+- **Button glyphs come from one registry.** A button that wants an icon takes it from
+  [icons.ts](../src/icons.ts): `${icon("name")}` in a template, or `data-icon="name"` on
+  static markup (injected by `decorateIcons()` at boot). Never paste an SVG or use a
+  Unicode character; add a missing glyph to the registry. A button that starts with the
+  `.bi` glyph lays out as icon plus label (`button:has(> .bi)`); an icon-only button keeps
+  its meaning in `aria-label`/`title`.
+- **Loading has one form: the thread.** A 2px hairline (`.thread`: its `<i>` fills to the
+  progress; `.indet` runs an accent segment along it) edges the job strip and its
+  minimized pill (`jobs-view.setThread`), runs under a ride a job is working on
+  (`.rring.working`; `.rring.queued` is its static dotted twin), sits under the pane-loader
+  chip (`ui.paneLoader`) and under a map banner while it reports loading
+  (`.map-banner.busy`). No spinners, no veils over content, no thick rings; only
+  icon-scale inline states (a refresh button turning) may rotate.
+- **No thick borders on curved shapes.** Chips are flat tints with 5px corners; avoid
+  outlined pills; a 1px hairline on a 9–10px radius is the most border-plus-curve a surface
+  gets. Buttons on a tinted surface (the selection toolbar) have transparent borders.
+- **Big panels fold away.** A panel that costs more than a line of screen (the Explore
+  chart, the Stats totals band, the Forecast legend, the ride map's toolbar stack) carries
+  a `.collapse-btn` chevron wired through `ui.initCollapse` (remembered under
+  `gpx_toolkit.collapse.<panel>`); collapsed, it keeps a one-line summary where one exists.
+- **Stretched SVGs carry no text or styled strokes.** An SVG with
+  `preserveAspectRatio: none` puts its labels in HTML beside it, and its strokes use
+  `vector-effect: non-scaling-stroke`.
+
+### Mobile
+
+- The shell adapts at ≤768px (desktop sidebar → phone bottom nav plus the **More** sheet),
+  and the top-bar action buttons become equal 32×32 icon squares at ≤819px.
+- Overlays and menus must be reachable and dismissable with a thumb. On phones prefer a
+  full-width bottom sheet (scrim, grabber, visible close, sticky header,
+  `env(safe-area-inset-bottom)` padding) over a small anchored dropdown; the global filter
+  panel is the model (desktop dropdown, phone bottom sheet).
+- Touch targets stay at least ~32px. When you touch layout or CSS, re-check the ≤768px and
+  ≤560px media blocks.
+
+### Maps
+
+- **One basemap look.** The Explore per-ride mini-maps (`.rmap`) and the all-rides Map view
+  (`#allRidesMap`) share one dark, desaturated tile treatment
+  (`.leaflet-tile-pane { filter: var(--tile-filter) }` over a `var(--map-bg)` container) so
+  coloured tracks pop. Keep the two filter rules in sync. Mini-maps draw one ride with a
+  white casing and a solid orange line; the Map view draws translucent overlapping lines as
+  a heatmap.
+- **Floating controls are icon-only inline SVG, never Unicode glyphs.** The Map view and
+  the Stats heatmap carry the same three floating square buttons (`.map-expand` full-screen
+  toggle, `.map-select` area select, `.map-locate` locate-me toggle): 34px square, centred
+  17px SVG, `stroke: currentColor`, meaning in `aria-label`/`title`. Icons **swap by state
+  in CSS**, never by rewriting the button: `.map-expand` flips from maximize to minimize on
+  `[aria-pressed="true"]`; `.map-select` flips from a dashed marquee to an X on `.active`.
+  `createAreaSelect` ([areaselect.ts](../src/areaselect.ts)) owns only the button's
+  `.active`/`aria-pressed`/`aria-label`. Raw Unicode symbols (`⤢ ⤡ ▢ ✕ ▸ ▾` …) render
+  inconsistently and are banned; add an SVG glyph or reuse the CSS-border chevrons of split
+  buttons and disclosures.
+- **One full-screen pattern.** A CSS pseudo-fullscreen (no `requestFullscreen`): the
+  container goes `position: fixed; inset: 0; z-index: 60` under a body class
+  (`body.map-expanded .map-wrap` for the Map view, `body.heat-expanded .freq-wrap` for the
+  heatmap). Each toggle (`setMapExpanded` in [map-view.ts](../src/map-view.ts),
+  `setHeatExpanded` in [stats-view.ts](../src/stats-view.ts)) flips the body class, sets
+  the button's `aria-pressed` and calls `invalidateSize()` so Leaflet re-measures. Both
+  exit on **Esc** and when leaving their view (`applyView`).
+- **One column layout; controls never cover the basemap.** The Map view's `.map-main` and
+  the heatmap's `.freq-main` are flex columns whose Leaflet container (`#allRidesMap` /
+  `#freqHeatMap`) is `flex: 1; min-height: 0`; every control sits **below** it in normal
+  flow. That keeps Leaflet's zoom (top left) and attribution (bottom right) in place and
+  the "© OpenStreetMap contributors" credit uncovered. Both date filters use the same
+  `.basemap-filter` class beneath their map (`#mapFilter`, `#statsFilter`); the Stats one
+  still scopes the whole Stats body (totals, records and heatmap). Only the icon buttons
+  and the rubber-band selection rectangle float over a basemap.
+- **Keep the Map view and the heatmap in lockstep.** A control or behaviour added to one
+  goes into the other the same way.
+
+### Explore list and selection
+
+- **Aligned group headers.** In the year and month headers (`.yhead`/`.mhead`) the title
+  column (`.ytitle`/`.mtitle`) is fixed-width
+  (`flex: 0 0 auto; min-width; white-space: nowrap`), so the 90px volume bar (`.bars`) and
+  the meta text start at the same x on every row. "May 2026" and "September 2026" must not
+  push them around or wrap. New header columns are fixed-width too.
+- **The list never moves under the user.** A rebuild captures the month at the reading line
+  and its pixel offset (`captureListAnchor`), builds that month first, and restores it
+  (`restoreListAnchor`); leaving a view captures it too, so coming back lands where you
+  were. Unbuilt months carry honest heights (`contain-intrinsic-size` and `min-height` from
+  a row measured in the viewport: `measureRowHeights` / `applyPlaceholderHeights`), so a
+  slice landing shifts nothing. Pending builds are keyed (`pendingBuilds` /
+  `buildMonthNow`): a scroll-to builds only its target month. Opening a ride's details
+  patches its row (`toggleRowDetails`). The tree's scroll-spy never scrolls the tree while
+  the pointer is in it. Anything that moves the page without the user asking is a bug.
+- **Selection is the user's work.** Only the user clears it (`selClear`, dropping deleted
+  rides, or keys that no longer exist once the library has loaded). It is persisted
+  (`gpx_toolkit.selection`) and restored before the library loads; never prune it against
+  an empty ride list. Shift+click extends from the last-clicked anchor in list order
+  (`selectRange` over `listOrderKeys`), Ctrl/⌘+click toggles one row, a plain click opens
+  details. Batch actions and group checkboxes are additive to this model.
+- **Selection actions show their applicable subset.** In the selection toolbar (`#selBar`,
+  [main.ts](../src/main.ts)) an action that can act on only part of the selection puts that
+  count in its label and **hides when the count is zero** ("Push N rides to Strava",
+  "Fetch full GPX for N rides", "Resolve wind for N rides", "Delete N rides": natural,
+  parallel phrasing with the count mid-sentence). An action that always acts on all N stays
+  label-only ("N selected" already says N). Never show a batch action that would be a
+  no-op. Derive every subset once from a single `selRides` array with cheap ride-view
+  flags (`can_upload`/`status`, `gpx_cached`, `hasResolvedWind`, `deleted`) through
+  `setSelAction(id, count, label)`; no per-button `find` loops.
+- **Batch actions are never a strip of look-alike icons.** Where labels fit (≥1700px) the
+  toolbar shows labelled buttons inline; below that the same buttons fold into the
+  labelled Actions menu (`#selMore` → `.selbar-acts`). A new batch action goes into
+  `.selbar-acts` with an icon **and** a label.
+
+### Charts
+
+- **Direction is drawn, not plotted.** Wind direction is an arrow (north up, pointing where
+  the wind blows to: `windTravelDeg`), never a value on a numeric axis. The spread across
+  models is a fan behind the arrow (`drawDirectionFan`); per-model detail is each model's
+  own arrow.
+- **Nothing floats over a chart's data.** Hover details go beside the chart (the Forecast
+  legend values and readout line), never in a card over the lanes being read.
+
+### Status messages
+
+Say exactly **what** is happening and **why**, verbosely if needed, never with vague
+counts. Name a specific ride by what we know (`rideShortLabel(key)` → "Jun 13 14:22"), not
+"1 ride": "scrolling down to find Jun 13 14:22…", not "scrolling down, looking for 1
+ride…". For several rides, name the first couple and add "(+N more)".
+
+### Performance
+
+- **Target scale: several thousand rides and tens of thousands of km.** That is the normal
+  case, not an edge case: totals, filters, stats, the map and the heatmap stay responsive
+  at that size. Never materialise per-metre points for the whole dataset (the heatmap
+  densifies only the visible viewport), keep per-ride work roughly O(1), and prefer
+  culling and caching to recomputing everything on each interaction.
+- **The UI never freezes.** Anything that scales with the ride count does one of three
+  things: **patch in place** (`applySelection`, `applyJobUpdate`, `applyWeatherUpdate`,
+  `syncOpenMenu` in [main.ts](../src/main.ts) touch only the rows that changed),
+  **slice through idle time** (`runInSlices` in [idle.ts](../src/idle.ts): the Explore pane
+  after its first screenful, the Map's track draw, the heatmap densify), or **show a loader
+  first** (`ui.paneLoader`, then slice). The full `render()` is for structural change only
+  (membership, grouping, filters, layout, selection); a ride's own field changes patch its
+  row (`rowSigs` → `applyRowUpdates`). Never put bulky per-ride fields (the `track`
+  polyline) in a render signature, and never build DOM that isn't shown (closed months on
+  phones, a row's ⋯ menu until it opens).
+- **Measure it.** Use the long-task harness (`.tmp/…/big.mjs`: export → multiply → import,
+  long tasks per interaction; the paint path has `ui:*` User Timing marks). A feature that
+  adds a long task of 50ms or more on a 2,000-ride library is not done.
+- **Animated indicators are persistent elements whose class flips.** A CSS animation
+  restarts when its element is re-created or its `innerHTML`/`className` is re-set, so a
+  ride's status thread (`.rring`) and the pane loader are created once and only toggled
+  (`applyJobUpdate` compares the class before setting it), and
+  `ui.paneLoader(host, null)` hides after a short grace so a build that follows reuses the
+  element. If an indicator visibly restarts, fix the re-render; never mask it.
+- **Live controls never stall the page.** A range input's `input` tick does only cheap,
+  local, visual work (relabel, redraw the one chart or layer it affects: `liveTrim` +
+  `renderStats`, `setHeatRadiusPreview`, the wind-rose window's in-memory re-aggregate). It
+  never writes the store, calls `notify()` or triggers the full `render()`; persist and do
+  heavy work once on `change`. `applyState` already coalesces store notifications into one
+  paint per frame; don't bypass it with direct `render()` calls from a drag.
+
+## Testing
+
+- Tests live in `tests/**/*.test.ts` (Vitest with jsdom).
+- Source tests drive `BeelineRideSource` against an in-memory fake `BeelineApi` (no
+  network) and a captured backend response in [tests/fixtures/beeline/](../tests/fixtures/beeline/).
+- Inject an instant `sleep` and a `memoryBackend()` store; don't touch real `localStorage`
+  or wall-clock delays. Wait for async work with
+  `await vi.waitFor(() => expect(c.state().jobs.busy).toBe(false))`.
+- **Demo GPX downloads never open a "Save As".** `saveGpxFile()` in
+  [src/main.ts](../src/main.ts) returns early when `isDemo` (the bytes are synthetic; the
+  route is still drawn from the stored track), which keeps browser-driven demo and test
+  flows prompt-free. Keep this guard when touching the GPX save path.
+
+## Gotchas
+
+- **`position: fixed` breaks inside the header.** `<header>` has `backdrop-filter: blur()`,
+  which (like `transform`, `filter` or `will-change`) makes it the containing block for
+  `position: fixed` descendants: a fixed element inside it is positioned against the
+  header box, not the viewport, so a phone bottom sheet authored there pins to the top.
+  Render viewport-anchored overlays at `<body>` level (the global filter panel is moved to
+  `<body>` at runtime by `initFilterPanel`, anchored under its button on desktop and pinned
+  to the viewport bottom on phones). Never assume `position: fixed` is viewport-relative
+  without checking for a transformed or filtered ancestor.
+
+## Module map
+
+UI → Controller → RideSource registry → Beeline API / local GPX, plus the JobQueue and the
+Store. **Keep this map current:** when you add, split, rename or remove a `src/*.ts`
+module, or change what one is responsible for, update its row in the same change. A stale
+map is worse than none. Rows are grouped by concern; put a new module in its group.
 
 *Core: UI · orchestration · source seam*
 
 | File | Responsibility | Key symbols |
 |------|----------------|-------------|
-| [index.html](../index.html) | App shell markup (grouped sidebar · per-view top bar · phone bottom nav + More sheet), every view's static markup, the Sources + Settings dialogs, the pre-paint theme boot script | — |
-| [src/seg.ts](../src/seg.ts) | Sliding segmented controls: gives every `.seg` a thumb that glides to `button.active`, driven by a MutationObserver (class flips, rebuilt segs) + ResizeObserver — the code that toggles `.active` never changes | `initSegSliding()` |
+| [index.html](../index.html) | App shell markup (grouped sidebar · per-view top bar · phone bottom nav + More sheet), every view's static markup, the Sources + Settings dialogs, the pre-paint theme boot script | |
+| [src/seg.ts](../src/seg.ts) | Sliding segmented controls: gives every `.seg` a thumb that glides to `button.active`, driven by a MutationObserver (class flips, rebuilt segs) + ResizeObserver, so the code that toggles `.active` never changes | `initSegSliding()` |
+| [src/router.ts](../src/router.ts) | Hash router: `#/<view>`, plus `?lat=&lon=` for Forecast and Wind rose so a URL shares the picked point; parse / format / validate, and push vs replace history entries | `parseRoute()`, `formatRoute()`, `writeRoute()`, `validRoutePoint()`, `Route` |
 | [src/shell.ts](../src/shell.ts) | App-shell behaviour: reflect the active view onto every `.navlink[data-view]` + the top-bar title, the sidebar rail toggle, the phone More sheet, and re-parenting the Research group + footer into that sheet on the phone media query (one set of nav nodes, never two) | `initShell()`, `syncShell()`, `setViewSubtitle()`, `lastWeatherView()`, `VIEW_TITLES` |
-| [src/main.ts](../src/main.ts) | UI entry: render + wiring, re-auth gating, GPX import, Location-History import/drop, all views (Explore/Map/Stats/Wind-Speed/Wind-rose/Timeline). Explore from 1100px is a contents tree (`#months`, sticky, flat rows; a scroll-spy marks the month in view) beside a continuous ruled list of every ride (`#rideList`, sticky month headings, heavier year headings; tree clicks scroll the list — note `<body>` is the page's scroll container); narrower screens keep rows inside the (open) month box. The chart's Auto granularity is density-driven (`chartBuckets()` from the chart width) and quiet periods are filled (`fillEmptyBuckets`) | `activate()`, `getRealController()`, `openApp()`, `goBeeline()`, `goGpx()`, `pullFromBeeline()`, `importGpxFiles()`, `importLocationHistory()`, `dropLocationHistory()`, `mountTimelineView()`, `mountClimateView()`, `withBeelineAccess()` |
+| [src/main.ts](../src/main.ts) | UI entry: render + wiring, re-auth gating, GPX import, Location-History import/drop, the Explore view and selection toolbar; mounts the per-view modules (Map, Stats, Wind vs speed, Forecast, Wind rose, Timeline). Explore from 1100px is a contents tree (`#months`, sticky, flat rows; a scroll-spy marks the month in view) beside a continuous ruled list of every ride (`#rideList`, sticky month headings, heavier year headings; tree clicks scroll the list; note `<body>` is the page's scroll container); narrower screens keep rows inside the (open) month box. The chart's Auto granularity is density-driven (`chartBuckets()` from the chart width) and quiet periods are filled (`fillEmptyBuckets`) | `activate()`, `getRealController()`, `openApp()`, `goBeeline()`, `goGpx()`, `pullFromBeeline()`, `importGpxFiles()`, `importLocationHistory()`, `dropLocationHistory()`, `withBeelineAccess()` |
 | [src/sources-view.ts](../src/sources-view.ts) | Sources & Settings dialogs (show/hide/repaint) behind a `SourcesViewDeps` seam; auth-flow wiring stays in main | `initSourcesView()`, `showSources()`, `hideSources()`, `showSettings()`, `renderSources()`, `setBeelineError()` |
 | [src/tag-modal.ts](../src/tag-modal.ts) | Bulk tag-assignment modal (tri-state chips) behind a `TagModalDeps` seam; commits via injected `setRideTags` | `initTagModal()`, `openTagModal()`, `cycleTagChip()`, `addTagModalTag()`, `saveTagModal()`, `closeTagModal()` |
 | [src/jobs-view.ts](../src/jobs-view.ts) | Live activity tile (a fixed strip along the bottom of the main pane, following the sidebar width; above the bottom nav on phones) / minimized handle / "Up next" queue + the persistent error stack; owns its own UI state, reads job state via `getJobs` | `initJobsView()`, `renderJob()`, `renderError()`, `pushError()`, `toggleQueue()`, `hideJob()`, `dismissError()` |
 | [src/explore-view.ts](../src/explore-view.ts) | Shared ride-display helpers + the "Selected rides" card list (Map side panel / Stats heatmap); pure `(ride) => string` builders over `getRides` | `initExploreView()`, `renderMatchedCards()`, `rideWhen()`, `rideTimesTitle()` |
 | [src/range-view.ts](../src/range-view.ts) | The shared dual-thumb date-range slider (Map/Stats/Wind-Speed windows), parameterized by `RangeView`; bounds/selection state + reconcile + drag/preset handlers, behind a `RangeViewDeps` seam (rides in, remount + persist out) | `initRangeView()`, `refreshRange()`, `syncRangeControl()`, `ridesInRange()`, `rangeOf()`, `resetRange()`, `applyRangePreset()`, `onRangeInput()`, `onWindowDrag()`, `rangeWindowLabel()` |
-| [src/ridemap.ts](../src/ridemap.ts) | Full-screen single-ride map (`#rideMapModal`): a title bar (title · live hover readout · Close) over a toolbar of labelled groups — "Colour route by" (Route / Height / Speed / Wind; Height + Speed need the full track, Wind resolves on first use), "Weather" (the `Rain & wind` toggle: the Forecast map's `WeatherFx` overlay + a corner readout of wind / rain / temperature at the hovered point, the ride's midpoint when idle; wind cached before weather variables existed is re-resolved once), "Graph" (Profile toggle, Elevation / Speed, By distance / By time, Skip stops) and "Track" (Fetch full track); toggles carry a ticked box (`.rmb-toggle`), labels never flip; the row folds to icons when it overflows. Behind a `RideMapDeps` seam | `initRideMap()`, `openRideMap()`, `closeRideMap()`, `refreshOpenRideMapWind()` |
+| [src/ridemap.ts](../src/ridemap.ts) | Full-screen single-ride map (`#rideMapModal`): a title bar (title · live hover readout · Close) over a toolbar of labelled groups: "Colour route by" (Route / Height / Speed / Wind; Height + Speed need the full track, Wind resolves on first use), "Weather" (the `Rain & wind` toggle: the Forecast map's `WeatherFx` overlay + a corner readout of wind / rain / temperature at the hovered point, the ride's midpoint when idle; wind cached before weather variables existed is re-resolved once), "Graph" (Profile toggle, Elevation / Speed, By distance / By time, Skip stops) and "Track" (Fetch full track); toggles carry a ticked box (`.rmb-toggle`), labels never flip; the row folds to icons when it overflows. Behind a `RideMapDeps` seam | `initRideMap()`, `openRideMap()`, `closeRideMap()`, `refreshOpenRideMapWind()` |
 | [src/controller.ts](../src/controller.ts) | Orchestration + app state; source registry; per-ride dispatch; full-track cache; point wind climatology | `Controller`, `registerSource()`, `state()`, `runTask()`, `importGpx()`, `onImported()`, `getFullTrack()`, `getPointWind()`, `cachedWindYears()` |
 | [src/source.ts](../src/source.ts) | `RideSource` seam + capabilities + shared GPX/catalog types | `RideSource`, `SourceCapabilities`, `SourceKind`, `GpxFile`, `ImportResult`, `gpxFilename()` |
 
@@ -340,16 +604,16 @@ none. The table is grouped by concern; keep new modules in the group they belong
 |------|----------------|-------------|
 | [src/weather.ts](../src/weather.ts) | Open-Meteo wind client: dataset selection, grid quantization, per-point sampling (along + cross-track components); ride resolves also fetch rain / temperature / cloud (`WEATHER_VARS`, `weatherAtMs`, per-point `rainMm`/`tempC`/`cloudPct`, `wx` marks an entry fetched with them) | `pickDatasets()`, `datasetById()`, `sampleGridCells()`, `quantizeCell()`, `alongTrackComponentKmh()`, `crossTrackComponentKmh()`, `Dataset`, `CellDayWind`, `PointWind`, `RideWind` |
 | [src/windspeed.ts](../src/windspeed.ts) | Wind-vs-speed analytics: ride segmentation (along + cross-track wind), regression, speed capping, wind colour ramps (crosswind magnitude + diverging head/tailwind) | `segmentRide()` (segments carry `startIdx`/`endIdx`), `linearRegression()`, `speedCapIndices()`, `crossColor()`, `alongColor()`, `WindSeg` |
-| [src/windchart.ts](../src/windchart.ts) | Wind-vs-speed scatter plot (canvas render; the X axis is caller-chosen via `ChartOpts.xValue`/`xSigned`/`xCaption` — signed head/tailwind with tinted halves, or a one-sided magnitude; optional per-dot tint via `ChartOpts.dotColor`). Returns a hit-test layout so the view can map a pointer back to a dot + ring it on an overlay | `drawWindSpeedChart()`, `nearestDot()`, `drawDotHighlights()`, `makeScale()`, `niceTicks()`, `ChartOpts`, `ChartLayout`, `ChartDot` |
+| [src/windchart.ts](../src/windchart.ts) | Wind-vs-speed scatter plot (canvas render; the X axis is caller-chosen via `ChartOpts.xValue`/`xSigned`/`xCaption`: signed head/tailwind with tinted halves, or a one-sided magnitude; optional per-dot tint via `ChartOpts.dotColor`). Returns a hit-test layout so the view can map a pointer back to a dot + ring it on an overlay | `drawWindSpeedChart()`, `nearestDot()`, `drawDotHighlights()`, `makeScale()`, `niceTicks()`, `ChartOpts`, `ChartLayout`, `ChartDot` |
 | [src/windspeed-view.ts](../src/windspeed-view.ts) | Wind/Speed view (`#analyticsView`): a confirm-to-run gate (centred card naming how many rides the window will analyse, live as the slider moves), the window-scoped per-ride segment sweep (cached, keyed on the segment-geometry tuning), distance-weighted regression, the scatter + KPI cards (labels adapt to the X axis) + empty/blocked states, the X-axis picker (head/tailwind ↔ crosswind) + generic colour-by picker (off / head-tailwind / crosswind, the X dimension auto-hidden) + legend + the unified min/max band filters (grade / speed / length / crosswind / headwind / tailwind, all cheap synchronous post-filters via the shared `readBand`/`bandLabel`), the end-user segment-tuning knobs (look-ahead / turn tolerance + Reset), and dot→ride discovery (hover tooltip on precise pointers; tap/click pins a dot → rings all of that ride's segments + a card below the chart that opens the ride in Explore). Behind a `WindSpeedDeps` seam | `initWindSpeedView()`, `mountWindSpeedView()`, `windSpeedVisibleRides()`, `syncColorByGating()`, `SEG_TUNE_DEFAULTS`, `WindSpeedDeps` |
 | [src/segment-demo.ts](../src/segment-demo.ts) | The Wind vs speed segmentation explainer: a deterministic synthetic ride chopped by the real `segmentRide()` with the live knobs and drawn as an inline SVG (pure, no DOM) | `segmentDemo()`, `demoTrack()` |
-| [src/forecast.ts](../src/forecast.ts) | Provider-neutral live-forecast domain (points, hourly series, models, metrics, units) + the Open-Meteo adapter (multi-model fetch, geocoding); each model carries its regional domain (`coverage` box) and `family`, and `recommendForecastModels()` picks the auto set per point — covering regionals finest-first (≤ 1 per family, ≤ 2 per provider), then ECMWF IFS, hourly ≤ 15 km "home" globals, the rest by cadence/grid; 5–10 models; the view swaps out ids that came back empty | `HourlyForecast`, `ForecastPoint`, `ForecastModel`, `ForecastMetric`, `DEFAULT_FORECAST_METRICS`, `ForecastProviderAdapter` |
+| [src/forecast.ts](../src/forecast.ts) | Provider-neutral live-forecast domain (points, hourly series, models, metrics, units) + the Open-Meteo adapter (multi-model fetch, geocoding); each model carries its regional domain (`coverage` box) and `family`, and `recommendForecastModels()` picks the auto set per point: covering regionals finest-first (≤ 1 per family, ≤ 2 per provider), then ECMWF IFS, hourly ≤ 15 km "home" globals, the rest by cadence/grid; 5–10 models; the view swaps out ids that came back empty | `HourlyForecast`, `ForecastPoint`, `ForecastModel`, `ForecastMetric`, `DEFAULT_FORECAST_METRICS`, `ForecastProviderAdapter` |
 | [src/forecast-store.ts](../src/forecast-store.ts) | Separate, gzipped IndexedDB store for live forecasts, recent/pinned locations and the view's prefs (range, models, presentation, units, metrics); included in full backup/restore | `ForecastStore`, `ForecastPrefs` |
 | [src/forecast-chart.ts](../src/forecast-chart.ts) | Hand-rolled canvas forecast charts: per-model lane rows and the combined consensus chart (median + min–max bands, direction arrows, cloud wash, lane captions), shared timeline/scales, hit-testing, the cursor readout card; every colour read from `--fc-*` tokens at draw time | `drawForecastRow()`, `drawForecastComparison()`, `sharedForecastTimeline()`, `sharedForecastScales()`, `forecastLaneAtY()`, `hourTimeAtX()`, `forecastComparisonDetails()` |
 | [src/forecast-view.ts](../src/forecast-view.ts) | Forecast view (`#forecastView`): map picker (search / locate / pins / drag), range + presentation toolbar, model + metric legends, Combined / Per model / Table presentations, hover + touch + keyboard selection, auto-refresh; on ≥1400px a full-height map pane beside the chart pane with a persisted, keyboard-friendly drag splitter (`--fc-split`), else stacked with a collapsible map (location strip); the hovered hour mirrors onto the map via `forecast-fx` and a corner readout pill. Behind a `ForecastViewDeps` seam | `initForecastView()`, `mountForecastView()`, `leaveForecastView()`, `setForecastRoutePoint()`, `forecastPoint()`, `resetForecastViewData()` |
 | [src/forecast-fx.ts](../src/forecast-fx.ts) | Forecast map weather effects: a canvas overlay of wind streaks, in-air rain and raindrops-on-the-glass (beads that sit, evaporate and trickle; scaled by the hour's mm) driven by the hovered hour's consensus snapshot (reduced-motion aware) | `WeatherFx`, `WeatherSnapshot` |
 | [src/windrose.ts](../src/windrose.ts) | Wind-rose climatology compute (pure): flatten cached cell-days → 16-sector × speed-bin rose, monthly breakdown, vector-mean; local-time-from-longitude | `flattenSamples()`, `roseFromSamples()`, `monthlyRoses()`, `sectorFractions()`, `WindRose`, `WindSample` |
-| [src/climate-view.ts](../src/climate-view.ts) | Windalytics ("Wind rose" tab): isolated map view — click a point, pull a year-window of ERA5 wind via the `ClimateDeps` seam, render the rose, monthly small-multiples, month×direction heatmap + mean-wind arrow; dual-thumb year window (paints cached/in-memory year bands, re-aggregates live while dragging over loaded years, warms other cached years in the background) + hour/month controls re-aggregate in memory; "Pin to compare" freezes a snapshot (rose, monthly roses, place, window, hour, month — persisted) that survives a point change, ghosts over the live rose + mini-roses in the `--cmp` colour, renders a pinned-vs-now comparison card with deltas and a Swap, and marks the pinned place on the map | `initClimateView()`, `mountClimateView()`, `leaveClimateView()`, `ClimateDeps` |
+| [src/climate-view.ts](../src/climate-view.ts) | Windalytics ("Wind rose" tab): isolated map view: click a point, pull a year-window of ERA5 wind via the `ClimateDeps` seam, render the rose, monthly small-multiples, month×direction heatmap + mean-wind arrow; dual-thumb year window (paints cached/in-memory year bands, re-aggregates live while dragging over loaded years, warms other cached years in the background) + hour/month controls re-aggregate in memory; "Pin to compare" freezes a snapshot (rose, monthly roses, place, window, hour, month; persisted) that survives a point change, ghosts over the live rose + mini-roses in the `--cmp` colour, renders a pinned-vs-now comparison card with deltas and a Swap, and marks the pinned place on the map | `initClimateView()`, `mountClimateView()`, `leaveClimateView()`, `ClimateDeps` |
 
 *Location history (Timeline import)*
 
@@ -376,82 +640,10 @@ none. The table is grouped by concern; keep new modules in the group they belong
 | [src/ui.ts](../src/ui.ts) | Render-layer design vocabulary: pure `(opts) => string` builders for shared components (one canonical markup + classes each); centralised HTML escaping; the pane loader shown while sliced work runs | `escHtml()`, `statNum()`, `paneLoader()`, `initCollapse()` |
 | [src/tz.ts](../src/tz.ts) | Ride-local time: lat/lon → IANA zone (lazy `tz-lookup`, code-split), and a start INSTANT → ride-local wall-clock key / hour / DST-correct offset via `Intl`; offset + city display helpers | `loadTz()`, `zoneForPoint()`, `localTime()`, `offsetMinutes()`, `formatOffset()`, `zoneCity()`, `browserZone()` |
 | [src/slider.ts](../src/slider.ts) | Unified single-thumb range slider behaviour: drive the `.uslider` accent left-fill (`--fill`) from each input's value, so every single-thumb slider matches the dual-thumb `.rf-*` look | `setSliderFill()`, `initSliderFills()` |
+| [src/format.ts](../src/format.ts) | Pure number → string display formatters (distance, speed, duration, elevation, byte sizes); no state, no DOM | `fmtKm()`, `fmtSpeed()`, `fmtDuration()`, `fmtDurationExact()`, `fmtElevation()`, `fmtBytes()` |
+| [src/datepicker.ts](../src/datepicker.ts) | The one styled date-picker popover (a month calendar, one open at a time) for the Timeline's jump-to-day and the Explore ingestion-date filters; days are `"YYYY-MM-DD"` | `openDatePicker()`, `closeDatePicker()`, `DatePickerOptions` |
+| [src/analytics.ts](../src/analytics.ts) | Fail-soft GoatCounter seam: cookieless synthetic view paths and event names only (never ride data, GPS, emails or tokens); no-ops until the counter script loads | `trackView()`, `trackEvent()` |
 | [src/zip.ts](../src/zip.ts) | Dependency-free ZIP build + read | `buildZip()`, `unzip()` |
 | [src/gzip.ts](../src/gzip.ts) | Gzip compress/decompress (CompressionStream) | `gzip()`, `gunzip()` |
 | [src/varint.ts](../src/varint.ts) | Variable-length int encode/decode (for compact caches) | `ByteWriter`, `ByteReader`, `zigzag()`, `unzigzag()` |
-| [src/env.d.ts](../src/env.d.ts) | Vite env / asset type stubs | — |
-
-## Conventions
-
-- **Strict TS**: full null-safety, `noUnusedLocals`/`noUnusedParameters` are on — no dead vars/params, no implicit `any`.
-- **Naming**: `camelCase` functions (verb-prefixed: `parse…`, `upload…`), `PascalCase` classes/interfaces, `snake_case` string constants for storage keys.
-- **Types**: `interface` for public contracts (`RideSource`, `RideRecord`); type aliases / discriminated unions for state (e.g. `TaskStatus = "queued" | "running" | …`).
-- **Comments**: module-level docstrings explain purpose & design; `// -- section ----` headers group blocks; inline comments explain **why**, not what.
-- **Async-first**: everything is `async/await` (`fetch` is async). Never block.
-- **Subscriptions**: `onChange(fn)` returns an unsubscribe function — always store and call it on teardown.
-- **Immutable-ish state**: mutate the `Store` only via `store.upsert(key, partial)`; let the Controller emit a change event to re-render.
-- **Deletion reconciliation is gated on a complete scan**: a ride known locally but absent from a freshly fetched history is only marked **deleted** when the scan ran to completion (`enumerateCatalog` returns a `complete` flag); a cancelled/partial scan never reconciles deletions.
-- **Two themes, one token sheet.** Every colour in [style.css](../src/style.css) is a `:root` token; the light theme is the single `:root[data-theme="light"]` override block (and `--tile-filter` swaps the basemap treatment). Semantic families exist for status chrome (`--ok-*`, `--info-*`, `--err-*`, `--accent-soft-*`, `--accent-wash*`, `--job-*`, `--src-*`) — never type a hex literal into a rule; if no token fits, add one to BOTH blocks. Canvas charts read colours through `getComputedStyle` at draw time and redraw on the `themechange` event, so a chart must not cache colours across frames. Verify a new surface in both themes.
-- **Unified map look & feel**: both Leaflet basemaps — the Explore per-ride mini-maps (`.rmap`) and the all-rides Map view (`#allRidesMap`) — share one dark, desaturated tile treatment (`.leaflet-tile-pane { filter: var(--tile-filter) }` over a `var(--map-bg)` container) so colored tracks pop consistently. Keep the two filter rules in sync; mini-maps draw a single ride with a white casing + solid orange line for legibility, while the Map view uses translucent overlapping lines as a heatmap.
-- **Button glyphs come from ONE registry.** Any button that wants an icon takes it from [icons.ts](../src/icons.ts) — `${icon("name")}` in a template, or `data-icon="name"` on static markup (injected by `decorateIcons()` at boot) — never a pasted SVG or a Unicode character. A button that starts with the `.bi` glyph lays out as icon + label automatically (`button:has(> .bi)`); an icon-only button keeps its meaning in `aria-label`/`title`. Add a missing glyph to the registry rather than inlining one.
-- **Floating map/heatmap controls are icon-only, drawn with inline SVG — never Unicode glyphs**: the Map view and the Stats route-frequency heatmap each carry the same two floating square buttons (`.map-expand` full-screen toggle + `.map-select` area-select), so they look and behave identically. Buttons are icon-only (34px square, centred 17px SVG, `stroke: currentColor`); the meaning lives in `aria-label`/`title`, not visible text. Icons **swap by state via CSS**, never by rewriting button content: `.map-expand` shows the maximize frame and flips to minimize on `[aria-pressed="true"]`; `.map-select` shows the dashed marquee and flips to an X on `.active`. Raw Unicode symbols (`⤢ ⤡ ▢ ✕ ▸ ▾` …) render inconsistently across fonts/DPI and are banned here — add a new SVG glyph (or reuse the CSS-border chevrons used by split buttons/disclosures) instead. `createAreaSelect` (in [areaselect.ts](../src/areaselect.ts)) owns only the button's `.active`/`aria-pressed`/`aria-label`, leaving the glyph swap to CSS so the icon-only markup survives.
-- **Map and heatmap share one full-screen pattern**: a CSS pseudo-fullscreen (no `requestFullscreen` API) where the container goes `position: fixed; inset: 0; z-index: 60` under a body class — `body.map-expanded .map-wrap` for the Map view, `body.heat-expanded .freq-wrap` for the heatmap. Each toggle (`setMapExpanded`/`setHeatExpanded` in [main.ts](../src/main.ts)) flips the body class, sets the button's `aria-pressed`, and calls `invalidateSize()` so Leaflet re-measures. Both exit on **Esc** and when switching away from their view (in `applyView`). Keep the two in lockstep when touching either.
-- **Map and heatmap share one column layout — controls live in flow, never overlaying the basemap**: the Map view's `.map-main` and the heatmap's `.freq-main` are both **flex columns** (`display: flex; flex-direction: column`) whose Leaflet container (`#allRidesMap` / `#freqHeatMap`) is `flex: 1; min-height: 0` so it fills the space, and any control sits **below** it in normal flow rather than as an `position: absolute` overlay. This keeps Leaflet's own controls in their defaults (zoom top-left, attribution bottom-right) and guarantees the required "© OpenStreetMap contributors" credit is never covered. Both date filters use the **same** `.basemap-filter` class and sit in flow beneath their map — `#mapFilter` under `#allRidesMap`, `#statsFilter` under `#freqHeatMap` — never a floating bar. (The Stats filter still scopes the *whole* stats body — totals, records and the heatmap — even though it now lives below the heatmap to match the Map view.) The only things that *do* float over the basemap are the two icon-only buttons (`.map-expand`/`.map-select`, top-right) and the rubber-band selection rect. Keep the two `-main` containers in lockstep: a control added below one map should drop into the other identically.
-- **Aligned group-header indicators**: in the year/month group headers (`.yhead`/`.mhead`), the title column (`.ytitle`/`.mtitle`) is fixed-width (`flex: 0 0 auto; min-width; white-space: nowrap`) so the progress bar (`.bars`, itself a fixed 90px) and the meta text start at the same x across every sibling row. Variable-length labels ("May 2026" vs "September 2026") must NOT push the bars/meta around or wrap — ragged indicators read as heavy and add cognitive parsing load. When adding columns to these headers keep them fixed-width so the row reads as aligned columns.
-- **Status/progress messages**: say exactly WHAT is happening and WHY, verbosely if needed — never vague counts. When acting on a specific ride, name it with the params we know (e.g. `rideShortLabel(key)` → "Jun 13 14:22"), not "1 ride". Prefer "scrolling down to find Jun 13 14:22…" over "scrolling down — looking for 1 ride…". When several rides are involved, name the first couple and append "(+N more)".
-- **Selection actions hint their applicable subset (uniformly)**: the top-bar selection toolbar's (`#selBar`) batch actions in [main.ts](../src/main.ts) follow one rule — an action that can act on only a *subset* of the selection stamps that subset's count into its label and **hides when the subset is empty** ("Push N rides to Strava", "Fetch full GPX for N rides", "Resolve wind for N rides", "Delete N rides" — keep the phrasing natural and parallel, count mid-sentence not "Fetch N full GPX"); an action that always acts on all N stays label-only (the toolbar's "N selected" already says N — a per-button "(N)" would be redundant). Never leave a batch action visible when it would be a no-op (e.g. Push gated on merely `can_upload` shows for an all-uploaded selection then toasts — that's the bug this rule prevents). Derive every subset once from a single `selRides` array using cheap ride-view flags (`can_upload`/`status`, `gpx_cached`, `hasResolvedWind`, `deleted`) via the shared `setSelAction(id, count, label)` helper — don't hand-roll per-button `find` loops. When you add or change one selection action, apply the same treatment to its siblings so the group never ends up half-migrated.
-- **Consistency is a duty — when a change *could* span, do it or ASK.** Whenever a fix or convention you introduce on one control/surface has obvious siblings (the other selection actions, the other filter chips, the Map vs. heatmap pair, the two basemap filter rules, …), either apply it consistently across all of them in the same change, or explicitly ask the user whether it should span before stopping — never silently leave the codebase half-aligned. If you agree on a broader rule, capture it here (as with the selection-action rule above) so the next change inherits it.
-- **The UI never freezes — design for a 2,000-ride library.** Anything that scales with the number of rides must do one of three things: **patch in place** (selection, job rings, resolved-wind flags, menu open/close — `applySelection`, `applyJobUpdate`, `applyWeatherUpdate`, `syncOpenMenu` in [main.ts](../src/main.ts) touch only the rows that changed; the full `render()` is for structural changes), **slice through idle time** ([idle.ts](../src/idle.ts) `runInSlices` — the Explore pane after its first screenful, the Map's track draw, the Stats heatmap densify), or **show a loader first** (`ui.paneLoader` — a chip with the thread at the top of the pane — then slice). Never serialise bulky per-ride fields (the `track` polyline) into a render signature, never build DOM for what isn't shown (closed months on phones, a row's ⋯ menu until it opens), and measure with the long-task harness (`.tmp/…/big.mjs`: export → multiply → import, long tasks per interaction; the paint path has `ui:*` User Timing marks). A new feature that adds a long task ≥50ms on that library is not done. **Animated indicators are persistent elements whose class flips.** A CSS animation restarts whenever its element is re-created or its `innerHTML`/`className` is re-set, so a ride's status ring (`.rring`), the row's busy sweep and the pane loader are created once and only toggled (`applyJobUpdate` compares the class before setting it); a ride's own field changes patch that row (`rowSigs` → `applyRowUpdates`) rather than rebuild the list — the full `render()` is for *structural* change only (membership, grouping, filters, layout, selection); and `ui.paneLoader(host, null)` hides after a short grace so a build that immediately follows reuses the same element. If a spinner visibly restarts, something is re-rendering around it — fix the re-render, never mask it.
-- **No literal white (or black) on a themed surface.** A hover, cursor, ring or wash drawn with `#fff` / `rgba(255,255,255,…)` vanishes on the light theme; use `var(--text)`, `var(--surface-hover)`, `var(--line)` or `color-mix(in srgb, var(--text) N%, transparent)`. Literal white is right only on an accent / blue fill. Canvas chrome reads its colours from tokens at draw time (`--fc-*`, `--fc-now`). Check every screen in both themes before calling a change done.
-- **Text fields are one family.** Any text-like input (`text`, `email`, `password`, `search`, `number`, `textarea`, `select`, or the `.field` class) gets its look from the shared rule and the `--field-*` tokens; never restyle a field's border, background or focus ring locally — add sizing and layout only. The underlined `.custom input` range fields in the filter bar are the single exception.
-- **Direction is drawn, not plotted.** A wind direction is shown as an arrow (north up, pointing where the wind blows to — `windTravelDeg`), never as a value on a numeric axis; spread across models is a fan behind the arrow (`drawDirectionFan`), per-model detail is each model's own arrow.
-- **Nothing floats over a chart's data.** Hover details go beside the chart (the Forecast legend values + readout line), never in a card over the lanes being read.
-- **No Tailwind.** The stylesheet is one hand-written file over one token sheet; utilities would be a second styling system and would bypass the tokens. New UI uses tokens and the existing families (`.seg`, `.field`, `button.small` …).
-- **A segmented control is a `.seg` with `button.active`** — nothing else: the sliding thumb (`src/seg.ts`) finds it by that shape. Toggle `.active`; never set a background on the active button yourself (the thumb carries the fill).
-- **Loading has ONE form: the thread.** A 2px hairline (`.thread` — `<i>` fills to the progress, `.indet` runs an accent segment along it) edges the job strip and its minimized pill (`jobs-view.setThread`), runs under a ride a job is working on (`.rring.working`; `.rring.queued` is its static dotted twin), sits under the pane-loader chip (`ui.paneLoader`) and under a map banner while it reports loading (`.map-banner.busy`). No spinners, no veils over content, no thick rings; only icon-scale inline states (a refresh button turning) may rotate.
-- **Batch actions are never a strip of look-alike icons.** Where labels fit (≥1700px) the selection toolbar shows labelled buttons inline; below that the same buttons fold into the labelled Actions menu (`#selMore` → `.selbar-acts`). Any new batch action goes into `.selbar-acts` with an icon AND a label.
-- **No thick borders on curved shapes.** Loading is the thread (below), never a spinner; chips are flat tints with 5px corners, and outlined pills are avoided; a 1px hairline on a 9–10px radius is the most "border + curve" a surface gets. Buttons sitting on a tinted surface (the selection toolbar) have transparent borders.
-- **Big panels fold away.** A panel that costs more than a line of screen (the Explore chart, the Stats totals band, the Forecast legend, the ride map's toolbar stack) carries a `.collapse-btn` chevron wired through `ui.initCollapse` (state remembered under `gpx_toolkit.collapse.<panel>`); collapsed, it keeps a one-line summary where one exists. A stretched SVG (`preserveAspectRatio: none`) never carries text or styled strokes — labels go in HTML beside it and strokes use `vector-effect: non-scaling-stroke`.
-- **The list never moves under the user.** A rebuild of the Explore list captures the month at the reading line and its pixel offset (`captureListAnchor`), builds that month first, and puts it back (`restoreListAnchor`); leaving a view captures it too, so coming back lands where you were. Months not built yet carry honest heights (`contain-intrinsic-size` + `min-height` from a row measured in the viewport — `measureRowHeights` / `applyPlaceholderHeights`), so a slice landing or a section scrolling into view shifts nothing. Pending month builds are keyed (`pendingBuilds` / `buildMonthNow`): a scroll-to builds only its target month, never the whole list. Opening a ride's details patches its row (`toggleRowDetails`), not the list. The tree's scroll-spy never scrolls the tree while the pointer is in it. Anything that would change the page's scroll position without the user asking is a bug.
-- **Selection is the user's work.** Only the user clears it (`selClear`, a drop of deleted rides, or keys that no longer exist once the library is loaded). It is persisted (`gpx_toolkit.selection`) and restored before the library loads; never prune it against an empty ride list. Shift+click extends from the last-clicked anchor in list order (`selectRange` over `listOrderKeys`), Ctrl/⌘+click toggles one row; a plain row click opens details. Keep every batch action and group checkbox additive to that model.
-- **Sliders and other live controls never stall the page.** A range input's `input` tick may only do cheap, local, visual work (relabel, redraw the one chart or layer it affects — e.g. `liveTrim` + `renderStats`, `setHeatRadiusPreview`, the wind-rose window's in-memory re-aggregate); it must never write the store, call `notify()`, or trigger the full `render()`. Persist and do the heavy work once on `change` (release). The global `applyState` already coalesces store notifications into one paint per animation frame — don't bypass it with direct `render()` calls from a drag.
-- **Error handling**: surface failures to the user via `toast(message, isError)` / `pushError()` and a persistent error card rather than crashing; wrap `localStorage` access in `try/catch` (private mode can throw — non-fatal).
-
-## Domain notes
-
-- **Expected data volume**: design and review every aggregate/render path for a power user's
-  lifetime — **several thousand rides** and **tens of thousands of km** ridden. This is the
-  target scale, not an edge case: totals, filters, stats, the map and the route-frequency
-  heatmap must stay responsive at that size. Concretely — never materialise per-metre points
-  for the whole dataset at once (the heatmap densifies only the visible viewport for exactly
-  this reason), keep per-ride work O(1)-ish, and prefer culling/caching over recomputing the
-  full set on every interaction. When adding a feature that scans all rides, sanity-check its
-  cost against thousands of tracks before considering it done.
-- **Ride keys** are human dates like `"Sat Jun 13 2026 at 14:22"`; months are `"2026-06"` / `"June 2026"`. `beelineRideKey(startMs)` builds one from a Beeline ride's start instant; `rideDatetime()` is its inverse. A ride's `key` is its **display datetime** for all bucketing — distinct from its storage **uid** (`${source}::${identity}`): Beeline's identity is the datetime, but a GPX ride's is a content hash, so for GPX `key` ≠ the uid suffix.
-- **Reference date is the ONLY axis for ordering/bucketing/filtering — never the uid.** A ride's
-  **reference date** is its display datetime (`RideView.date_key`, `RideRecord.key`); the uid/`RideView.key`
-  is **identity only**. Every sort, month/period bucket, date-range filter, granularity pick and date
-  label MUST read the reference date — never parse a date out of a uid (a GPX uid is a content hash and
-  yields `null`, which is exactly what sorted imports after all Beeline rides and printed raw hashes as
-  labels). Sources of the reference date: **Beeline** → the server start instant; **GPX** → the track's
-  first `<time>`, else a `YYYY-MM-DD` filename prefix, else the **upload instant** — stamped once on first
-  import and stable across idempotent re-imports (`Store.upsert` only sets `key` when the record is new).
-- **User-facing ride labels are name-driven, never the uid.** Use `rideLabel(name, dateKey)` (parsing) or
-  the controller's `uidLabel(uid)` — they return "Name (Jun 13, 2026, 14:22)" and degrade to name / date /
-  "ride", but NEVER surface a `gpx::sha256:…` identity. For GPX the name comes from `<name>` → filename →
-  time-of-day and is user-editable.
-- **Job coalescing**: consecutive `upload`/`status`/`download-gpx` tasks merge into one sweep — preserve this when touching `JobQueue`.
-- Only the **Strava** upload path is automated (komoot is detected but left alone).
-
-## Testing
-
-- Tests live in `tests/**/*.test.ts` (Vitest + jsdom).
-- **Source tests** drive `BeelineRideSource` against an in-memory fake `BeelineApi` (no network), and a captured backend response in [tests/fixtures/beeline/](../tests/fixtures/beeline/).
-- Inject an instant `sleep` and a `memoryBackend()` store — don't touch real `localStorage` or wall-clock delays in tests. Wait for async work with `await vi.waitFor(() => expect(c.state().jobs.busy).toBe(false))`.
-- **Demo GPX downloads never trigger a browser "Save As"**: `saveGpxFile()` in [src/main.ts](../src/main.ts) short-circuits when `isDemo` (demo bytes are synthetic; the route is still drawn on the map from the stored track). This keeps the browser-driven demo/test flow prompt-free. Preserve this guard when touching the GPX save path.
-
-## Gotchas
-
-- Keep new code dependency-light — this app intentionally has no backend and a tiny dependency set.
-- The `RideSource` seam is kept deliberately even though Beeline is the only implementation; if you add a source, code to the interface and never let the Controller touch a concrete backend.
-- **`position: fixed` breaks inside the header.** `<header>` has `backdrop-filter: blur()`, which (like `transform`/`filter`/`will-change`) makes it the *containing block* for `position: fixed` descendants — a fixed element inside it is positioned relative to the HEADER box (top strip of the page), NOT the viewport. A mobile bottom sheet authored inside the header pins to the top and overlaps content. Fix: render full-screen/viewport-anchored overlays at `<body>` level (the global filter panel is moved to `<body>` at runtime by `initFilterPanel`, then JS-anchored under its button on desktop and CSS-pinned to the viewport bottom on mobile). Never assume `position: fixed` is viewport-relative without checking for a transformed/filtered ancestor.
+| [src/env.d.ts](../src/env.d.ts) | Vite env / asset type stubs | |
