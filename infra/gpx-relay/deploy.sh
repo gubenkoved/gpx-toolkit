@@ -22,6 +22,8 @@ MEMORY_DEFAULT="256"
 TIMEOUT_DEFAULT="15"
 ARCH_DEFAULT="arm64"
 DDB_TABLE_DEFAULT="beeline-gpx-relay-state"
+# Set on create AND update, so re-running this moves an older function onto it.
+RUNTIME="nodejs24.x"
 
 bold() { printf '\033[1m%s\033[0m\n' "$1"; }
 info() { printf '  %s\n' "$1"; }
@@ -243,6 +245,7 @@ if aws lambda get-function --function-name "$FUNCTION_NAME" >/dev/null 2>&1; the
   aws lambda wait function-updated --function-name "$FUNCTION_NAME"
   aws lambda update-function-configuration \
     --function-name "$FUNCTION_NAME" \
+    --runtime "$RUNTIME" \
     --memory-size "$MEMORY" --timeout "$TIMEOUT" \
     --environment "$ENV_JSON" >/dev/null
   aws lambda wait function-updated --function-name "$FUNCTION_NAME"
@@ -250,7 +253,7 @@ else
   bold "Creating function..."
   aws lambda create-function \
     --function-name "$FUNCTION_NAME" \
-    --runtime nodejs20.x --architectures "$ARCH" \
+    --runtime "$RUNTIME" --architectures "$ARCH" \
     --handler index.handler \
     --role "$ROLE_ARN" \
     --timeout "$TIMEOUT" --memory-size "$MEMORY" \

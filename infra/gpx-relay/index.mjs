@@ -1,4 +1,4 @@
-// Beeline full-track GPX relay — a tiny, stateless AWS Lambda (Node 20, zero deps)
+// Beeline full-track GPX relay — a tiny, stateless AWS Lambda (Node 24, zero deps)
 // behind a Function URL. It exists for ONE reason: the browser cannot finish the
 // full-GPX download itself. The authenticated Firebase Storage GET
 // (`firebasestorage.…/?alt=media`) 302-redirects to a Google download host that
@@ -61,7 +61,7 @@ const MAX_BYTES = intEnv("MAX_BYTES", 12 * 1024 * 1024);
 // counters, the global monthly cap and the lifetime stats live in a shared DynamoDB
 // table instead of warm-container memory — so they survive cold starts AND are exact
 // across concurrent containers (which is what lets reserved concurrency safely exceed
-// 1). The AWS SDK v3 is provided by the Lambda Node 20 runtime, so the deploy zip stays
+// 1). The AWS SDK v3 is provided by the Lambda Node 24 runtime, so the deploy zip stays
 // dependency-free. When DDB_TABLE is empty the relay keeps its in-memory behaviour and
 // needs no AWS permissions. Persistence errors FAIL CLOSED (no upstream egress) so the
 // cost ceiling holds even during a DynamoDB outage; the app then falls back to its
