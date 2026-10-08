@@ -24,7 +24,12 @@
 import L from "leaflet";
 import { confirmDialog } from "./confirm";
 import { openDatePicker } from "./datepicker";
-import type { LocationResult } from "./forecast";
+import {
+  type ForecastModel,
+  type LocationResult,
+  modelCovers,
+  recommendForecastModels,
+} from "./forecast";
 import { fmtDuration, fmtElevation, fmtKmDetail, fmtSpeed } from "./format";
 import { extractGpxName } from "./gpx-source";
 import { icon } from "./icons";
@@ -32,6 +37,8 @@ import { createInteractiveMap } from "./map-core";
 import {
   buildCourse,
   type Course,
+  DEFAULT_MASS_KG,
+  DESCENT_CAP_KMH,
   type Departure,
   effectiveSpeedModel,
   readSpeedFit,
@@ -66,19 +73,23 @@ import {
 import { setSliderFill } from "./slider";
 import type { LatLon } from "./track";
 import { browserZone, loadTz, offsetMinutes, zoneForPoint } from "./tz";
-import { escHtml, statNum } from "./ui";
+import { escHtml, initCollapse, statNum } from "./ui";
 import { type CellDayWind, type Dataset, FORECAST_HORIZON_DAYS } from "./weather";
 import { alongColor } from "./windspeed";
 
 export interface RoutesViewDeps {
   /** The saved routes (loaded on first use). */
   getStore(): Promise<RouteStore>;
-  /** Hourly weather of the grid cells along a line for the given UTC days. */
+  /** Hourly weather of the grid cells along a line for the given UTC days; with
+   *  `models`, the forecast is those models' consensus (`models` echoes who served). */
   routeWeather(
     points: LatLon[],
     days: string[],
     onStage?: (msg: string) => void,
-  ): Promise<{ dataset: Dataset; entries: CellDayWind[] }>;
+    models?: readonly string[],
+  ): Promise<{ dataset: Dataset; entries: CellDayWind[]; models: string[] }>;
+  /** The forecast model catalogue (the Forecast view's). */
+  forecastModels: readonly ForecastModel[];
   toast(msg: string, err?: boolean): void;
   /** Save a text file (a route's GPX) to disk. */
   saveText(filename: string, text: string, mime: string): void;
@@ -95,6 +106,9 @@ let store: RouteStore | null = null;
 
 const OPEN_KEY = "gpx_toolkit.routes.open";
 const PROFILE_KEY = "gpx_toolkit.routes.profile";
+/** Forecast source: "" = Open-Meteo's best match, else a JSON list of model ids whose
+ *  consensus to ride with ("[]" = the recommended set for the route's start). */
+const MODELS_KEY = "gpx_toolkit.routes.models";
 const DAY_MS = 86_400_000;
 /** Departure slider step and the sweep's spacing (minutes). */
 const TIME_STEP_MIN = 15;
@@ -114,7 +128,9 @@ let routingBusy = 0;
 
 // Simulation inputs + outputs.
 let course: Course | null = null;
-let weather: { key: string; dataset: Dataset; at: WeatherAt } | null = null;
+let weather: { key: string; dataset: Dataset; at: WeatherAt; models: string[] } | null = null;
+/** Whether the model picker under "Ride it" is open (session-only). */
+let modelsOpen = false;
 let weatherSeq = 0;
 let weatherBusy = false;
 let weatherError = "";
@@ -130,10 +146,20 @@ let sweepKey = "";
 let map: L.Map | null = null;
 let renderer: L.Canvas | null = null;
 let lineLayer: L.LayerGroup | null = null;
+/** A blue halo under the stretches you'd ride in rain (below the line). */
+let rainLayer: L.LayerGroup | null = null;
 let hitLayer: L.LayerGroup | null = null;
 let markerLayer: L.LayerGroup | null = null;
 let arrowLayer: L.LayerGroup | null = null;
 let hoverMarker: L.CircleMarker | null = null;
+/** The drag handle that follows the pointer along the line (desktop): pull it to add a
+ *  via between its leg's two points. */
+let ghost: L.Marker | null = null;
+let ghostLeg = -1;
+/** True while a waypoint or the line handle is being dragged. */
+let dragging = false;
+/** Dashed preview of the legs a drag is reshaping. */
+let previewLayer: L.LayerGroup | null = null;
 /** The coloured per-step lines, parallel to `course.steps` (restyled per simulation). */
 let stepLines: L.Polyline[] = [];
 
@@ -167,6 +193,25 @@ export function initRoutesView(d: RoutesViewDeps): void {
   window.addEventListener("resize", () => {
     if (mounted && route) drawSweep();
   });
+  initCollapse(
+    $("rtProfileCollapse"),
+    $("rtProfileWrap"),
+    "gpx_toolkit.collapse.route_profile",
+    { open: "Fold the elevation profile", closed: "Show the elevation profile" },
+    "collapsed",
+    () => setTimeout(() => map?.invalidateSize(), 0),
+  );
+  const prof = $("rtProfileBody");
+  const onProfile = (e: PointerEvent): void => {
+    if (!course?.steps.length) return;
+    const rect = prof!.getBoundingClientRect();
+    const km = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width)) * course.totalKm;
+    const i = Math.min(course.steps.length - 1, Math.floor(km / course.steps[0].lenKm));
+    showStep(i);
+  };
+  prof?.addEventListener("pointermove", onProfile);
+  prof?.addEventListener("pointerdown", onProfile);
+  prof?.addEventListener("pointerleave", () => showStep(null));
 }
 
 export function mountRoutesView(): void {
@@ -628,7 +673,7 @@ function weatherDays(): string[] {
 async function onGeometryChanged(): Promise<void> {
   if (!route) return;
   const t = routeTrack(route);
-  course = t.points.length >= 2 ? buildCourse(t.points) : null;
+  course = t.points.length >= 2 ? buildCourse(t.points, t.eles) : null;
   if (t.points.length >= 2) {
     await loadTz();
     zone = zoneForPoint(t.points[0][0], t.points[0][1]) || browserZone();
@@ -639,6 +684,7 @@ async function onGeometryChanged(): Promise<void> {
   sweepKey = "";
   drawRoute();
   renderSide();
+  renderProfile();
   await ensureWeather();
 }
 
@@ -650,7 +696,8 @@ async function ensureWeather(): Promise<void> {
   }
   const t = routeTrack(route);
   const days = weatherDays();
-  const key = `${route.id}|${t.points.length}|${t.cum[t.cum.length - 1].toFixed(3)}|${days[0]}|${days[days.length - 1]}`;
+  const models = forecastModelIds();
+  const key = `${route.id}|${t.points.length}|${t.cum[t.cum.length - 1].toFixed(3)}|${days[0]}|${days[days.length - 1]}|${models.join(",")}`;
   if (weather?.key === key) {
     runSim();
     return;
@@ -661,11 +708,21 @@ async function ensureWeather(): Promise<void> {
   weatherError = "";
   renderSim();
   try {
-    const res = await deps.routeWeather(t.points, days, (msg) => {
-      if (my === weatherSeq) setBanner(msg, true);
-    });
+    const res = await deps.routeWeather(
+      t.points,
+      days,
+      (msg) => {
+        if (my === weatherSeq) setBanner(msg, true);
+      },
+      models,
+    );
     if (my !== weatherSeq || c !== course) return;
-    weather = { key, dataset: res.dataset, at: weatherFromCells(c, res.entries) };
+    weather = {
+      key,
+      dataset: res.dataset,
+      at: weatherFromCells(c, res.entries),
+      models: res.models,
+    };
   } catch (err) {
     if (my !== weatherSeq) return;
     weather = null;
@@ -689,11 +746,12 @@ function runSim(): void {
   if (!route || !course || !weather) {
     sim = null;
     renderSim();
+    renderTimeline();
     return;
   }
   const model = speedModel();
   sim = simulate(course, departureMs(departDay, departMin), model, weather.at);
-  const key = `${weather.key}|${departDay}|${model.calmKmh}|${model.slope}`;
+  const key = `${weather.key}|${departDay}|${model.calmKmh}|${model.slope}|${model.massKg}`;
   if (key !== sweepKey) {
     sweepKey = key;
     const starts: number[] = [];
@@ -702,6 +760,7 @@ function runSim(): void {
   }
   renderSim();
   colourRoute();
+  renderTimeline();
 }
 
 // --------------------------------------------------------------------------- //
@@ -726,7 +785,7 @@ function renderSide(): void {
       r.waypoints.length >= 2
         ? `${fmtKmDetail(s.distanceKm)}${s.ascentM != null ? ` · ↑ ${fmtElevation(s.ascentM)} ↓ ${fmtElevation(s.descentM ?? 0)}` : ""}`
         : "";
-  const prof = $("rtProfile");
+  const prof = $("rtRouting");
   prof?.classList.toggle("hidden", !!r.imported);
   $("rtFindWrap")?.classList.toggle("hidden", !!r.imported);
   prof?.querySelectorAll<HTMLButtonElement>("button[data-profile]").forEach((b) => {
@@ -742,7 +801,7 @@ function renderSide(): void {
         ? "<b>Click the map</b> where the ride starts."
         : r.waypoints.length === 1
           ? "Now <b>click where it ends</b> — the route follows the paths."
-          : "Click the map to extend · drag a point to move it · click the line to add a via · right-click a point to drop it.";
+          : "Click the map to extend · drag a point to move it · drag the line to add a point · right-click a point to drop it.";
   }
   for (const id of ["rtReverse", "rtExport", "rtDelete"]) {
     const b = $(id) as HTMLButtonElement | null;
@@ -768,7 +827,7 @@ function sideSkeleton(): string {
     `<div class="rt-find" id="rtFindWrap">` +
     `<input type="search" id="rtFind" placeholder="Find a place on the map…" aria-label="Find a place" autocomplete="off" />` +
     `<div class="rt-find-results" id="rtFindResults"></div></div>` +
-    `<div class="seg rt-profile" id="rtProfile" role="group" aria-label="Routing">${profiles}</div>` +
+    `<div class="seg rt-routing" id="rtRouting" role="group" aria-label="Routing">${profiles}</div>` +
     `<ol class="rt-wps" id="rtWps"></ol>` +
     `<p class="cl-hint rt-hint" id="rtHint"></p>` +
     `<div class="rt-acts">` +
@@ -777,7 +836,8 @@ function sideSkeleton(): string {
     `<button type="button" class="small ghost danger" id="rtDelete" data-rt="delete">${icon("trash")}Delete</button>` +
     `</div></section>` +
     `<section class="rt-sec">` +
-    `<h3 class="cl-h">Ride it <span class="cl-sub" id="rtWxSrc"></span></h3>` +
+    `<h3 class="cl-h">Ride it <button type="button" class="linkbtn cl-sub rt-wxsrc" id="rtWxSrc" data-rt="models" aria-expanded="false" aria-controls="rtModels" title="Which forecast the wind comes from"></button></h3>` +
+    `<div class="rt-models hidden" id="rtModels"></div>` +
     `<div class="rt-depart">` +
     `<button type="button" class="small ghost rt-daynav" data-rt="day-prev" aria-label="Previous day" title="Previous day">${icon("chevLeft")}</button>` +
     `<button type="button" class="small rt-day" id="rtDay" data-rt="day" title="Pick the departure day">${icon("calendar")}<span id="rtDayText"></span></button>` +
@@ -795,6 +855,12 @@ function sideSkeleton(): string {
     `<div class="rt-speed">` +
     `<label class="rt-field"><span>Still-air moving speed</span><input type="number" id="rtCalm" min="5" max="60" step="0.5" inputmode="decimal" /><span class="rt-unit">km/h</span></label>` +
     `<label class="rt-field" title="How much each km/h of tailwind adds to your speed (and a headwind takes away)"><span>Tailwind factor</span><input type="number" id="rtSlope" min="0" max="1.5" step="0.05" inputmode="decimal" /><span class="rt-unit">km/h per km/h</span></label>` +
+    `<div class="rt-field rt-terrain"><span>Terrain</span>` +
+    `<div class="seg" id="rtTerrain" role="group" aria-label="Terrain">` +
+    `<button type="button" data-hills="0" title="Ride every stretch as if it were flat">Flat</button>` +
+    `<button type="button" data-hills="1" title="Climbs slow you down, descents speed you up (up to ${DESCENT_CAP_KMH} km/h)">Hills</button>` +
+    `</div></div>` +
+    `<label class="rt-field" id="rtMassRow" title="Rider + bike: the heavier, the more a climb slows you"><span>Rider + bike</span><input type="number" id="rtMass" min="30" max="250" step="1" inputmode="numeric" /><span class="rt-unit">kg</span></label>` +
     `</div>` +
     `<p class="cl-hint rt-speed-src"><span id="rtSpeedSrc"></span> ` +
     `<button type="button" class="linkbtn" id="rtSpeedReset" data-rt="speed-reset" hidden></button></p>` +
@@ -824,6 +890,12 @@ function renderSpeed(): void {
   const slope = $("rtSlope") as HTMLInputElement | null;
   if (calm && document.activeElement !== calm) calm.value = String(+model.calmKmh.toFixed(1));
   if (slope && document.activeElement !== slope) slope.value = String(+model.slope.toFixed(2));
+  const mass = $("rtMass") as HTMLInputElement | null;
+  if (mass && document.activeElement !== mass) mass.value = String(prefs.massKg);
+  $("rtMassRow")?.classList.toggle("hidden", !prefs.hills);
+  document.querySelectorAll<HTMLButtonElement>("#rtTerrain button").forEach((b) => {
+    b.classList.toggle("active", (b.dataset.hills === "1") === prefs.hills);
+  });
   const src = $("rtSpeedSrc");
   if (!src) return;
   const fitLine = fit
@@ -841,6 +913,82 @@ function renderSpeed(): void {
   }
 }
 
+// -- forecast models ---------------------------------------------------------- //
+
+/** The route's start, where the model domains are judged. */
+function routeStart(): { lat: number; lon: number } | null {
+  const w = route?.waypoints[0];
+  return w ? { lat: w[0], lon: w[1] } : null;
+}
+
+/** The models whose consensus the forecast rides with; [] = Open-Meteo's best match. */
+function forecastModelIds(): string[] {
+  const raw = readPref(MODELS_KEY);
+  if (!raw) return [];
+  const start = routeStart();
+  let ids: string[] = [];
+  try {
+    const v = JSON.parse(raw);
+    if (Array.isArray(v)) ids = v.filter((x): x is string => typeof x === "string");
+  } catch {
+    /* junk — the recommended set */
+  }
+  const usable = ids.filter((id) => {
+    const m = deps.forecastModels.find((x) => x.id === id);
+    return m && (!start || modelCovers(m, start.lat, start.lon));
+  });
+  if (usable.length) return usable;
+  return start ? recommendForecastModels(deps.forecastModels, start) : [];
+}
+
+/** The source line under "Ride it" and, when open, the model picker. */
+function renderModels(): void {
+  const btn = $("rtWxSrc") as HTMLButtonElement | null;
+  const panel = $("rtModels");
+  if (!btn || !panel) return;
+  const archive = !!weather && !weather.dataset.forecast;
+  const ids = forecastModelIds();
+  btn.disabled = archive;
+  btn.setAttribute("aria-expanded", String(modelsOpen && !archive));
+  btn.textContent = archive
+    ? `${weather!.dataset.label} history`
+    : ids.length
+      ? `Forecast: ${ids.length} models`
+      : "Forecast: best match";
+  btn.title = archive
+    ? "Past days use the historical archive"
+    : "Which forecast the wind comes from";
+  panel.classList.toggle("hidden", !modelsOpen || archive);
+  if (!modelsOpen || archive) return;
+  const start = routeStart();
+  const covering = deps.forecastModels.filter(
+    (m) => !start || modelCovers(m, start.lat, start.lon),
+  );
+  const consensus = ids.length > 0;
+  const served = new Set(weather?.models ?? []);
+  panel.innerHTML =
+    `<div class="seg rt-models-mode" role="group" aria-label="Forecast source">` +
+    `<button type="button" data-rt="models-best" class="${consensus ? "" : "active"}" title="Open-Meteo picks the best model for each spot">Best match</button>` +
+    `<button type="button" data-rt="models-consensus" class="${consensus ? "active" : ""}" title="The median of several models, hour by hour">Consensus</button>` +
+    `</div>` +
+    (consensus
+      ? `<div class="rt-model-chips">${covering
+          .map((m) => {
+            // Two products can share a name (a model at two grids): add the grid.
+            const twin = covering.some((o) => o !== m && o.label === m.label);
+            const label = twin ? `${m.label} ${m.resolution}` : m.label;
+            return (
+              `<button type="button" class="fchip${ids.includes(m.id) ? " on" : ""}" data-model="${escHtml(m.id)}" ` +
+              `title="${escHtml(`${m.provider} · ${m.resolution} · ${m.horizonDays} days${weather && ids.includes(m.id) && !served.has(m.id) ? " · no data here" : ""}`)}">${escHtml(label)}</button>`
+            );
+          })
+          .join("")}</div>` +
+        `<p class="cl-hint">Each hour rides with the median wind, rain and temperature of the ` +
+        `models picked (a short-range model only votes for the days it reaches). ` +
+        `<button type="button" class="linkbtn" data-rt="models-recommended">Recommended for this spot</button></p>`
+      : `<p class="cl-hint">Open-Meteo blends the best models for each spot. Pick <b>Consensus</b> to choose the models yourself.</p>`);
+}
+
 function renderSim(): void {
   if (!route) return;
   const dayText = $("rtDayText");
@@ -853,13 +1001,7 @@ function renderSim(): void {
   const next = document.querySelector<HTMLButtonElement>('[data-rt="day-next"]');
   if (next) next.disabled = departDay >= lastForecastDay();
 
-  const src = $("rtWxSrc");
-  if (src)
-    src.textContent = weather
-      ? weather.dataset.forecast
-        ? "Live forecast"
-        : `${weather.dataset.label} history`
-      : "";
+  renderModels();
   const cards = $("rtCards");
   const note = $("rtNote");
   const read = $("rtSweepRead");
@@ -885,28 +1027,40 @@ function renderSim(): void {
     return;
   }
   const s = sim;
-  const effect = s.durationSec - s.calmSec;
-  const effMin = Math.round(effect / 60);
   const rain =
     s.wetShare == null
       ? "—"
       : s.wetShare < 0.02
         ? "Dry"
         : `${Math.round(s.wetShare * 100)}% wet`;
+  const signed = (sec: number): string => {
+    const m = Math.round(sec / 60);
+    return m === 0 ? "±0m" : `${m > 0 ? "+" : "−"}${fmtDuration(Math.abs(sec))}`;
+  };
+  const climb = route ? routeStats(route) : null;
+  const hillsOn = speedModel().massKg != null;
   if (cards)
     cards.innerHTML = [
       statNum({
         value: fmtDuration(s.durationSec),
         label: "ride time",
-        small: true,
+        sub: `arrive ${fmtClock(s.endMs)}`,
         title: "Moving time, no stops",
+        small: true,
       }),
-      statNum({ value: fmtClock(s.endMs), label: "arrive", small: true }),
       statNum({
-        value:
-          effMin === 0 ? "±0m" : `${effMin > 0 ? "+" : "−"}${fmtDuration(Math.abs(effect))}`,
+        value: signed(s.durationSec - s.calmSec),
         label: "wind effect",
         sub: `${fmtDuration(s.calmSec)} in still air`,
+        small: true,
+      }),
+      statNum({
+        value: hillsOn ? signed(s.durationSec - s.flatSec) : "Flat",
+        label: "hills effect",
+        sub:
+          climb?.ascentM != null
+            ? `↑ ${fmtElevation(climb.ascentM)}${hillsOn ? "" : " not counted"}`
+            : "no elevation",
         small: true,
       }),
       statNum({ value: fmtSpeed(s.avgSpeedKmh), label: "avg speed", small: true }),
@@ -950,9 +1104,11 @@ function sweepSummary(): string {
   const best = known.reduce((a, b) => (b.durationSec < a.durationSec ? b : a));
   const worst = known.reduce((a, b) => (b.durationSec > a.durationSec ? b : a));
   const spread = Math.round((worst.durationSec - best.durationSec) / 60);
+  const wet = known.some((d) => (d.wetShare ?? 0) >= 0.05);
   return (
     `Ride time by departure · fastest <b>${fmtClock(best.startMs)}</b> (${fmtDuration(best.durationSec)})` +
-    (spread >= 2 ? `, slowest ${fmtClock(worst.startMs)} (+${spread} min)` : "")
+    (spread >= 2 ? `, slowest ${fmtClock(worst.startMs)} (+${spread} min)` : "") +
+    (wet ? ` · <span class="rt-rain-dot"></span> rain on the way` : "")
   );
 }
 
@@ -975,7 +1131,7 @@ function drawSweep(): void {
   const muted = css.getPropertyValue("--muted").trim() || "#888";
   const line = css.getPropertyValue("--line").trim() || "#333";
   const accent = css.getPropertyValue("--accent").trim() || "#fc5200";
-  const top = 4;
+  const top = 10; // room above the bars for the rain dots
   const base = h - 14;
   ctx.strokeStyle = line;
   ctx.lineWidth = 1;
@@ -1011,6 +1167,16 @@ function drawSweep(): void {
       ctx.fillRect(i * bw + 1, base - bh, Math.max(1, bw - 2), bh);
     });
   }
+  // A blue dot over each departure that would get you wet (≥ 5% of the ride in rain).
+  const rainCol = css.getPropertyValue("--rain").trim() || "#4ea3ff";
+  const bw = w / Math.max(1, sweep.length);
+  sweep.forEach((d, i) => {
+    if (d.coverage <= 0.5 || d.wetShare == null || d.wetShare < 0.05) return;
+    ctx.fillStyle = rainCol;
+    ctx.beginPath();
+    ctx.arc(i * bw + bw / 2, 4, Math.min(2.5, bw / 2.5), 0, Math.PI * 2);
+    ctx.fill();
+  });
   if (route && route.waypoints.length >= 2) {
     const x = (departMin / (24 * 60)) * w;
     ctx.strokeStyle = accent;
@@ -1050,22 +1216,34 @@ function ensureMap(): void {
   // A double click would drop two waypoints, so it doesn't zoom here.
   map.doubleClickZoom.disable();
   renderer = L.canvas({ padding: 0.3, tolerance: 6 });
+  rainLayer = L.layerGroup().addTo(map);
   lineLayer = L.layerGroup().addTo(map);
   arrowLayer = L.layerGroup().addTo(map);
   hitLayer = L.layerGroup().addTo(map);
   markerLayer = L.layerGroup().addTo(map);
+  previewLayer = L.layerGroup().addTo(map);
   map.on("click", (e: L.LeafletMouseEvent) => {
     if (!route || !editable()) return;
     addWaypoint([e.latlng.lat, e.latlng.lng]);
   });
-  map.on("mousemove", (e: L.LeafletMouseEvent) => showHover(e.latlng));
-  map.on("mouseout", () => showHover(null));
+  map.on("mousemove", (e: L.LeafletMouseEvent) => {
+    if (dragging) return;
+    showHover(e.latlng);
+    placeGhost(e.latlng);
+  });
+  // A press that ends without a drag or click (released off the handle) unlocks too.
+  document.addEventListener("mouseup", () => setTimeout(() => (dragging = false), 0));
+  map.on("mouseout", () => {
+    showHover(null);
+    if (!dragging) hideGhost();
+  });
   // Badges that would cover a waypoint depend on the zoom: re-place them.
   map.on("zoomend", () => colourRoute());
   setTimeout(() => map?.invalidateSize(), 0);
 }
 
 function clearMapLayers(): void {
+  rainLayer?.clearLayers();
   lineLayer?.clearLayers();
   hitLayer?.clearLayers();
   markerLayer?.clearLayers();
@@ -1093,6 +1271,8 @@ function fitRoute(): void {
  *  the hit lines for inserting vias, and the waypoint markers. */
 function drawRoute(): void {
   if (!map || !route || !lineLayer || !hitLayer || !markerLayer) return;
+  if (!dragging) hideGhost(); // its leg may have changed
+  if (!sim) rainLayer?.clearLayers();
   lineLayer.clearLayers();
   hitLayer.clearLayers();
   markerLayer.clearLayers();
@@ -1179,7 +1359,18 @@ function drawRoute(): void {
       }),
       title: editable() ? "Drag to move · right-click to remove" : "",
     });
+    m.on("dragstart", () => {
+      dragging = true;
+      hideGhost();
+      showStep(null);
+    });
+    m.on("drag", () => {
+      const ll = m.getLatLng();
+      drawPreview([r.waypoints[i - 1], [ll.lat, ll.lng], r.waypoints[i + 1]]);
+    });
     m.on("dragend", () => {
+      dragging = false;
+      previewLayer?.clearLayers();
       const ll = m.getLatLng();
       moveWaypoint(i, [ll.lat, ll.lng]);
     });
@@ -1213,14 +1404,39 @@ function colourRoute(): void {
   sim.steps.forEach((s, i) => {
     stepLines[i].setStyle({ color: alongColor(s.along, maxAlong) });
   });
+  // Rain: one halo per wet run, under the line.
+  rainLayer?.clearLayers();
+  const rain = cssVar("--rain", "#4ea3ff");
+  let run: L.LatLng[] = [];
+  const flush = (): void => {
+    if (run.length > 1)
+      L.polyline(run, {
+        renderer: renderer!,
+        color: rain,
+        weight: 14,
+        opacity: 0.45,
+        interactive: false,
+      }).addTo(rainLayer!);
+    run = [];
+  };
+  sim.steps.forEach((s, i) => {
+    if ((s.wx?.rainMm ?? 0) >= 0.1) run.push(...(stepLines[i].getLatLngs() as L.LatLng[]));
+    else flush();
+  });
+  flush();
   // Wind badges: a glass pill with a neutral arrow (where the wind blows TO) and its
   // speed, so they read as labels over the coloured line rather than part of it.
   arrowLayer?.clearLayers();
-  const every = Math.max(1, Math.round(course.steps.length / 10));
-  for (let i = Math.floor(every / 2); i < course.steps.length; i += every) {
+  // Spaced on screen (~110 px apart), so a short route isn't buried in badges and a
+  // long one still gets them all along; re-placed on zoom.
+  let last: L.Point | null = null;
+  for (let i = 0; i < course.steps.length; i++) {
     const st = sim.steps[i];
     const cs = course.steps[i];
     if (!st.wx || nearWaypoint(cs.lat, cs.lon)) continue;
+    const pt = map.latLngToContainerPoint(L.latLng(cs.lat, cs.lon));
+    if (last && pt.distanceTo(last) < 110) continue;
+    last = pt;
     const travel = (st.wx.fromDeg + 180) % 360;
     L.marker(L.latLng(cs.lat, cs.lon), {
       interactive: false,
@@ -1249,18 +1465,133 @@ function nearWaypoint(lat: number, lon: number): boolean {
   });
 }
 
-/** Hover readout: where on the route, when you'd be there, the wind and your speed. */
-function showHover(at: L.LatLng | null): void {
-  const pill = $("rtReadout");
-  if (!pill) return;
-  if (!at || !map || !sim || !course) {
-    pill.classList.add("hidden");
-    hoverMarker?.remove();
-    hoverMarker = null;
+// -- dragging the line: insert a via ------------------------------------------ //
+
+/** The point on the drawn line nearest `at` (within ~12 px) and its leg, unless a
+ *  waypoint marker is right there (that one is dragged instead). */
+function lineNear(at: L.LatLng): { leg: number; ll: L.LatLng } | null {
+  if (!map || !route) return null;
+  const p = map.latLngToContainerPoint(at);
+  for (const w of route.waypoints) {
+    const q = map.latLngToContainerPoint(L.latLng(w[0], w[1]));
+    if ((q.x - p.x) ** 2 + (q.y - p.y) ** 2 < 16 * 16) return null;
+  }
+  let best: { leg: number; ll: L.LatLng } | null = null;
+  let bestD = 12 * 12;
+  const bounds = map.getBounds().pad(0.2);
+  route.legs.forEach((leg, li) => {
+    let prev: L.Point | null = null;
+    for (const [lat, lon] of leg.points) {
+      const ll = L.latLng(lat, lon);
+      const q = bounds.contains(ll) ? map!.latLngToContainerPoint(ll) : null;
+      if (prev && q) {
+        // Nearest point on the segment prev→q.
+        const dx = q.x - prev.x;
+        const dy = q.y - prev.y;
+        const len2 = dx * dx + dy * dy;
+        const f =
+          len2 > 0
+            ? Math.max(0, Math.min(1, ((p.x - prev.x) * dx + (p.y - prev.y) * dy) / len2))
+            : 0;
+        const x = prev.x + f * dx;
+        const y = prev.y + f * dy;
+        const d = (x - p.x) ** 2 + (y - p.y) ** 2;
+        if (d < bestD) {
+          bestD = d;
+          best = { leg: li, ll: map!.containerPointToLatLng(L.point(x, y)) };
+        }
+      }
+      prev = q;
+    }
+  });
+  return best;
+}
+
+/** Show the line handle under the pointer (or hide it when the pointer is off the line). */
+function placeGhost(at: L.LatLng): void {
+  if (!map || !editable() || !previewLayer) return;
+  const hit = lineNear(at);
+  if (!hit) {
+    hideGhost();
     return;
   }
+  ghostLeg = hit.leg;
+  if (ghost) {
+    ghost.setLatLng(hit.ll);
+    return;
+  }
+  const g = L.marker(hit.ll, {
+    draggable: true,
+    keyboard: false,
+    title: "Drag to add a point here",
+    icon: L.divIcon({
+      className: "rt-ghost-marker",
+      html: '<span class="rt-ghost"></span>',
+      iconSize: [16, 16],
+      iconAnchor: [8, 8],
+    }),
+  });
+  // Lock the handle from the press on: before Leaflet calls it a drag the pointer may
+  // already have left the line, and the hover tracking would otherwise hide it.
+  g.on("mousedown", () => {
+    dragging = true;
+  });
+  g.on("dragstart", () => {
+    dragging = true;
+    showStep(null);
+  });
+  g.on("drag", () => {
+    if (!route) return;
+    const ll = g.getLatLng();
+    drawPreview([route.waypoints[ghostLeg], [ll.lat, ll.lng], route.waypoints[ghostLeg + 1]]);
+  });
+  g.on("dragend", () => {
+    dragging = false;
+    previewLayer?.clearLayers();
+    const ll = g.getLatLng();
+    const leg = ghostLeg;
+    hideGhost();
+    addWaypoint([ll.lat, ll.lng], leg + 1);
+  });
+  g.on("click", (e: L.LeafletMouseEvent) => {
+    L.DomEvent.stopPropagation(e);
+    dragging = false;
+    const ll = g.getLatLng();
+    const leg = ghostLeg;
+    hideGhost();
+    addWaypoint([ll.lat, ll.lng], leg + 1);
+  });
+  ghost = g.addTo(previewLayer);
+}
+
+function hideGhost(): void {
+  ghost?.remove();
+  ghost = null;
+  ghostLeg = -1;
+}
+
+/** Dashed straight lines through the given points (missing ends skipped): the shape a
+ *  drag would give, until the drop routes it. */
+function drawPreview(pts: (LatLon | undefined)[]): void {
+  if (!previewLayer) return;
+  for (const l of previewLayer.getLayers()) if (l !== ghost) previewLayer.removeLayer(l);
+  const ll = pts.filter((p): p is LatLon => !!p).map((p) => L.latLng(p[0], p[1]));
+  if (ll.length < 2) return;
+  L.polyline(ll, {
+    renderer: renderer!,
+    color: "#fc5200",
+    weight: 3,
+    opacity: 0.9,
+    dashArray: "6 7",
+    interactive: false,
+  }).addTo(previewLayer);
+}
+
+/** The course step under a map point (within ~22 px), or null. */
+function stepNear(at: L.LatLng): number | null {
+  if (!map || !course) return null;
   const p = map.latLngToContainerPoint(at);
-  let best = -1;
+  let best: number | null = null;
   let bestD = 22 * 22;
   course.steps.forEach((s, i) => {
     const q = map!.latLngToContainerPoint(L.latLng(s.lat, s.lon));
@@ -1270,25 +1601,59 @@ function showHover(at: L.LatLng | null): void {
       best = i;
     }
   });
-  if (best < 0) {
-    pill.classList.add("hidden");
+  return best;
+}
+
+/** Map hover → the step under the pointer. */
+function showHover(at: L.LatLng | null): void {
+  showStep(at ? stepNear(at) : null);
+}
+
+/**
+ * Point at one course step on both surfaces: a dot on the map, the cursor on the
+ * profile, and the readout — where on the route, how steep, and (once simulated) when
+ * you'd be there, the wind and your speed. Null clears all three.
+ */
+function showStep(i: number | null): void {
+  const pill = $("rtReadout");
+  const cursor = document.getElementById("rtpCursor");
+  if (i == null || !map || !course?.steps[i]) {
+    pill?.classList.add("hidden");
     hoverMarker?.remove();
     hoverMarker = null;
+    if (cursor) cursor.style.display = "none";
     return;
   }
-  const s = sim.steps[best];
-  const cs = course.steps[best];
-  const wind = s.wx
-    ? Math.abs(s.along) < 3
-      ? `${Math.round(s.wx.speedKmh)} km/h crosswind`
-      : `${Math.round(Math.abs(s.along))} km/h ${s.along < 0 ? "headwind" : "tailwind"}`
-    : "no weather";
-  pill.innerHTML =
-    `<span class="fc-when">km ${cs.km.toFixed(1)} · ${fmtClock(s.tMs)}</span>` +
-    `<span>${escHtml(wind)} · <b>${fmtSpeed(s.speedKmh)}</b></span>`;
-  pill.classList.remove("hidden");
+  const cs = course.steps[i];
+  const st = sim?.steps[i];
+  const grade =
+    cs.gradePct != null && Math.abs(cs.gradePct) >= 0.5
+      ? `${Math.abs(cs.gradePct).toFixed(0)}% ${cs.gradePct > 0 ? "up" : "down"}`
+      : cs.gradePct != null
+        ? "flat"
+        : "";
+  const wind = st
+    ? st.wx
+      ? Math.abs(st.along) < 3
+        ? `${Math.round(st.wx.speedKmh)} km/h crosswind`
+        : `${Math.round(Math.abs(st.along))} km/h ${st.along < 0 ? "headwind" : "tailwind"}`
+      : "no weather"
+    : "";
+  if (pill) {
+    pill.innerHTML =
+      `<span class="fc-when">km ${cs.km.toFixed(1)}${st ? ` · ${fmtClock(st.tMs)}` : ""}</span>` +
+      `<span>${escHtml([grade, wind, rainText(st?.wx?.rainMm ?? null)].filter(Boolean).join(" · "))}${st ? ` · <b>${fmtSpeed(st.speedKmh)}</b>` : ""}</span>`;
+    pill.classList.remove("hidden");
+  }
+  if (cursor) {
+    const x = (((cs.km + cs.lenKm / 2) / course.totalKm) * 1000).toFixed(1);
+    cursor.setAttribute("x1", x);
+    cursor.setAttribute("x2", x);
+    cursor.style.display = "";
+  }
+  const ll = L.latLng(cs.lat, cs.lon);
   if (!hoverMarker)
-    hoverMarker = L.circleMarker(L.latLng(cs.lat, cs.lon), {
+    hoverMarker = L.circleMarker(ll, {
       renderer: renderer!,
       radius: 6,
       color: "#fff",
@@ -1297,7 +1662,204 @@ function showHover(at: L.LatLng | null): void {
       fillOpacity: 1,
       interactive: false,
     }).addTo(map);
-  else hoverMarker.setLatLng(L.latLng(cs.lat, cs.lon));
+  else hoverMarker.setLatLng(ll);
+}
+
+// --------------------------------------------------------------------------- //
+// Profile: clock ruler, elevation, rain lane
+// --------------------------------------------------------------------------- //
+
+/** A colour token's current value (canvas / Leaflet styles can't take `var()`). */
+function cssVar(name: string, fallback: string): string {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
+}
+
+/** "light rain 0.6 mm/h" for a wet hour, "" when dry or unknown. */
+function rainText(mm: number | null): string {
+  if (mm == null || mm < 0.1) return "";
+  const kind = mm < 1 ? "light rain" : mm < 4 ? "rain" : "heavy rain";
+  return `${kind} ${mm < 1 ? mm.toFixed(1) : Math.round(mm)} mm/h`;
+}
+
+/** 0 dry, 1 light (< 1 mm/h), 2 moderate (< 4), 3 heavy. */
+function rainLevel(mm: number | null | undefined): number {
+  if (mm == null || mm < 0.1) return 0;
+  return mm < 1 ? 1 : mm < 4 ? 2 : 3;
+}
+
+/**
+ * The time side of the profile, from the simulation: a clock ruler (when you'd pass
+ * each point, ticks every 15 min to 2 h depending on the ride's length) above the
+ * elevation, and a rain lane below it — both on the profile's distance axis, so "the
+ * rain hits around km 30, about 11:10" reads straight down one column. The head line
+ * names the wet windows by clock time. All clear without a simulation.
+ */
+function renderTimeline(): void {
+  const ruler = $("rtRuler");
+  const lane = $("rtRain");
+  const rainSum = $("rtProfileRain");
+  if (!ruler || !lane || !rainSum) return;
+  if (!sim || !course?.steps.length) {
+    ruler.innerHTML = "";
+    lane.innerHTML = "";
+    rainSum.textContent = "";
+    return;
+  }
+  const s = sim;
+  const total = course.totalKm;
+  const kmAt = (tMs: number): number | null => {
+    if (tMs < s.startMs || tMs > s.endMs) return null;
+    let i = 0;
+    while (i < s.steps.length - 1 && s.steps[i + 1].tMs <= tMs) i++;
+    const st = s.steps[i];
+    const cs = course!.steps[i];
+    const next = s.steps[i + 1]?.tMs ?? s.endMs;
+    const f = next > st.tMs ? (tMs - st.tMs) / (next - st.tMs) : 0;
+    return cs.km + f * cs.lenKm;
+  };
+  const durMin = s.durationSec / 60;
+  const every = durMin <= 90 ? 15 : durMin <= 240 ? 30 : durMin <= 600 ? 60 : 120;
+  let ticks = "";
+  for (let m = Math.ceil(departMin / every) * every; ; m += every) {
+    const t = departureMs(departDay, m);
+    const km = kmAt(t);
+    if (km == null) break;
+    const pct = (km / total) * 100;
+    if (pct < 3 || pct > 97) continue; // keep the end labels inside the strip
+    ticks += `<span class="rt-tick" style="left:${pct.toFixed(2)}%">${fmtClock(t)}</span>`;
+  }
+  ruler.innerHTML = ticks;
+
+  // Rain lane: runs of equal intensity, as rects on the 0..1000 distance axis.
+  let rects = "";
+  const windows: [number, number][] = [];
+  let runStart = -1;
+  let runLevel = 0;
+  const close = (end: number): void => {
+    if (runStart < 0) return;
+    const x0 = (course!.steps[runStart].km / total) * 1000;
+    const x1 = ((course!.steps[end].km + course!.steps[end].lenKm) / total) * 1000;
+    rects += `<rect class="rr${runLevel}" x="${x0.toFixed(1)}" y="0" width="${Math.max(2, x1 - x0).toFixed(1)}" height="10"/>`;
+    runStart = -1;
+  };
+  let wetFrom = -1;
+  s.steps.forEach((st, i) => {
+    const lv = rainLevel(st.wx?.rainMm);
+    if (lv !== runLevel) {
+      close(i - 1);
+      if (lv) runStart = i;
+      runLevel = lv;
+    }
+    if (lv && wetFrom < 0) wetFrom = i;
+    if (!lv && wetFrom >= 0) {
+      windows.push([s.steps[wetFrom].tMs, st.tMs]);
+      wetFrom = -1;
+    }
+  });
+  close(s.steps.length - 1);
+  if (wetFrom >= 0) windows.push([s.steps[wetFrom].tMs, s.endMs]);
+  const known = s.wetShare != null;
+  lane.innerHTML = known
+    ? `<svg viewBox="0 0 1000 10" preserveAspectRatio="none" role="img" aria-label="Rain along the route">${rects}</svg>`
+    : "";
+  rainSum.textContent = !known
+    ? ""
+    : windows.length === 0
+      ? "dry ride"
+      : `rain ${windows
+          .slice(0, 2)
+          .map(([a, b]) => `${fmtClock(a)}–${fmtClock(b)}`)
+          .join(", ")}${windows.length > 2 ? ` (+${windows.length - 2} more)` : ""}`;
+}
+
+// --------------------------------------------------------------------------- //
+// Elevation profile
+// --------------------------------------------------------------------------- //
+
+/**
+ * The route's elevation against distance (the shared `.profile-strip` vocabulary of
+ * the ride map), with the climbs tinted per course step: warm from 4%, red from 8%.
+ * The head line sums it up (climb, descent, steepest stretch), so it still says
+ * something folded.
+ */
+function renderProfile(): void {
+  const wrap = $("rtProfileWrap");
+  const host = $("rtProfile");
+  const sum = $("rtProfileSum");
+  if (!wrap || !host || !sum) return;
+  const t = route ? routeTrack(route) : null;
+  if (!route || !t || t.points.length < 2 || !course?.steps.length) {
+    wrap.classList.add("hidden");
+    return;
+  }
+  wrap.classList.remove("hidden");
+  const known = t.eles.filter((e): e is number => e != null);
+  renderTimeline();
+  if (known.length < 2) {
+    sum.textContent = "no elevation on this route (straight legs carry none)";
+    host.innerHTML = "";
+    host.classList.add("hidden");
+    return;
+  }
+  host.classList.remove("hidden");
+  const s = routeStats(route);
+  const grades = course.steps.map((c) => c.gradePct).filter((g): g is number => g != null);
+  const steepest = grades.length ? Math.max(...grades) : 0;
+  sum.textContent =
+    `↑ ${fmtElevation(s.ascentM ?? 0)} ↓ ${fmtElevation(s.descentM ?? 0)}` +
+    (steepest >= 1 ? ` · steepest ${steepest.toFixed(0)}%` : " · flat");
+
+  const W = 1000;
+  const H = 100;
+  const lo = Math.min(...known);
+  const hi = Math.max(...known);
+  // Give a flat route some headroom so a 3 m wiggle doesn't read as a mountain.
+  const span = Math.max(hi - lo, 30);
+  const base = lo - (span - (hi - lo)) / 2;
+  const total = t.cum[t.cum.length - 1] || 1;
+  const xOf = (km: number): number => (km / total) * W;
+  const yOf = (e: number): number => 4 + (1 - (e - base) / span) * (H - 8);
+  let line = "";
+  let firstX: number | null = null;
+  let lastX = 0;
+  t.eles.forEach((e, i) => {
+    if (e == null) return;
+    const x = xOf(t.cum[i]);
+    line += `${line ? " L" : "M"}${x.toFixed(1)},${yOf(e).toFixed(1)}`;
+    firstX ??= x;
+    lastX = x;
+  });
+  const area = `${line} L${lastX.toFixed(1)},${H} L${(firstX ?? 0).toFixed(1)},${H} Z`;
+  // Tint each climbing step as a band under the line (from its start to end height).
+  const eleAt = (km: number): number | null => {
+    let i = 0;
+    while (i < t.cum.length - 2 && t.cum[i + 1] < km) i++;
+    const a = t.eles[i];
+    const b = t.eles[i + 1];
+    if (a == null || b == null) return null;
+    const sp = t.cum[i + 1] - t.cum[i];
+    return a + (b - a) * (sp > 0 ? Math.min(1, Math.max(0, (km - t.cum[i]) / sp)) : 0);
+  };
+  let climbs = "";
+  for (const c of course.steps) {
+    if (c.gradePct == null || c.gradePct < 4) continue;
+    const e0 = eleAt(c.km);
+    const e1 = eleAt(c.km + c.lenKm);
+    if (e0 == null || e1 == null) continue;
+    const x0 = xOf(c.km).toFixed(1);
+    const x1 = xOf(c.km + c.lenKm).toFixed(1);
+    climbs +=
+      `<path class="${c.gradePct >= 8 ? "rp-steep" : "rp-climb"}" ` +
+      `d="M${x0},${yOf(e0).toFixed(1)} L${x1},${yOf(e1).toFixed(1)} L${x1},${H} L${x0},${H} Z"/>`;
+  }
+  host.innerHTML =
+    `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="Elevation profile vs distance">` +
+    `<path class="rp-area" d="${area}"/>${climbs}<path class="rp-line" d="${line}"/>` +
+    `<line class="rp-cursor" id="rtpCursor" x1="0" y1="0" x2="0" y2="${H}" style="display:none"/>` +
+    `</svg>` +
+    `<span class="rp-lbl rp-lbl-hi">${Math.round(hi)} m</span>` +
+    `<span class="rp-lbl rp-lbl-lo">${Math.round(lo)} m</span>` +
+    `<span class="rp-lbl rp-lbl-ext">${total.toFixed(1)} km</span>`;
 }
 
 function setBanner(text: string, busy = false): void {
@@ -1332,6 +1894,25 @@ function onClick(e: MouseEvent): void {
   const remove = t.closest<HTMLElement>("[data-wp-remove]");
   if (remove) {
     removeWaypoint(Number(remove.dataset.wpRemove));
+    return;
+  }
+  const hills = t.closest<HTMLElement>("[data-hills]");
+  if (hills) {
+    saveSpeedPrefs({ ...readSpeedPrefs(), hills: hills.dataset.hills === "1" });
+    renderSpeed();
+    runSim();
+    return;
+  }
+  const model = t.closest<HTMLElement>("[data-model]");
+  if (model?.dataset.model) {
+    const ids = new Set(forecastModelIds());
+    if (ids.has(model.dataset.model)) ids.delete(model.dataset.model);
+    else ids.add(model.dataset.model);
+    // Keep catalogue order; an emptied pick falls back to the recommended set.
+    const order = deps.forecastModels.map((m) => m.id).filter((id) => ids.has(id));
+    writePref(MODELS_KEY, JSON.stringify(order));
+    renderModels();
+    void ensureWeather();
     return;
   }
   const prof = t.closest<HTMLElement>("[data-profile]");
@@ -1379,8 +1960,23 @@ function onClick(e: MouseEvent): void {
       });
       break;
     }
+    case "models":
+      modelsOpen = !modelsOpen;
+      renderModels();
+      break;
+    case "models-best":
+    case "models-consensus":
+      writePref(MODELS_KEY, act === "models-best" ? "" : "[]");
+      renderModels();
+      void ensureWeather();
+      break;
+    case "models-recommended":
+      writePref(MODELS_KEY, "[]");
+      renderModels();
+      void ensureWeather();
+      break;
     case "speed-reset":
-      saveSpeedPrefs({ calmKmh: null, slope: null });
+      saveSpeedPrefs({ ...readSpeedPrefs(), calmKmh: null, slope: null });
       renderSpeed();
       runSim();
       break;
@@ -1448,10 +2044,12 @@ function onChange(e: Event): void {
     renderSide();
     return;
   }
-  if (t.id === "rtCalm" || t.id === "rtSlope") {
+  if (t.id === "rtCalm" || t.id === "rtSlope" || t.id === "rtMass") {
     const v = Number(t.value);
     const prefs = readSpeedPrefs();
     if (t.id === "rtCalm") prefs.calmKmh = Number.isFinite(v) && v >= 5 && v <= 60 ? v : null;
+    else if (t.id === "rtMass")
+      prefs.massKg = Number.isFinite(v) && v >= 30 && v <= 250 ? v : DEFAULT_MASS_KG;
     else
       prefs.slope =
         t.value.trim() !== "" && Number.isFinite(v) && v >= 0 && v <= 1.5 ? v : null;

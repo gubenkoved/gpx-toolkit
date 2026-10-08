@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   buildCourse,
+  DESCENT_CAP_KMH,
   effectiveSpeedModel,
+  hillSpeed,
   simulate,
   speedFor,
   sweepDepartures,
@@ -25,7 +27,7 @@ const steady =
 
 describe("route simulation", () => {
   it("cuts the line into even steps heading the right way", () => {
-    const c = buildCourse(NORTH, 0.25);
+    const c = buildCourse(NORTH, [], 0.25);
     expect(c.totalKm).toBeCloseTo(11.12, 1);
     expect(c.steps.length).toBe(Math.ceil(c.totalKm / 0.25));
     expect(c.steps[0].bearing).toBeCloseTo(0, 3);
@@ -56,14 +58,12 @@ describe("route simulation", () => {
 
   it("follows the rider's own speed, then the fit, then the default", () => {
     const fit = { calmKmh: 25, slope: 0.25, r2: 0.4, segments: 300, fittedAt: 0 };
-    expect(effectiveSpeedModel({ calmKmh: 27, slope: null }, fit)).toEqual({
-      calmKmh: 27,
-      slope: 0.25,
-    });
-    expect(effectiveSpeedModel({ calmKmh: null, slope: null }, null)).toEqual({
-      calmKmh: 22,
-      slope: 0.2,
-    });
+    expect(
+      effectiveSpeedModel({ calmKmh: 27, slope: null, hills: false, massKg: 85 }, fit),
+    ).toEqual({ calmKmh: 27, slope: 0.25 });
+    expect(
+      effectiveSpeedModel({ calmKmh: null, slope: null, hills: true, massKg: 90 }, null),
+    ).toEqual({ calmKmh: 22, slope: 0.2, massKg: 90 });
   });
 
   it("reads the wind where and when the rider gets there", () => {
@@ -100,5 +100,30 @@ describe("route simulation", () => {
       at,
     );
     expect(sweep.map((d) => d.durationSec)).toEqual([early.durationSec, late.durationSec]);
+  });
+
+  it("replays the flat effort on a grade: slower up, faster down, capped", () => {
+    expect(hillSpeed(22, 0, 85)).toBe(22);
+    const up5 = hillSpeed(22, 5, 85);
+    expect(up5).toBeGreaterThan(7);
+    expect(up5).toBeLessThan(13);
+    expect(hillSpeed(22, 5, 110)).toBeLessThan(up5); // heavier climbs slower
+    const down3 = hillSpeed(22, -3, 85);
+    expect(down3).toBeGreaterThan(30);
+    expect(hillSpeed(22, -15, 85)).toBe(DESCENT_CAP_KMH);
+    expect(hillSpeed(22, 20, 85)).toBeGreaterThanOrEqual(4);
+  });
+
+  it("grades each step from the line's elevation and rides the hills", () => {
+    // 100 m of climb over ~11 km: a ~0.9% grade, the same on every step.
+    const c = buildCourse(NORTH, [0, 100]);
+    expect(c.steps[3].gradePct).toBeCloseTo(0.9, 1);
+    expect(buildCourse(NORTH, [0, null]).steps[0].gradePct).toBeNull();
+    const flat = simulate(c, T0, MODEL, steady(0, 10));
+    const hilly = simulate(c, T0, { ...MODEL, massKg: 85 }, steady(0, 10));
+    expect(flat.flatSec).toBeCloseTo(flat.durationSec, 3);
+    expect(hilly.durationSec).toBeGreaterThan(flat.durationSec);
+    expect(hilly.flatSec).toBeCloseTo(flat.durationSec, 3); // same wind, no hills
+    expect(hilly.calmSec).toBeGreaterThan(flat.calmSec); // still air, same hills
   });
 });

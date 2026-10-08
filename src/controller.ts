@@ -53,9 +53,11 @@ import {
   type CellDayWind,
   cellDayKey,
   computeRidePoints,
+  consensusCellDays,
   type Dataset,
   type DatasetId,
   datasetById,
+  forecastModelDataset,
   hasWeatherVars,
   OpenMeteo,
   type PointWind,
@@ -754,57 +756,92 @@ export class Controller {
     points: LatLon[],
     days: string[],
     onStage?: (msg: string) => void,
-  ): Promise<{ dataset: Dataset; entries: CellDayWind[] }> {
+    models: readonly string[] = [],
+  ): Promise<{ dataset: Dataset; entries: CellDayWind[]; models: string[] }> {
     if (points.length < 2 || days.length === 0)
       throw new Error("Nothing to fetch weather for");
     const firstMs = Date.parse(`${[...days].sort()[0]}T12:00:00Z`);
     const candidates = pickDatasets(points[0][0], points[0][1], firstMs, Date.now());
     for (const dataset of candidates) {
       const cells = sampleGridCells(points, dataset, MAX_WIND_CELLS);
-      const keys = (c: { latIdx: number; lonIdx: number }) =>
-        days.map((d) => cellDayKey(dataset.id, c.latIdx, c.lonIdx, d));
-      const entries: CellDayWind[] = [];
-      const missing: typeof cells = [];
-      for (const c of cells) {
-        const got: CellDayWind[] = [];
-        for (const k of keys(c)) {
-          let e: CellDayWind | null = null;
-          if (dataset.forecast) {
-            const m = this.routeForecast.get(k);
-            if (m && Date.now() - m.at < ROUTE_FORECAST_TTL_MS) e = m.entry;
-          } else if (this.windCache.has(k)) {
-            e = await this.windCache.get(k);
-            if (e && !e.noData && !e.wx && !hasWeatherVars(e)) e = null; // wind-only
+      let entries: CellDayWind[];
+      let used: string[] = [];
+      if (dataset.forecast && models.length) {
+        // The chosen models' consensus: each fetched on its own, merged per hour.
+        const perModel: CellDayWind[][] = [];
+        for (const [k, id] of models.entries()) {
+          const got = await this.routeCellDays(
+            forecastModelDataset(id),
+            cells,
+            days,
+            onStage,
+            id,
+            `forecast model ${k + 1} of ${models.length}`,
+          );
+          if (got.some((e) => !e.noData)) {
+            perModel.push(got);
+            used.push(id);
           }
-          if (!e) break;
-          got.push(e);
         }
-        if (got.length === days.length) entries.push(...got);
-        else missing.push(c);
+        entries = consensusCellDays(perModel);
+      } else {
+        entries = await this.routeCellDays(dataset, cells, days, onStage);
+        used = [];
       }
-      if (missing.length) {
-        onStage?.(
-          `Fetching ${dataset.forecast ? "the forecast" : `${dataset.label} weather`} for ` +
-            `${missing.length} spot${missing.length === 1 ? "" : "s"} along the route…`,
-        );
-        const fresh = await this.windClient.fetchWindMulti(dataset, missing, days, onStage, {
-          weather: true,
-        });
-        const at = Date.now();
-        for (const e of fresh) {
-          if (dataset.forecast)
-            this.routeForecast.set(cellDayKey(e.dataset, e.latIdx, e.lonIdx, e.dayISO), {
-              entry: e,
-              at,
-            });
-        }
-        if (!dataset.forecast) void this.windCache.putMany(fresh);
-        entries.push(...fresh);
-      }
-      if (entries.some((e) => !e.noData)) return { dataset, entries };
+      if (entries.some((e) => !e.noData)) return { dataset, entries, models: used };
       onStage?.(`${dataset.label} has no weather here — trying a coarser model…`);
     }
     throw new Error("No weather model covers this route on that day");
+  }
+
+  /** One dataset's cell-days for a route: archive ones through the shared wind cache,
+   *  forecast ones (per `modelId`, "" = best match) through the in-memory memo. */
+  private async routeCellDays(
+    dataset: Dataset,
+    cells: ReturnType<typeof sampleGridCells>,
+    days: string[],
+    onStage?: (msg: string) => void,
+    modelId = "",
+    what = dataset.forecast ? "forecast" : `${dataset.label} weather`,
+  ): Promise<CellDayWind[]> {
+    const memoKey = (k: string): string => `${modelId}::${k}`;
+    const entries: CellDayWind[] = [];
+    const missing: typeof cells = [];
+    for (const c of cells) {
+      const got: CellDayWind[] = [];
+      for (const d of days) {
+        const k = cellDayKey(dataset.id, c.latIdx, c.lonIdx, d);
+        let e: CellDayWind | null = null;
+        if (dataset.forecast) {
+          const m = this.routeForecast.get(memoKey(k));
+          if (m && Date.now() - m.at < ROUTE_FORECAST_TTL_MS) e = m.entry;
+        } else if (this.windCache.has(k)) {
+          e = await this.windCache.get(k);
+          if (e && !e.noData && !e.wx && !hasWeatherVars(e)) e = null; // wind-only
+        }
+        if (!e) break;
+        got.push(e);
+      }
+      if (got.length === days.length) entries.push(...got);
+      else missing.push(c);
+    }
+    if (!missing.length) return entries;
+    onStage?.(
+      `Fetching the ${what} for ${missing.length} spot${missing.length === 1 ? "" : "s"} ` +
+        `along the route…`,
+    );
+    const fresh = await this.windClient.fetchWindMulti(dataset, missing, days, onStage, {
+      weather: true,
+    });
+    const at = Date.now();
+    if (dataset.forecast)
+      for (const e of fresh)
+        this.routeForecast.set(memoKey(cellDayKey(e.dataset, e.latIdx, e.lonIdx, e.dayISO)), {
+          entry: e,
+          at,
+        });
+    else void this.windCache.putMany(fresh);
+    return [...entries, ...fresh];
   }
 
   /** Recompute a ride's per-point wind from the cache for display — no network. If

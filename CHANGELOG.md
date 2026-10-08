@@ -17,6 +17,29 @@ humans and the assistant can read this file as a compressed history of decisions
 
 ---
 
+## Routes: hills, a profile with rain timing, model consensus, drag the line
+- **What:** Five additions to the route simulator. **Hills** (Terrain: Flat / Hills, plus
+  rider + bike weight): each ~250 m step's grade replays your wind-adjusted flat effort
+  with gravity added (touring drag and rolling resistance, a little more effort uphill,
+  descents capped at 50 km/h), and a "hills effect" card sits beside "wind effect" (each
+  against its own baseline). A foldable **profile** under the map puts three things on
+  one distance axis: a clock ruler (when you'd pass each point), the elevation with
+  climbs tinted from 4% and 8%, and a **rain lane** (deeper blue for heavier rain); the
+  head line names the wet window ("rain 11:00–11:07"), the map gets a blue halo on wet
+  stretches, and the departure strip dots the start times that get you wet. Hovering the
+  profile or the map shows the same point on both. **Forecast source**: a disclosure on
+  "Ride it" switches from Open-Meteo's best match to the hour-by-hour median of chosen
+  models (the recommended set for the start by default, the same catalogue as the
+  Forecast view). **Drag the line**: a handle follows the pointer along the route; pull
+  it to add a point between its neighbours, with a dashed preview (also when dragging a
+  point); tapping the line still adds one on touch screens.
+- **Why:** Distance is the natural axis for terrain, time for rain; the simulation maps
+  one onto the other, so a time ruler on the distance profile answers "when will it rain
+  on me, and where" without a second chart. Hills use a small effort model with one
+  intuitive knob (weight) rather than a second fitted slope, so climbs scale sensibly
+  with grade. The model consensus reuses the Forecast view's catalogue and medians the
+  wind as a vector so opposing directions don't cancel to nonsense.
+
 ## add Routes: plan routes and ride them through the weather
 - **What:** A new **Routes** tab (sidebar group "Plan"; under More on phones) keeps routes
   you might ride one day: planned on a map (click for start and finish, drag points, click

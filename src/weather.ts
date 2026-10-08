@@ -110,6 +110,12 @@ function inEurope(lat: number, lon: number): boolean {
   return lat >= 20 && lat <= 75 && lon >= -25 && lon <= 45;
 }
 
+/** The live forecast from one named model (an Open-Meteo `models=` id, as in the
+ *  Forecast view's catalogue) instead of the best-match blend. */
+export function forecastModelDataset(modelId: string): Dataset {
+  return { ...DATASETS.forecast, models: modelId };
+}
+
 /** The dataset descriptor for a stored id (e.g. to redraw a cached ride's footprints). */
 export function datasetById(id: DatasetId): Dataset {
   return DATASETS[id];
@@ -720,6 +726,7 @@ export class OpenMeteo {
       const aheadDays = Math.ceil((newest - nowMs) / 86_400_000) + 1;
       p.set("past_days", String(pastDays));
       p.set("forecast_days", String(Math.min(FORECAST_HORIZON_DAYS, Math.max(1, aheadDays))));
+      if (dataset.models) p.set("models", dataset.models); // one named model, else best match
     } else {
       p.set("start_date", sorted[0]);
       p.set("end_date", sorted[sorted.length - 1]);
@@ -905,4 +912,80 @@ function negativeEntry(
     hourly: {},
     noData: true,
   };
+}
+
+// --------------------------------------------------------------------------- //
+// Consensus of several forecast models
+// --------------------------------------------------------------------------- //
+
+function median(xs: number[]): number | null {
+  if (!xs.length) return null;
+  const a = [...xs].sort((x, y) => x - y);
+  const m = a.length >> 1;
+  return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2;
+}
+
+/**
+ * Merge several models' cell-days (one list per model, same cells and days) into one
+ * consensus cell-day per (cell, day): each hour takes the median of the models that
+ * have it — the wind as the median of its east/north components (so 350° and 10°
+ * agree on north instead of averaging to south), gusts, rain, temperature and cloud
+ * as plain medians. A model without data for a cell-day (outside its domain or its
+ * horizon) simply doesn't vote; a cell-day no model serves stays a `noData` entry.
+ */
+export function consensusCellDays(perModel: CellDayWind[][]): CellDayWind[] {
+  const groups = new Map<string, CellDayWind[]>();
+  for (const list of perModel)
+    for (const e of list) {
+      const k = `${e.latIdx}:${e.lonIdx}::${e.dayISO}`;
+      const g = groups.get(k);
+      if (g) g.push(e);
+      else groups.set(k, [e]);
+    }
+  const out: CellDayWind[] = [];
+  for (const g of groups.values()) {
+    const real = g.filter((e) => !e.noData);
+    if (!real.length) {
+      out.push(g[0]);
+      continue;
+    }
+    if (real.length === 1) {
+      out.push(real[0]);
+      continue;
+    }
+    const n = Math.max(...real.map((e) => e.step));
+    const hourly: Record<string, (number | null)[]> = {
+      wind_speed_10m: [],
+      wind_direction_10m: [],
+      wind_gusts_10m: [],
+      precipitation: [],
+      temperature_2m: [],
+      cloud_cover: [],
+    };
+    const at = (e: CellDayWind, v: string, h: number): number | null =>
+      e.hourly[v]?.[h] ?? null;
+    for (let h = 0; h < n; h++) {
+      const us: number[] = [];
+      const vs: number[] = [];
+      for (const e of real) {
+        const sp = at(e, "wind_speed_10m", h);
+        const dir = at(e, "wind_direction_10m", h);
+        if (sp == null || dir == null) continue;
+        us.push(sp * Math.cos(dir * D2R));
+        vs.push(sp * Math.sin(dir * D2R));
+      }
+      const u = median(us);
+      const v = median(vs);
+      hourly.wind_speed_10m.push(u == null || v == null ? null : Math.hypot(u, v));
+      hourly.wind_direction_10m.push(
+        u == null || v == null ? null : (Math.atan2(v, u) * R2D + 360) % 360,
+      );
+      for (const k of ["wind_gusts_10m", "precipitation", "temperature_2m", "cloud_cover"]) {
+        const xs = real.map((e) => at(e, k, h)).filter((x): x is number => x != null);
+        hourly[k].push(median(xs));
+      }
+    }
+    out.push({ ...real[0], step: n, hourly, wx: true });
+  }
+  return out;
 }

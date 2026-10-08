@@ -4182,7 +4182,9 @@ initForecastView({
 
 initRoutesView({
   getStore: ensureRouteStore,
-  routeWeather: (points, days, onStage) => controller.routeWeather(points, days, onStage),
+  routeWeather: (points, days, onStage, models) =>
+    controller.routeWeather(points, days, onStage, models),
+  forecastModels: forecastProvider.models,
   searchPlaces: (query, signal) => forecastProvider.searchLocations(query, signal),
   homePoint: () => {
     const latest = STATE.rides

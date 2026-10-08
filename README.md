@@ -64,10 +64,11 @@ groups, filters, tags, batch actions and GPX download.
   </tr>
 </table>
 
-**Routes** – plan routes on the map (they follow the bike paths) or import GPX files, then
-pick a departure: the route is ridden through the forecast with your own wind-vs-speed
-profile, so you see the ride time, arrival, headwind and rain for any start time, and
-which hour of the day is fastest.
+**Routes** – plan routes on the map (they follow the bike paths; drag the line to reshape
+it) or import GPX files, then pick a departure: the route is ridden through the forecast
+with your own wind-vs-speed profile and the hills, so you see the ride time, arrival,
+headwind, climbs and exactly when and where you'd meet rain, and which hour of the day
+is fastest.
 
 **Timeline** – import your Google Maps Timeline to see where you spend time, find when you
 were somewhere, and replay a day.

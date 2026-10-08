@@ -31,10 +31,13 @@ import {
 // Speed model
 // --------------------------------------------------------------------------- //
 
-/** speed = calmKmh + slope × along-track wind (km/h, + tailwind). */
+/** speed = calmKmh + slope × along-track wind (km/h, + tailwind), then — when
+ *  `massKg` is set — the same effort replayed on the step's grade (`hillSpeed`). */
 export interface SpeedModel {
   calmKmh: number;
   slope: number;
+  /** Rider + bike, kg; absent = ride every step as if flat. */
+  massKg?: number;
 }
 
 /** A speed model fitted by the Wind vs speed view, with how good the fit was. */
@@ -57,16 +60,28 @@ const MODEL_KEY = "gpx_toolkit.route_speed";
 export interface SpeedPrefs {
   calmKmh: number | null;
   slope: number | null;
+  /** Count the climbs and descents (default on). */
+  hills: boolean;
+  /** Rider + bike, kg — sets how much a climb slows you (default 85). */
+  massKg: number;
 }
+
+export const DEFAULT_MASS_KG = 85;
 
 export function readSpeedPrefs(): SpeedPrefs {
   try {
     const raw = JSON.parse(localStorage.getItem(MODEL_KEY) || "null") as SpeedPrefs | null;
     const num = (v: unknown): number | null =>
       typeof v === "number" && Number.isFinite(v) ? v : null;
-    return { calmKmh: num(raw?.calmKmh), slope: num(raw?.slope) };
+    const mass = num(raw?.massKg);
+    return {
+      calmKmh: num(raw?.calmKmh),
+      slope: num(raw?.slope),
+      hills: raw?.hills !== false,
+      massKg: mass != null && mass >= 30 && mass <= 250 ? mass : DEFAULT_MASS_KG,
+    };
   } catch {
-    return { calmKmh: null, slope: null };
+    return { calmKmh: null, slope: null, hills: true, massKg: DEFAULT_MASS_KG };
   }
 }
 
@@ -78,12 +93,13 @@ export function saveSpeedPrefs(p: SpeedPrefs): void {
   }
 }
 
-/** The model a simulation rides with: each field is the rider's own value, else the
- *  Wind vs speed fit, else the default. */
+/** The model a simulation rides with: speed and tailwind factor are the rider's own
+ *  value, else the Wind vs speed fit, else the default; the hills come from the prefs. */
 export function effectiveSpeedModel(prefs: SpeedPrefs, fit: SpeedFit | null): SpeedModel {
   return {
     calmKmh: prefs.calmKmh ?? fit?.calmKmh ?? DEFAULT_SPEED_MODEL.calmKmh,
     slope: prefs.slope ?? fit?.slope ?? DEFAULT_SPEED_MODEL.slope,
+    ...(prefs.hills ? { massKg: prefs.massKg } : {}),
   };
 }
 
@@ -123,6 +139,58 @@ export function speedFor(model: SpeedModel, alongKmh: number): number {
 }
 
 // --------------------------------------------------------------------------- //
+// Hills
+// --------------------------------------------------------------------------- //
+
+// A touring rider sitting up: rolling resistance, drag area, air density.
+const CRR = 0.006;
+const CDA = 0.5;
+const RHO = 1.2;
+const G = 9.81;
+/** Nobody free-wheels a descent at whatever physics allows: brakes, bends, traffic. */
+export const DESCENT_CAP_KMH = 50;
+/** Below this a climb is walked, not ridden. */
+const CLIMB_FLOOR_KMH = 4;
+/** Riders push harder uphill: +5% effort per % of grade, up to +25% from 5%. */
+const CLIMB_EFFORT_PER_PCT = 0.05;
+const CLIMB_EFFORT_MAX = 0.25;
+
+/**
+ * Speed on a grade for a rider who'd do `flatKmh` here on the level: the power that
+ * holds `flatKmh` against rolling resistance and (still-air) drag — raised a little on
+ * a climb, as riders do — is solved for speed with gravity added. So a 5% climb costs
+ * a heavy rider more than a light one, and a descent speeds you up until drag catches
+ * up (capped). The wind is already in `flatKmh` (the empirical fit); this adds the
+ * slope.
+ */
+export function hillSpeed(flatKmh: number, gradePct: number, massKg: number): number {
+  if (Math.abs(gradePct) < 0.05) return flatKmh;
+  const v0 = flatKmh / 3.6;
+  const boost = gradePct > 0 ? Math.min(CLIMB_EFFORT_MAX, gradePct * CLIMB_EFFORT_PER_PCT) : 0;
+  const power = (CRR * massKg * G + 0.5 * CDA * RHO * v0 * v0) * v0 * (1 + boost);
+  const theta = Math.atan(gradePct / 100);
+  const c = massKg * G * (CRR * Math.cos(theta) + Math.sin(theta));
+  const k = 0.5 * CDA * RHO;
+  // f(v) = (c + k·v²)·v − P has exactly one positive root (f(0) = −P < 0, cubic → ∞).
+  let lo = 0;
+  let hi = 40;
+  for (let i = 0; i < 50; i++) {
+    const v = (lo + hi) / 2;
+    if ((c + k * v * v) * v < power) lo = v;
+    else hi = v;
+  }
+  return Math.min(DESCENT_CAP_KMH, Math.max(CLIMB_FLOOR_KMH, lo * 3.6));
+}
+
+/** Speed on one step: the wind's line, then the step's grade when hills count. */
+function stepSpeed(model: SpeedModel, alongKmh: number, gradePct: number | null): number {
+  const flat = speedFor(model, alongKmh);
+  return model.massKg != null && gradePct != null
+    ? hillSpeed(flat, gradePct, model.massKg)
+    : flat;
+}
+
+// --------------------------------------------------------------------------- //
 // Course
 // --------------------------------------------------------------------------- //
 
@@ -135,6 +203,9 @@ export interface CourseStep {
   lenKm: number;
   /** Travel bearing over the step, degrees (0 = N, clockwise). */
   bearing: number;
+  /** Net grade over the step, percent (+ uphill); null where the line has no
+   *  elevation (a straight leg, a GPX without `<ele>`). */
+  gradePct: number | null;
 }
 
 export interface Course {
@@ -142,8 +213,16 @@ export interface Course {
   totalKm: number;
 }
 
-/** Cut a route line into ~`stepKm` steps (the last one shorter). */
-export function buildCourse(points: LatLon[], stepKm = 0.25): Course {
+/** Steeper than this is DEM noise or a staircase, not something to ride. */
+const MAX_GRADE_PCT = 20;
+
+/** Cut a route line into ~`stepKm` steps (the last one shorter), each with its net
+ *  grade where the line carries elevation. */
+export function buildCourse(
+  points: LatLon[],
+  eles: (number | null)[] = [],
+  stepKm = 0.25,
+): Course {
   if (points.length < 2) return { steps: [], totalKm: 0 };
   const cum = cumulativeKm(points);
   const total = cum[cum.length - 1];
@@ -158,22 +237,40 @@ export function buildCourse(points: LatLon[], stepKm = 0.25): Course {
     const b = points[seg + 1];
     return [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f];
   };
+  // Elevation at a distance, interpolated only between two points that both have one.
+  let eseg = 0;
+  const eleAt = (d: number): number | null => {
+    while (eseg < cum.length - 2 && cum[eseg + 1] < d) eseg++;
+    const a = eles[eseg];
+    const b = eles[eseg + 1];
+    if (a == null || b == null) return null;
+    const span = cum[eseg + 1] - cum[eseg];
+    const f = span > 0 ? Math.min(1, Math.max(0, (d - cum[eseg]) / span)) : 0;
+    return a + (b - a) * f;
+  };
   const n = Math.max(1, Math.ceil(total / stepKm));
   const len = total / n;
   const steps: CourseStep[] = [];
   let prev = at(0);
+  let prevEle = eleAt(0);
   for (let i = 0; i < n; i++) {
     const d0 = i * len;
     const mid = at(d0 + len / 2);
     const end = at(Math.min(total, d0 + len));
+    const endEle = eleAt(Math.min(total, d0 + len));
+    const grade =
+      prevEle != null && endEle != null ? ((endEle - prevEle) / (len * 1000)) * 100 : null;
     steps.push({
       lat: mid[0],
       lon: mid[1],
       km: d0,
       lenKm: len,
       bearing: bearingDeg(prev, end),
+      gradePct:
+        grade == null ? null : Math.max(-MAX_GRADE_PCT, Math.min(MAX_GRADE_PCT, grade)),
     });
     prev = end;
+    prevEle = endEle;
   }
   return { steps, totalKm: total };
 }
@@ -269,8 +366,12 @@ export interface SimResult {
   startMs: number;
   endMs: number;
   durationSec: number;
-  /** The same ride in still air — the baseline for "the wind costs you N min". */
+  /** The same ride in still air (same hills) — the baseline for "the wind costs you
+   *  N min". */
   calmSec: number;
+  /** The same ride with the same wind but flat — the baseline for "the hills cost you
+   *  N min"; equals `durationSec` when hills don't count. */
+  flatSec: number;
   distanceKm: number;
   avgSpeedKmh: number;
   /** Distance-weighted along-track wind (km/h, + tailwind). */
@@ -309,14 +410,18 @@ export function simulate(
   let maxRain: number | null = null;
   let tempSum = 0;
   let tempSec = 0;
+  let calmSec = 0;
+  let flatSec = 0;
   course.steps.forEach((s, i) => {
     const wx = weatherAt(i, t);
     const along = wx ? alongTrackComponentKmh(wx.fromDeg, wx.speedKmh, s.bearing) : 0;
     const cross = wx
       ? Math.abs(crossTrackComponentKmh(wx.fromDeg, wx.speedKmh, s.bearing))
       : 0;
-    const speed = speedFor(model, along);
+    const speed = stepSpeed(model, along, s.gradePct);
     const sec = (s.lenKm / speed) * 3600;
+    calmSec += (s.lenKm / stepSpeed(model, 0, s.gradePct)) * 3600;
+    flatSec += (s.lenKm / speedFor(model, along)) * 3600;
     steps.push({ tMs: t, along, cross, speedKmh: speed, wx });
     if (wx) {
       knownKm += s.lenKm;
@@ -343,7 +448,8 @@ export function simulate(
     startMs,
     endMs: t,
     durationSec,
-    calmSec: dist > 0 ? (dist / speedFor(model, 0)) * 3600 : 0,
+    calmSec,
+    flatSec,
     distanceKm: dist,
     avgSpeedKmh: durationSec > 0 ? dist / (durationSec / 3600) : 0,
     avgAlongKmh: knownKm > 0 ? alongKm / knownKm : 0,

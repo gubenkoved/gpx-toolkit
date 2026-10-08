@@ -76,7 +76,9 @@ forecasts with **Export All** (a ZIP); **Import** reads either.
   route is ridden through the weather in memory: the forecast (or, for a past day, the
   archive) along the line is fetched once, and each ~250 m step's head/tailwind at the
   moment you'd get there sets your speed from your still-air speed and tailwind factor
-  (the line Wind vs speed fits). Moving the departure time just re-runs it.
+  (the line Wind vs speed fits), slowed or sped up by the grade with Hills on. The
+  forecast can be one model blend or the hour-by-hour median of chosen models. Moving the
+  departure time just re-runs it.
 
 ## Where things live
 

@@ -7,8 +7,10 @@ import {
   cellBounds,
   cellDayKey,
   computeRidePoints,
+  consensusCellDays,
   crossTrackComponentKmh,
   type Dataset,
+  forecastModelDataset,
   OpenMeteo,
   parseRetryAfter,
   pickDatasets,
@@ -335,6 +337,10 @@ describe("OpenMeteo client", () => {
     // Never past the model's horizon.
     await om.fetchWindMulti(forecast, cell, ["2026-06-13", "2026-07-30"]);
     expect(urls[1]).toContain("forecast_days=16");
+    // A named model instead of the best-match blend.
+    await om.fetchWindMulti(forecastModelDataset("icon_d2"), cell, ["2026-06-13"]);
+    expect(urls[2]).toContain("models=icon_d2");
+    expect(urls[1]).not.toContain("models=");
   });
 
   it("emits a negative-cache entry for a cell with no wind", async () => {
@@ -398,5 +404,54 @@ describe("OpenMeteo client", () => {
     expect(calls).toBe(2);
     expect(slept).toContain(2000); // waited out the Retry-After
     expect(entries[0].hourly.wind_speed_10m?.[0]).toBe(10);
+  });
+});
+
+describe("forecast model consensus", () => {
+  const day = (
+    model: number,
+    speed: number,
+    dir: number,
+    rain: number | null,
+    noData = false,
+  ): CellDayWind => ({
+    dataset: "forecast",
+    latIdx: 520,
+    lonIdx: 40,
+    cellLat: 52 + model * 0.001,
+    cellLon: 4,
+    gridKm: 11,
+    dayISO: "2026-10-10",
+    step: 24,
+    hourly: noData
+      ? {}
+      : {
+          wind_speed_10m: new Array(24).fill(speed),
+          wind_direction_10m: new Array(24).fill(dir),
+          wind_gusts_10m: new Array(24).fill(speed * 1.5),
+          precipitation: new Array(24).fill(rain),
+          temperature_2m: new Array(24).fill(10 + model),
+        },
+    ...(noData ? { noData: true } : {}),
+  });
+
+  it("takes the median wind vector, so 350° and 10° agree on north", () => {
+    const [c] = consensusCellDays([
+      [day(0, 10, 350, 0)],
+      [day(1, 10, 10, 2)],
+      [day(2, 10, 0, 1)],
+    ]);
+    const dir = c.hourly.wind_direction_10m[5]!;
+    expect(Math.min(dir, 360 - dir)).toBeLessThan(1);
+    expect(c.hourly.wind_speed_10m[5]).toBeGreaterThan(9.5);
+    expect(c.hourly.precipitation[5]).toBe(1);
+    expect(c.hourly.temperature_2m[5]).toBe(11);
+  });
+
+  it("lets a model without data sit the vote out", () => {
+    const [c] = consensusCellDays([[day(0, 10, 90, 0)], [day(1, 0, 0, 0, true)]]);
+    expect(c.hourly.wind_direction_10m[0]).toBe(90);
+    const [none] = consensusCellDays([[day(0, 0, 0, 0, true)], [day(1, 0, 0, 0, true)]]);
+    expect(none.noData).toBe(true);
   });
 });

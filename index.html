@@ -547,9 +547,27 @@
     <div class="rt-list" id="rtList"></div>
     <div class="rt-plan hidden" id="rtPlan">
       <div class="rt-main">
-        <div id="rtMap"></div>
-        <div class="map-banner hidden" id="rtBanner" aria-live="polite"></div>
-        <div class="map-banner map-banner--corner hidden" id="rtReadout" aria-live="polite"></div>
+        <div class="rt-mapwrap">
+          <div id="rtMap"></div>
+          <div class="map-banner hidden" id="rtBanner" aria-live="polite"></div>
+          <div class="map-banner map-banner--corner hidden" id="rtReadout" aria-live="polite"></div>
+        </div>
+        <!-- The route's elevation profile, below the map in normal flow (folds away). -->
+        <section class="panel rt-profile-wrap" id="rtProfileWrap" aria-label="Route profile">
+          <div class="rt-profile-head">
+            <span class="rt-profile-title">Profile</span>
+            <span class="rt-profile-sum" id="rtProfileSum"></span>
+            <span class="rt-profile-rain" id="rtProfileRain"></span>
+            <button type="button" class="small ghost collapse-btn" id="rtProfileCollapse" aria-expanded="true" aria-controls="rtProfileWrap"></button>
+          </div>
+          <!-- One distance axis for all three: the clock you'd pass each point at, the
+               elevation, and the rain you'd ride through there. -->
+          <div class="rt-profile-body" id="rtProfileBody">
+            <div class="rt-ruler" id="rtRuler" aria-hidden="true"></div>
+            <div class="profile-strip rt-profile" id="rtProfile"></div>
+            <div class="rt-rainlane" id="rtRain" aria-hidden="true"></div>
+          </div>
+        </section>
       </div>
       <aside class="panel rt-side" id="rtSide"></aside>
     </div>
@@ -669,7 +687,7 @@
     <div class="ridemap-canvas" id="rideMapBig"></div>
     <div class="map-banner map-banner--corner ridemap-weather hidden" id="rideMapWeather" aria-live="polite"></div>
   </div>
-  <div class="ridemap-profile hidden" id="rideMapProfile" aria-hidden="true"></div>
+  <div class="ridemap-profile profile-strip hidden" id="rideMapProfile" aria-hidden="true"></div>
 </div>
 
 <div class="srcpick scrim hidden" id="srcPick" role="dialog" aria-modal="true" aria-label="Sources">

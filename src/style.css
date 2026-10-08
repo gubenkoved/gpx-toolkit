@@ -71,6 +71,9 @@
   --surface-hover: #222732; /* row/control hover fill */
   --border-hover: #333b48; /* row/control hover border */
   --map-bg: #05070a; /* dark basemap container behind tiles */
+  --grade-climb: rgba(255, 170, 60, 0.38); /* profile: 4–8% climbs */
+  --grade-steep: rgba(255, 72, 64, 0.55); /* profile: 8%+ climbs */
+  --rain: #4ea3ff; /* rain along a planned route */
   --glass: rgba(20, 23, 29, 0.92); /* translucent header/popover backdrop */
   --glass-strong: rgba(20, 23, 29, 0.94); /* more opaque glass variant */
   --track: #2a313c; /* slider / progress-bar rail fill */
@@ -191,6 +194,9 @@
   --surface-hover: #eceff3;
   --border-hover: #c9d0da;
   --map-bg: #e6e8ec;
+  --grade-climb: rgba(230, 130, 20, 0.35);
+  --grade-steep: rgba(220, 40, 40, 0.45);
+  --rain: #2f7fe0;
   --glass: rgba(255, 255, 255, 0.9);
   --glass-strong: rgba(255, 255, 255, 0.95);
   --track: #d9dee6;
@@ -3345,10 +3351,12 @@ body.ridemap-open {
   color: var(--muted);
   font-weight: 500;
 }
-.ridemap-profile {
+/* The shared profile strip (the ride map's and a planned route's): an SVG stretched to
+   the strip, its labels in HTML beside it. */
+.profile-strip {
   position: relative;
 }
-.ridemap-profile svg {
+.profile-strip svg {
   width: 100%;
   height: 100%;
   display: block;
@@ -3357,13 +3365,13 @@ body.ridemap-open {
 }
 /* The graph stretches to the strip (preserveAspectRatio: none); strokes keep their
    width and the axis labels live outside the SVG so neither is distorted. */
-.ridemap-profile .rp-line,
-.ridemap-profile .rp-cursor,
-.ridemap-profile .rp-cut,
-.ridemap-profile .rp-stop-top {
+.profile-strip .rp-line,
+.profile-strip .rp-cursor,
+.profile-strip .rp-cut,
+.profile-strip .rp-stop-top {
   vector-effect: non-scaling-stroke;
 }
-.ridemap-profile .rp-lbl {
+.profile-strip .rp-lbl {
   position: absolute;
   color: var(--muted);
   font-size: 11px;
@@ -3371,20 +3379,27 @@ body.ridemap-open {
   line-height: 1;
   pointer-events: none;
 }
-.ridemap-profile .rp-lbl-hi {
+.profile-strip .rp-lbl-hi {
   top: 7px;
   left: 14px;
 }
-.ridemap-profile .rp-lbl-lo {
+.profile-strip .rp-lbl-lo {
   bottom: 9px;
   left: 14px;
 }
-.ridemap-profile .rp-lbl-ext {
+.profile-strip .rp-lbl-ext {
   bottom: 9px;
   right: 14px;
 }
-.ridemap-profile .rp-area {
+.profile-strip .rp-area {
   fill: rgba(252, 82, 0, 0.16);
+}
+/* Climbs on a planned route's profile: a warm tint from 4%, red from 8%. */
+.profile-strip .rp-climb {
+  fill: var(--grade-climb);
+}
+.profile-strip .rp-steep {
+  fill: var(--grade-steep);
 }
 /* Stretches detected as not moving (below the stop threshold). A stop sits at ~0 km/h —
    the chart floor, where there's no orange fill — so the band is a faint cool panel
@@ -3392,36 +3407,36 @@ body.ridemap-open {
    reads as "paused" against the warm orange of riding; both are drawn in the BACKGROUND
    (behind the area + line) so the profile stays the foreground. On the distance axis the
    band marks WHERE a stop was; on the time axis its width is the stop's true duration. */
-.ridemap-profile .rp-stop {
+.profile-strip .rp-stop {
   fill: rgba(150, 178, 214, 0.12);
 }
-.ridemap-profile .rp-stop-top {
+.profile-strip .rp-stop-top {
   stroke: rgba(150, 178, 214, 0.7);
   stroke-width: 1;
 }
 /* "Hide stops" collapses each no-movement stretch to zero width, so instead of a band
    a thin dashed cool rule marks the join — a subtle "the track was cut here". */
-.ridemap-profile .rp-cut {
+.profile-strip .rp-cut {
   stroke: rgba(150, 178, 214, 0.45);
   stroke-width: 1;
   stroke-dasharray: 2 4;
 }
-.ridemap-profile .rp-line {
+.profile-strip .rp-line {
   fill: none;
   stroke: var(--accent);
   stroke-width: 1.5;
 }
-.ridemap-profile .rp-axis {
+.profile-strip .rp-axis {
   fill: var(--muted);
   font-size: 11px;
   font-variant-numeric: tabular-nums;
 }
-.ridemap-profile .rp-cursor {
+.profile-strip .rp-cursor {
   stroke: var(--text);
   stroke-width: 1;
   opacity: 0.7;
 }
-.ridemap-profile .rp-empty {
+.profile-strip .rp-empty {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -10289,11 +10304,152 @@ body.sb-rail .sb-toggle .mi {
   min-height: 460px;
 }
 .rt-main {
-  position: relative;
   min-width: 0;
   display: flex;
   flex-direction: column;
+  gap: 10px;
+}
+/* The map and the banners floating over it (the readout pins to its bottom-left). */
+.rt-mapwrap {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
   isolation: isolate;
+}
+.rt-profile-wrap {
+  flex: 0 0 auto;
+  padding: 6px 10px 8px 14px;
+}
+.rt-profile-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12.5px;
+}
+.rt-profile-title {
+  font-weight: 600;
+  color: var(--text);
+}
+.rt-profile-sum {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rt-profile {
+  position: relative;
+  height: 86px;
+  margin-top: 4px;
+}
+/* Folded: the head line (title + climb summary) stays. */
+.rt-profile-wrap.collapsed .rt-profile-body {
+  display: none;
+}
+.rt-profile-body {
+  touch-action: none;
+  cursor: crosshair;
+}
+.rt-profile-rain {
+  flex: 0 1 auto;
+  min-width: 0;
+  color: var(--rain);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rt-profile-rain:empty {
+  display: none;
+}
+/* Clock ruler: when you'd pass each point. Labels are HTML, placed by percent. */
+.rt-ruler {
+  position: relative;
+  height: 15px;
+  margin-top: 2px;
+  border-bottom: 1px solid var(--line);
+}
+.rt-ruler:empty {
+  display: none;
+}
+.rt-tick {
+  position: absolute;
+  bottom: 0;
+  transform: translateX(-50%);
+  padding-bottom: 2px;
+  color: var(--muted);
+  font-size: 10.5px;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.rt-tick::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: -1px;
+  height: 4px;
+  border-left: 1px solid var(--line);
+}
+/* Rain lane: blue where you'd be riding in rain, deeper for heavier rain. */
+.rt-rainlane {
+  position: relative;
+  height: 10px;
+  margin-top: 3px;
+  border-radius: 3px;
+  background: var(--surface-soft);
+}
+.rt-rainlane:empty {
+  display: none;
+}
+.rt-rainlane svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.rt-rainlane rect {
+  fill: var(--rain);
+}
+.rt-rainlane .rr1 {
+  opacity: 0.35;
+}
+.rt-rainlane .rr2 {
+  opacity: 0.65;
+}
+.rt-rainlane .rr3 {
+  opacity: 1;
+}
+.rt-models {
+  margin: 0 0 10px;
+}
+.rt-models.hidden {
+  display: none;
+}
+.rt-model-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+.rt-models .cl-hint {
+  margin: 8px 0 0;
+  font-size: 12px;
+}
+.rt-wxsrc:disabled {
+  cursor: default;
+  text-decoration: none;
+}
+.rt-profile-wrap.hidden {
+  display: none;
+}
+.rt-terrain .seg {
+  grid-column: 2 / 4;
+  justify-self: start;
 }
 #rtMap {
   flex: 1;
@@ -10337,13 +10493,13 @@ body.sb-rail .sb-toggle .mi {
   padding-top: 14px;
   border-top: 1px solid var(--line);
 }
-.rt-profile {
+.rt-routing {
   width: 100%;
 }
-.rt-profile.hidden {
+.rt-routing.hidden {
   display: none;
 }
-.rt-profile button {
+.rt-routing button {
   flex: 1 1 0;
 }
 .rt-wps {
@@ -10601,4 +10757,42 @@ body.sb-rail .sb-toggle .mi {
   width: 14px;
   height: 14px;
   color: var(--accent);
+}
+.rt-profile .rp-lbl-hi {
+  top: 2px;
+  left: 4px;
+}
+.rt-profile .rp-lbl-lo {
+  bottom: 2px;
+  left: 4px;
+}
+.rt-profile .rp-lbl-ext {
+  bottom: 2px;
+  right: 4px;
+}
+/* The handle that rides the line under the pointer: pull it to add a point there. */
+.rt-ghost-marker {
+  background: transparent;
+  border: 0;
+}
+.rt-ghost {
+  display: block;
+  width: 14px;
+  height: 14px;
+  margin: 1px;
+  box-sizing: border-box;
+  border-radius: 50%;
+  border: 1.5px solid var(--accent);
+  background: var(--panel);
+  box-shadow: var(--shadow-float);
+  cursor: grab;
+}
+.rt-rain-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin: 0 1px 1px;
+  border-radius: 50%;
+  background: var(--rain);
+  vertical-align: middle;
 }
