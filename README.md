@@ -64,6 +64,11 @@ groups, filters, tags, batch actions and GPX download.
   </tr>
 </table>
 
+**Library** – plan routes on the map (they follow the bike paths) or import GPX files, then
+pick a departure: the route is ridden through the forecast with your own wind-vs-speed
+profile, so you see the ride time, arrival, headwind and rain for any start time, and
+which hour of the day is fastest.
+
 **Timeline** – import your Google Maps Timeline to see where you spend time, find when you
 were somewhere, and replay a day.
 
@@ -86,7 +91,8 @@ the **⋯** menu (Export / Import).
   kept in memory. After a reload the app asks again only when an action needs the account,
   so your password manager can fill it in.
 - **Outside services:** Beeline (only if you connect it), map tiles from OpenStreetMap,
-  weather and place search from Open-Meteo, fonts from Google Fonts, and cookieless
+  weather and place search from Open-Meteo, bike routing from [BRouter](https://brouter.de/)
+  (the waypoints of a route you plan), fonts from Google Fonts, and cookieless
   [GoatCounter](https://www.goatcounter.com/) visit counts (view names only, never ride
   data or locations).
 

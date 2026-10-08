@@ -56,6 +56,7 @@ All data lives in the browser's IndexedDB:
 | Ride wind and weather | `windcache.ts` | Compressed, per grid cell and day |
 | Forecasts and places | `forecast-store.ts` | Gzipped; recent and pinned locations |
 | Location history | `loc-store.ts` | Month chunks, compact binary encoding; can be dropped on its own |
+| Library routes | `routes.ts` | One versioned blob, separate from the rides; Export All carries it as `routes.json` |
 
 The app's **⋯** menu exports rides and settings as JSON, or adds cached tracks, wind and
 forecasts with **Export All** (a ZIP); **Import** reads either.
@@ -70,6 +71,12 @@ forecasts with **Export All** (a ZIP); **Import** reads either.
   any point.
 - **Wind rose** (`windrose.ts`, `climate-view.ts`): ERA5 wind history for a point, pooled
   into a 16-sector rose by hour and month.
+- **Library** (`library-view.ts`, `routes.ts`, `routing.ts`, `route-sim.ts`): routes you
+  plan (legs snapped to bike paths by the public BRouter server) or import from GPX. A
+  route is ridden through the weather in memory: the forecast (or, for a past day, the
+  archive) along the line is fetched once, and each ~250 m step's head/tailwind at the
+  moment you'd get there sets your speed from your still-air speed and tailwind factor
+  (the line Wind vs speed fits). Moving the departure time just re-runs it.
 
 ## Where things live
 
@@ -81,6 +88,7 @@ forecasts with **Export All** (a ZIP); **Import** reads either.
 | Sources | `source.ts`, `gpx-source.ts`, `beeline-api.ts`, `beeline-source.ts`, `beeline-demo.ts`, `sources-view.ts` |
 | Storage and jobs | `store.ts`, `gpxcache.ts`, `windcache.ts`, `kv.ts`, `jobs.ts`, `jobs-view.ts` |
 | Weather | `weather.ts`, `windspeed*.ts`, `windchart.ts`, `forecast*.ts`, `windrose.ts`, `climate-view.ts` |
+| Library | `library-view.ts`, `routes.ts`, `routing.ts`, `route-sim.ts` |
 | Location history | `loc-*.ts`, `timeline-view.ts`, `timeline-geo.ts` |
 | Shared UI | `ui.ts`, `icons.ts`, `confirm.ts`, `datepicker.ts`, `seg.ts`, `slider.ts`, `theme.ts`, `style.css` |
 | Utilities | `parsing.ts`, `stats.ts`, `format.ts`, `tz.ts`, `idle.ts`, `zip.ts`, `gzip.ts`, `varint.ts` |

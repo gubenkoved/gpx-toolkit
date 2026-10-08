@@ -24,7 +24,8 @@ export type ViewName =
   | "analytics"
   | "climate"
   | "forecast"
-  | "timeline";
+  | "timeline"
+  | "library";
 
 const VIEW_KEY = "beeline_uploader.view";
 
@@ -36,7 +37,8 @@ function readView(): ViewName {
       v === "analytics" ||
       v === "climate" ||
       v === "forecast" ||
-      v === "timeline"
+      v === "timeline" ||
+      v === "library"
       ? v
       : "explore";
   } catch {

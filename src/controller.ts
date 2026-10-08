@@ -71,6 +71,8 @@ import { buildZip, unzip, type ZipEntry } from "./zip";
 
 /** Largest number of grid cells to probe per ride (caps request cost). */
 const MAX_WIND_CELLS = 24;
+/** How long a planned route's fetched forecast is reused before it's fetched again. */
+const ROUTE_FORECAST_TTL_MS = 30 * 60_000;
 
 /** Real side-effects for the Open-Meteo client (overridden in tests). */
 function defaultWeatherDeps(): WeatherDeps {
@@ -260,6 +262,8 @@ export class Controller {
    *  so a re-render doesn't kick off duplicate work. */
   private readonly windBusy = new Set<string>();
   private readonly windClient: OpenMeteo;
+  /** Planned-route forecast cell-days, in memory only (see `routeWeather`). */
+  private readonly routeForecast = new Map<string, { entry: CellDayWind; at: number }>();
 
   constructor(
     private readonly sourceFactory: SourceFactory,
@@ -732,6 +736,75 @@ export class Controller {
       }
     }
     return { cell: { lat: cell.lat, lon: cell.lon, gridKm: dataset.gridKm }, days: out };
+  }
+
+  /**
+   * Weather along a planned route for the given UTC days: the hourly wind, rain and
+   * temperature of the grid cells the line crosses, from the finest dataset that
+   * serves the days (pickDatasets: the live forecast for today, the days ahead and
+   * the last few days; the reanalysis archive further back).
+   *
+   * Archive cell-days go through the shared wind cache like a ride's. Forecast
+   * cell-days are NOT persisted — a forecast changes with every run, and a stale one
+   * cached under a day would later pass for that day's weather when a ride ridden on
+   * it is resolved — they're kept in memory for `ROUTE_FORECAST_TTL_MS` instead, so
+   * re-planning and re-opening a route doesn't refetch.
+   */
+  async routeWeather(
+    points: LatLon[],
+    days: string[],
+    onStage?: (msg: string) => void,
+  ): Promise<{ dataset: Dataset; entries: CellDayWind[] }> {
+    if (points.length < 2 || days.length === 0)
+      throw new Error("Nothing to fetch weather for");
+    const firstMs = Date.parse(`${[...days].sort()[0]}T12:00:00Z`);
+    const candidates = pickDatasets(points[0][0], points[0][1], firstMs, Date.now());
+    for (const dataset of candidates) {
+      const cells = sampleGridCells(points, dataset, MAX_WIND_CELLS);
+      const keys = (c: { latIdx: number; lonIdx: number }) =>
+        days.map((d) => cellDayKey(dataset.id, c.latIdx, c.lonIdx, d));
+      const entries: CellDayWind[] = [];
+      const missing: typeof cells = [];
+      for (const c of cells) {
+        const got: CellDayWind[] = [];
+        for (const k of keys(c)) {
+          let e: CellDayWind | null = null;
+          if (dataset.forecast) {
+            const m = this.routeForecast.get(k);
+            if (m && Date.now() - m.at < ROUTE_FORECAST_TTL_MS) e = m.entry;
+          } else if (this.windCache.has(k)) {
+            e = await this.windCache.get(k);
+            if (e && !e.noData && !e.wx && !hasWeatherVars(e)) e = null; // wind-only
+          }
+          if (!e) break;
+          got.push(e);
+        }
+        if (got.length === days.length) entries.push(...got);
+        else missing.push(c);
+      }
+      if (missing.length) {
+        onStage?.(
+          `Fetching ${dataset.forecast ? "the forecast" : `${dataset.label} weather`} for ` +
+            `${missing.length} spot${missing.length === 1 ? "" : "s"} along the route…`,
+        );
+        const fresh = await this.windClient.fetchWindMulti(dataset, missing, days, onStage, {
+          weather: true,
+        });
+        const at = Date.now();
+        for (const e of fresh) {
+          if (dataset.forecast)
+            this.routeForecast.set(cellDayKey(e.dataset, e.latIdx, e.lonIdx, e.dayISO), {
+              entry: e,
+              at,
+            });
+        }
+        if (!dataset.forecast) void this.windCache.putMany(fresh);
+        entries.push(...fresh);
+      }
+      if (entries.some((e) => !e.noData)) return { dataset, entries };
+      onStage?.(`${dataset.label} has no weather here — trying a coarser model…`);
+    }
+    throw new Error("No weather model covers this route on that day");
   }
 
   /** Recompute a ride's per-point wind from the cache for display — no network. If

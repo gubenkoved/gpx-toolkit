@@ -17,6 +17,27 @@ humans and the assistant can read this file as a compressed history of decisions
 
 ---
 
+## add the Library: plan routes and ride them through the weather
+- **What:** A new **Library** tab (sidebar group "Plan"; under More on phones) keeps routes
+  you might ride one day: planned on a map (click for start and finish, drag points, click
+  the line for a via; legs follow the paths via the public BRouter server with Bike paths /
+  Quiet / Fast / Straight profiles; autosaved) or imported from GPX (kept as recorded, times
+  dropped). Opening a route simulates it: pick a day and drag the departure time, and each
+  ~250 m step reads the wind where and when you'd get there, so the line colours head/tail-
+  wind with wind arrows, and cards give ride time, arrival, the wind's cost vs still air,
+  head/tailwind share and rain; a strip charts the ride time for every half-hour departure
+  of the day. Speed = your still-air moving speed + tailwind factor × along-track wind;
+  both are editable and default to the Wind vs speed fit, which that view now saves. Routes
+  live in their own blob (in Export All as `routes.json`, cleared by Reset); export a route
+  as GPX.
+- **Why:** The weather tools only looked backwards (rides) or at a point (forecast); the
+  question before a ride is "when should I go, and how bad is it" along a whole route. The
+  weather is fetched once per route (the whole 16-day forecast, or the archive for a past
+  day) so changing the start time is an in-memory re-run and feels instant. Forecast
+  cell-days stay in memory rather than the wind cache, so a stale forecast can never later
+  pass for a ridden day's weather. Ride time is moving time on the flat: the fit has no
+  grade or stops in it, and the cards say "still air" to keep that honest.
+
 ## move the minimized activity into the top bar
 - **What:** Hiding the activity strip now leaves a chip at the head of the top bar's
   actions (the verb and "3/12", with the thread along its bottom edge; the count alone on

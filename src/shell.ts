@@ -7,7 +7,7 @@
  * `data-view` click through `setView`. This module only (1) reflects the active
  * view onto those links + the top-bar title, (2) owns the sidebar's rail/expanded
  * toggle, (3) opens/closes the phone "More" sheet, and (4) on phones *moves* the
- * sidebar's Research group and footer (Sources / Settings / connection state) into
+ * sidebar's Plan and Research groups and footer (Sources / Settings / connection state) into
  * that sheet — the same DOM nodes, re-parented on a media-query flip, so ids stay
  * unique and nothing is rendered twice. (The live activity tile stays at body level:
  * it is a fixed strip along the bottom of the main pane on every width.)
@@ -24,6 +24,7 @@ export const VIEW_TITLES: Record<ViewName, string> = {
   climate: "Wind rose",
   forecast: "Forecast",
   timeline: "Timeline",
+  library: "Library",
 };
 
 /** The two Weather views share one bottom-nav slot on phones. */
@@ -108,15 +109,18 @@ function setRail(rail: boolean): void {
 /** Re-parent the Research group + footer between the sidebar and the phone sheet. */
 function placeSharedNav(): void {
   const phone = !!phoneQuery?.matches;
+  const plan = document.getElementById("sbPlan");
   const research = document.getElementById("sbResearch");
   const foot = document.getElementById("sbFoot");
+  const rides = document.getElementById("sbRides");
   const sidebarNav = document.getElementById("viewTabs");
   const sidebar = document.getElementById("sidebar");
   const sheetBody = document.getElementById("moreBody");
-  if (!research || !foot || !sidebarNav || !sidebar || !sheetBody) return;
+  if (!plan || !research || !foot || !rides || !sidebarNav || !sidebar || !sheetBody) return;
   if (phone) {
-    sheetBody.append(research, foot);
+    sheetBody.append(plan, research, foot);
   } else {
+    rides.after(plan);
     sidebarNav.append(research);
     sidebar.append(foot);
     setMoreSheet(false);

@@ -315,6 +315,28 @@ describe("OpenMeteo client", () => {
     expect(entries[1].hourly.wind_speed_10m?.[0]).toBe(20);
   });
 
+  it("asks the live forecast for the days ahead a planned route needs", async () => {
+    const urls: string[] = [];
+    const now = Date.parse("2026-06-13T10:00:00Z");
+    const fetchFn = (url: string) => {
+      urls.push(url);
+      return Promise.resolve(okResponse([makeLoc(52, 13, "2026-06-12", 10, 180)]));
+    };
+    const om = new OpenMeteo({
+      fetch: fetchFn as typeof fetch,
+      now: () => now,
+      sleep: () => Promise.resolve(),
+    });
+    const forecast = { ...ERA5, id: "forecast" as const, forecast: true, models: undefined };
+    const cell = [{ latIdx: 520, lonIdx: 130, lat: 52, lon: 13 }];
+    await om.fetchWindMulti(forecast, cell, ["2026-06-12", "2026-06-13", "2026-06-17"]);
+    expect(urls[0]).toContain("past_days=3");
+    expect(urls[0]).toContain("forecast_days=5");
+    // Never past the model's horizon.
+    await om.fetchWindMulti(forecast, cell, ["2026-06-13", "2026-07-30"]);
+    expect(urls[1]).toContain("forecast_days=16");
+  });
+
   it("emits a negative-cache entry for a cell with no wind", async () => {
     const clock = fakeClock();
     const fetchFn = () =>

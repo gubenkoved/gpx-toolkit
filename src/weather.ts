@@ -95,6 +95,9 @@ const WIND_VARS = ["wind_speed_10m", "wind_direction_10m", "wind_gusts_10m"] as 
  *  Wind rose's decades of point history stay wind-only (smaller, and all it needs). */
 const WEATHER_VARS = ["precipitation", "temperature_2m", "cloud_cover"] as const;
 
+/** How many days ahead the live forecast reaches (Open-Meteo's maximum). */
+export const FORECAST_HORIZON_DAYS = 16;
+
 /** The archive (ERA5/ERA5-Land) lags real time by ~5 days; newer rides use forecast. */
 const ARCHIVE_LAG_DAYS = 5;
 /** CERRA's European reanalysis covers up to the end of June 2021. */
@@ -708,11 +711,15 @@ export class OpenMeteo {
     p.set("wind_speed_unit", "kmh");
     p.set("timezone", "GMT"); // UTC days → deterministic cache keys
     if (dataset.forecast) {
+      // Past days reach back to the oldest wanted day; forecast days reach forward to
+      // the newest one, so a planned ride's future days come in the same request.
       const nowMs = this.deps.now();
       const oldest = Date.parse(`${sorted[0]}T00:00:00Z`);
+      const newest = Date.parse(`${sorted[sorted.length - 1]}T00:00:00Z`);
       const pastDays = Math.min(92, Math.max(1, Math.ceil((nowMs - oldest) / 86_400_000) + 1));
+      const aheadDays = Math.ceil((newest - nowMs) / 86_400_000) + 1;
       p.set("past_days", String(pastDays));
-      p.set("forecast_days", "1");
+      p.set("forecast_days", String(Math.min(FORECAST_HORIZON_DAYS, Math.max(1, aheadDays))));
     } else {
       p.set("start_date", sorted[0]);
       p.set("end_date", sorted[sorted.length - 1]);

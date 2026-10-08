@@ -22,6 +22,7 @@ import { fmtKm, fmtKmDetail, fmtSpeed } from "./format";
 import { icon } from "./icons";
 import type { DateRange } from "./mapview";
 import { compareRidesByDateDesc, rideShortLabel } from "./parsing";
+import { saveSpeedFit } from "./route-sim";
 import { segmentDemo } from "./segment-demo";
 import type { LatLon } from "./track";
 import { escHtml, statNum } from "./ui";
@@ -80,6 +81,9 @@ type RideSegEntry = {
 };
 
 let deps!: WindSpeedDeps;
+
+/** Fewest segments a fit needs before the route simulator adopts it. */
+const MIN_FIT_SEGMENTS = 20;
 
 const segCacheByUid = new Map<string, RideSegEntry>();
 let analyticsSeq = 0;
@@ -700,6 +704,16 @@ async function runAnalyticsView(my: number, _opts: { fit?: boolean } = {}): Prom
   const ys = shown.map((s) => s.avgSpeedKmh);
   const w = shown.map((s) => s.distanceKm);
   const reg = linearRegression(xs, ys, w);
+  // The head/tailwind line is the rider's speed model: hand it to the route
+  // simulator (Library), which rides planned routes with it.
+  if (xAxis === "along" && shown.length >= MIN_FIT_SEGMENTS && reg.intercept > 0)
+    saveSpeedFit({
+      calmKmh: reg.intercept,
+      slope: reg.slope,
+      r2: reg.r2,
+      segments: shown.length,
+      fittedAt: Date.now(),
+    });
 
   // Dot colouring: tint each dot by the chosen wind dimension's magnitude, on a ramp
   // normalised to the strongest value in view (floored so a near-still chart doesn't
