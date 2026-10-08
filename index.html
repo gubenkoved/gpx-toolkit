@@ -66,7 +66,7 @@
     </div>
     <div class="sb-group" id="sbPlan">
       <div class="sb-sec">Plan</div>
-      <button class="navlink" data-view="library" role="tab"><svg class="mi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="6" cy="18" r="2.2"/><circle cx="18" cy="6" r="2.2"/><path d="M8.2 18H15a3 3 0 0 0 0-6H9a3 3 0 0 1 0-6h6.8"/></svg><span>Library</span></button>
+      <button class="navlink" data-view="routes" role="tab"><svg class="mi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="6" cy="18" r="2.2"/><circle cx="18" cy="6" r="2.2"/><path d="M8.2 18H15a3 3 0 0 0 0-6H9a3 3 0 0 1 0-6h6.8"/></svg><span>Routes</span></button>
     </div>
     <div class="sb-group">
       <div class="sb-sec">Weather</div>
@@ -543,15 +543,15 @@
     <small class="fc-credit fc-credit-footer">Forecast delivery by <a href="https://open-meteo.com/" target="_blank" rel="noopener noreferrer">Open-Meteo</a>; each row names its originating weather service.</small>
   </div>
 
-  <div id="libraryView" class="view-wide hidden">
-    <div class="lib-list" id="libList"></div>
-    <div class="lib-plan hidden" id="libPlan">
-      <div class="lib-main">
-        <div id="libMap"></div>
-        <div class="map-banner hidden" id="libBanner" aria-live="polite"></div>
-        <div class="map-banner map-banner--corner hidden" id="libReadout" aria-live="polite"></div>
+  <div id="routesView" class="view-wide hidden">
+    <div class="rt-list" id="rtList"></div>
+    <div class="rt-plan hidden" id="rtPlan">
+      <div class="rt-main">
+        <div id="rtMap"></div>
+        <div class="map-banner hidden" id="rtBanner" aria-live="polite"></div>
+        <div class="map-banner map-banner--corner hidden" id="rtReadout" aria-live="polite"></div>
       </div>
-      <aside class="panel lib-side" id="libSide"></aside>
+      <aside class="panel rt-side" id="rtSide"></aside>
     </div>
     <input type="file" id="routeFile" accept=".gpx,application/gpx+xml" multiple hidden />
   </div>

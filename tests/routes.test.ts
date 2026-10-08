@@ -3,7 +3,7 @@ import { memoryBackend } from "../src/kv";
 import {
   climbM,
   newRoute,
-  parseLibrary,
+  parseRoutes,
   RouteStore,
   routeFromGpx,
   routeStats,
@@ -42,7 +42,7 @@ function planned() {
   return r;
 }
 
-describe("library routes", () => {
+describe("routes", () => {
   it("joins legs into one line without repeating the junction", () => {
     const t = routeTrack(planned());
     expect(t.points).toHaveLength(4);
@@ -82,7 +82,7 @@ describe("library routes", () => {
     expect(t.points[t.points.length - 1]).toEqual(pts[100]);
   });
 
-  it("persists and merges the library", async () => {
+  it("persists and merges saved routes", async () => {
     const kv = memoryBackend();
     const a = new RouteStore(kv);
     await a.load();
@@ -104,6 +104,6 @@ describe("library routes", () => {
     expect(await b.importJson(JSON.stringify(older))).toBe(1);
     expect(b.get(r.id)?.name).toBe("Coast loop");
     expect(b.get("route-other")?.name).toBe("Other");
-    expect(parseLibrary("not json")).toEqual([]);
+    expect(parseRoutes("not json")).toEqual([]);
   });
 });

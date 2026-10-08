@@ -64,7 +64,7 @@ groups, filters, tags, batch actions and GPX download.
   </tr>
 </table>
 
-**Library** – plan routes on the map (they follow the bike paths) or import GPX files, then
+**Routes** – plan routes on the map (they follow the bike paths) or import GPX files, then
 pick a departure: the route is ridden through the forecast with your own wind-vs-speed
 profile, so you see the ride time, arrival, headwind and rain for any start time, and
 which hour of the day is fastest.

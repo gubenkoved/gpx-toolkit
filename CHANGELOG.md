@@ -17,8 +17,8 @@ humans and the assistant can read this file as a compressed history of decisions
 
 ---
 
-## add the Library: plan routes and ride them through the weather
-- **What:** A new **Library** tab (sidebar group "Plan"; under More on phones) keeps routes
+## add Routes: plan routes and ride them through the weather
+- **What:** A new **Routes** tab (sidebar group "Plan"; under More on phones) keeps routes
   you might ride one day: planned on a map (click for start and finish, drag points, click
   the line for a via; legs follow the paths via the public BRouter server with Bike paths /
   Quiet / Fast / Straight profiles; autosaved) or imported from GPX (kept as recorded, times
@@ -36,7 +36,8 @@ humans and the assistant can read this file as a compressed history of decisions
   day) so changing the start time is an in-memory re-run and feels instant. Forecast
   cell-days stay in memory rather than the wind cache, so a stale forecast can never later
   pass for a ridden day's weather. Ride time is moving time on the flat: the fit has no
-  grade or stops in it, and the cards say "still air" to keep that honest.
+  grade or stops in it, and the cards say "still air" to keep that honest. Named "Routes",
+  not "Library": the app already calls the ride collection "your library".
 
 ## move the minimized activity into the top bar
 - **What:** Hiding the activity strip now leaves a chip at the head of the top bar's

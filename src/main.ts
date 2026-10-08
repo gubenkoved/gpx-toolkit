@@ -160,12 +160,6 @@ import {
   idbWindBlobBackend,
   memoryBackend,
 } from "./kv";
-import {
-  initLibraryView,
-  leaveLibraryView,
-  mountLibraryView,
-  resetLibraryView,
-} from "./library-view";
 import { parseLocationHistory } from "./loc-parse";
 import { LocationHistoryStore } from "./loc-store";
 import { effect, signal } from "./reactive";
@@ -192,6 +186,12 @@ import {
   writeRoute,
 } from "./router";
 import { RouteStore } from "./routes";
+import {
+  initRoutesView,
+  leaveRoutesView,
+  mountRoutesView,
+  resetRoutesView,
+} from "./routes-view";
 import { initSegSliding } from "./seg";
 import { initShell, lastWeatherView, setViewSubtitle, syncShell } from "./shell";
 import type { SourceFactory } from "./source";
@@ -725,7 +725,7 @@ function goGpx(): void {
 let locStore: LocationHistoryStore | null = null;
 let locLoading: Promise<LocationHistoryStore> | null = null;
 
-/** The route Library: its own blob on the key/value store, never mixed into rides. */
+/** The saved routes: their own blob on the key/value store, never mixed into rides. */
 let routeStore: RouteStore | null = null;
 async function ensureRouteStore(): Promise<RouteStore> {
   if (!routeStore) {
@@ -1590,12 +1590,12 @@ function applyView(): void {
   const isClimate = activeView() === "climate";
   const isForecast = activeView() === "forecast";
   const isTimeline = activeView() === "timeline";
-  const isLibrary = activeView() === "library";
+  const isRoutes = activeView() === "routes";
   document
     .getElementById("exploreView")
     ?.classList.toggle(
       "hidden",
-      isMap || isStats || isAnalytics || isClimate || isForecast || isTimeline || isLibrary,
+      isMap || isStats || isAnalytics || isClimate || isForecast || isTimeline || isRoutes,
     );
   document.getElementById("mapView")?.classList.toggle("hidden", !isMap);
   document.getElementById("statsView")?.classList.toggle("hidden", !isStats);
@@ -1603,7 +1603,7 @@ function applyView(): void {
   document.getElementById("climateView")?.classList.toggle("hidden", !isClimate);
   document.getElementById("forecastView")?.classList.toggle("hidden", !isForecast);
   document.getElementById("timelineView")?.classList.toggle("hidden", !isTimeline);
-  document.getElementById("libraryView")?.classList.toggle("hidden", !isLibrary);
+  document.getElementById("routesView")?.classList.toggle("hidden", !isRoutes);
   if (!isMap && document.body.classList.contains("map-expanded")) setMapExpanded(false);
   if (!isStats && document.body.classList.contains("heat-expanded")) setHeatExpanded(false);
   if (!isMap && mapAreaSelect.isArmed()) mapAreaSelect.setMode(false);
@@ -1614,7 +1614,7 @@ function applyView(): void {
   if (!isClimate) leaveClimateView();
   if (!isForecast) leaveForecastView();
   if (!isTimeline) leaveTimelineView();
-  if (!isLibrary) leaveLibraryView();
+  if (!isRoutes) leaveRoutesView();
   // The subtitle belongs to the view: Explore writes its ride count on render, the
   // Wind rose its dataset line on mount; every other view shows none.
   if (activeView() !== "explore" && !isClimate) setViewSubtitle("");
@@ -2538,7 +2538,7 @@ function render(): void {
   else if (activeView() === "climate") mountClimateView();
   else if (activeView() === "forecast") void mountForecastView();
   else if (activeView() === "timeline") mountTimelineView();
-  else if (activeView() === "library") mountLibraryView();
+  else if (activeView() === "routes") mountRoutesView();
   else mountMaps();
   // The consolidated actions menu lives in static markup (not rebuilt here), so
   // sync its open state from the shared `openMenu` flag.
@@ -3055,7 +3055,7 @@ function importRides(file: File): void {
               new TextDecoder().decode(routesEntry.bytes),
             )
           : 0;
-        if (routesImported) resetLibraryView();
+        if (routesImported) resetRoutesView();
         const msg =
           `Imported — ${result.ridesImported} ride${result.ridesImported === 1 ? "" : "s"}, ` +
           `${result.gpxCacheImported} cached GPX${result.gpxCacheImported === 1 ? "" : "s"}, ` +
@@ -3063,7 +3063,7 @@ function importRides(file: File): void {
           `${result.windImported} wind cache entries, ` +
           `${forecastImported} forecast entries` +
           (routesImported
-            ? `, ${routesImported} library route${routesImported === 1 ? "" : "s"}.`
+            ? `, ${routesImported} planned route${routesImported === 1 ? "" : "s"}.`
             : ".");
         toast(msg);
       } else {
@@ -3133,7 +3133,7 @@ async function resetEverything(): Promise<void> {
   await ensureForecastStore().then((s) => s.clearAll());
   resetForecastViewData(true);
   await ensureRouteStore().then((s) => s.clear());
-  resetLibraryView();
+  resetRoutesView();
   setActiveView("explore");
   writeRoute({ view: "explore" }, "replace");
   applyView();
@@ -4180,7 +4180,7 @@ initForecastView({
   onPointChange: (point) => onRoutedPointChange("forecast", point),
 });
 
-initLibraryView({
+initRoutesView({
   getStore: ensureRouteStore,
   routeWeather: (points, days, onStage) => controller.routeWeather(points, days, onStage),
   searchPlaces: (query, signal) => forecastProvider.searchLocations(query, signal),

@@ -705,7 +705,7 @@ async function runAnalyticsView(my: number, _opts: { fit?: boolean } = {}): Prom
   const w = shown.map((s) => s.distanceKm);
   const reg = linearRegression(xs, ys, w);
   // The head/tailwind line is the rider's speed model: hand it to the route
-  // simulator (Library), which rides planned routes with it.
+  // simulator (Routes), which rides planned routes with it.
   if (xAxis === "along" && shown.length >= MIN_FIT_SEGMENTS && reg.intercept > 0)
     saveSpeedFit({
       calmKmh: reg.intercept,

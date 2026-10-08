@@ -10182,18 +10182,18 @@ body.sb-rail .sb-toggle .mi {
   }
 }
 
-/* === Library (route planner + ride simulator) ===============================
-   Two screens in #libraryView: the list of routes (cards with a drawn shape) and
+/* === Routes (route planner + ride simulator) ===============================
+   Two screens in #routesView: the list of routes (cards with a drawn shape) and
    an open route — the map beside a side panel, laid out like the Wind rose view
    (.cl-wrap): stacked under the map on narrow screens. */
-.lib-list {
+.rt-list {
   max-width: 1100px;
 }
-.lib-list.hidden,
-.lib-plan.hidden {
+.rt-list.hidden,
+.rt-plan.hidden {
   display: none;
 }
-.lib-list-head {
+.rt-list-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -10201,20 +10201,20 @@ body.sb-rail .sb-toggle .mi {
   gap: 10px 16px;
   margin-bottom: 14px;
 }
-.lib-list-intro {
+.rt-list-intro {
   flex: 1 1 320px;
   color: var(--muted);
   font-size: 13px;
   line-height: 1.5;
 }
-.lib-list-intro b {
+.rt-list-intro b {
   color: var(--text);
 }
-.lib-list-acts {
+.rt-list-acts {
   display: flex;
   gap: 8px;
 }
-.lib-empty {
+.rt-empty {
   padding: 18px;
   color: var(--muted);
   font-size: 13px;
@@ -10222,15 +10222,15 @@ body.sb-rail .sb-toggle .mi {
   border: 1px dashed var(--line);
   border-radius: var(--radius);
 }
-.lib-empty b {
+.rt-empty b {
   color: var(--text);
 }
-.lib-grid {
+.rt-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
   gap: 10px;
 }
-.lib-card {
+.rt-card {
   display: flex;
   align-items: center;
   gap: 12px;
@@ -10243,59 +10243,59 @@ body.sb-rail .sb-toggle .mi {
   font: inherit;
   cursor: pointer;
 }
-.lib-card:hover {
+.rt-card:hover {
   background: var(--accent-wash);
   border-color: var(--accent-dim);
 }
-.lib-shape {
+.rt-shape {
   flex: 0 0 auto;
   width: 56px;
   height: 56px;
   border-radius: 8px;
   background: var(--map-bg);
 }
-.lib-shape path {
+.rt-shape path {
   fill: none;
   stroke: var(--accent);
   stroke-width: 2.2;
   stroke-linecap: round;
   stroke-linejoin: round;
 }
-.lib-card-body {
+.rt-card-body {
   display: flex;
   flex-direction: column;
   gap: 2px;
   min-width: 0;
 }
-.lib-card-name {
+.rt-card-name {
   font-size: 13.5px;
   font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.lib-card-meta,
-.lib-card-when {
+.rt-card-meta,
+.rt-card-when {
   font-size: 11.5px;
   color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
 
-.lib-plan {
+.rt-plan {
   display: grid;
   grid-template-columns: 1fr 380px;
   gap: 12px;
   height: calc(100vh - var(--chrome-h));
   min-height: 460px;
 }
-.lib-main {
+.rt-main {
   position: relative;
   min-width: 0;
   display: flex;
   flex-direction: column;
   isolation: isolate;
 }
-#libMap {
+#rtMap {
   flex: 1;
   min-height: 0;
   border-radius: var(--radius);
@@ -10304,49 +10304,49 @@ body.sb-rail .sb-toggle .mi {
   background: var(--map-bg);
   cursor: crosshair;
 }
-#libMap .leaflet-container {
+#rtMap .leaflet-container {
   height: 100%;
   width: 100%;
   background: var(--map-bg);
 }
 /* Same dark, desaturated basemap treatment as every other map. */
-#libMap .leaflet-tile-pane {
+#rtMap .leaflet-tile-pane {
   filter: var(--tile-filter);
 }
-#libMap .leaflet-grab {
+#rtMap .leaflet-grab {
   cursor: crosshair;
 }
-.lib-side {
+.rt-side {
   padding: 14px;
   overflow-y: auto;
   min-width: 0;
 }
-.lib-head {
+.rt-head {
   display: flex;
   align-items: center;
   gap: 8px;
   margin-bottom: 12px;
 }
-.lib-head .lib-name {
+.rt-head .rt-name {
   flex: 1 1 auto;
   min-width: 0;
   font-weight: 600;
 }
-.lib-sec + .lib-sec {
+.rt-sec + .rt-sec {
   margin-top: 18px;
   padding-top: 14px;
   border-top: 1px solid var(--line);
 }
-.lib-profile {
+.rt-profile {
   width: 100%;
 }
-.lib-profile.hidden {
+.rt-profile.hidden {
   display: none;
 }
-.lib-profile button {
+.rt-profile button {
   flex: 1 1 0;
 }
-.lib-wps {
+.rt-wps {
   list-style: none;
   margin: 10px 0 0;
   padding: 0;
@@ -10354,7 +10354,7 @@ body.sb-rail .sb-toggle .mi {
   flex-direction: column;
   gap: 2px;
 }
-.lib-wp-row {
+.rt-wp-row {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -10362,13 +10362,13 @@ body.sb-rail .sb-toggle .mi {
   border-radius: 8px;
   font-size: 12.5px;
 }
-.lib-wp-row:hover {
+.rt-wp-row:hover {
   background: var(--surface-soft);
 }
-.lib-wp-name {
+.rt-wp-name {
   color: var(--text);
 }
-.lib-wp-at {
+.rt-wp-at {
   flex: 1 1 auto;
   min-width: 0;
   color: var(--muted);
@@ -10378,12 +10378,12 @@ body.sb-rail .sb-toggle .mi {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.lib-wp-row .ms-clear {
+.rt-wp-row .ms-clear {
   display: inline-flex;
   align-items: center;
 }
 /* Waypoint badge — in the list and as the map marker. */
-.lib-wp {
+.rt-wp {
   display: inline-grid;
   place-items: center;
   width: 22px;
@@ -10397,29 +10397,29 @@ body.sb-rail .sb-toggle .mi {
   font-weight: 700;
   line-height: 1;
 }
-.lib-wp--start {
+.rt-wp--start {
   background: var(--green);
 }
-.lib-wp--via {
+.rt-wp--via {
   background: var(--panel2);
   color: var(--text);
   border-color: var(--accent);
 }
-.lib-wp-marker {
+.rt-wp-marker {
   background: transparent;
   border: 0;
 }
-.lib-wp-marker .lib-wp {
+.rt-wp-marker .rt-wp {
   width: 24px;
   height: 24px;
   box-shadow: var(--shadow-float);
   cursor: grab;
 }
-.lib-arrow {
+.rt-arrow {
   background: transparent;
   border: 0;
 }
-.lib-arrow svg {
+.rt-arrow svg {
   display: block;
   fill: none;
   stroke: currentColor;
@@ -10428,67 +10428,67 @@ body.sb-rail .sb-toggle .mi {
   stroke-linejoin: round;
   filter: drop-shadow(0 0 1.5px var(--map-bg));
 }
-.lib-hint {
+.rt-hint {
   margin: 8px 0 0;
 }
-.lib-acts {
+.rt-acts {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
   margin-top: 10px;
 }
-.lib-depart {
+.rt-depart {
   display: flex;
   align-items: center;
   gap: 4px;
 }
-.lib-daynav {
+.rt-daynav {
   width: var(--tap-min);
   height: var(--tap-min);
   padding: 0;
   display: inline-grid;
   place-items: center;
 }
-.lib-day {
+.rt-day {
   flex: 0 1 auto;
   min-width: 0;
 }
-.lib-time {
+.rt-time {
   margin-left: auto;
   font-size: 20px;
   font-weight: 650;
   color: var(--text);
   font-variant-numeric: tabular-nums;
 }
-.lib-time-slider {
+.rt-time-slider {
   width: 100%;
   margin: 10px 0 6px;
 }
-.lib-sweep canvas {
+.rt-sweep canvas {
   display: block;
   width: 100%;
   height: 74px;
   cursor: pointer;
   touch-action: none;
 }
-.lib-sweep-read {
+.rt-sweep-read {
   margin: 4px 0 12px;
   font-size: 11.5px;
   color: var(--muted);
 }
-.lib-sweep-read b {
+.rt-sweep-read b {
   color: var(--text);
 }
-.lib-cards {
+.rt-cards {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px 10px;
 }
-.lib-speed {
+.rt-speed {
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
-.lib-field {
+.rt-field {
   display: grid;
   grid-template-columns: 1fr 84px auto;
   align-items: center;
@@ -10496,68 +10496,68 @@ body.sb-rail .sb-toggle .mi {
   font-size: 12.5px;
   color: var(--text);
 }
-.lib-field input {
+.rt-field input {
   width: 84px;
   padding-top: 5px;
   padding-bottom: 5px;
   text-align: right;
 }
-.lib-unit {
+.rt-unit {
   color: var(--muted);
   font-size: 11.5px;
   min-width: 34px;
 }
-.lib-speed-src {
+.rt-speed-src {
   margin-top: 10px;
   font-size: 12px;
 }
 
 @media (max-width: 1000px) {
   /* Stack the panel under the map; the page scrolls. */
-  .lib-plan {
+  .rt-plan {
     grid-template-columns: 1fr;
     grid-template-rows: 52vh minmax(0, auto);
     height: auto;
     min-height: 0;
   }
-  .lib-side {
+  .rt-side {
     overflow: visible;
   }
 }
 @media (max-width: 560px) {
-  .lib-grid {
+  .rt-grid {
     grid-template-columns: 1fr;
   }
-  .lib-cards {
+  .rt-cards {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-  .lib-list-acts {
+  .rt-list-acts {
     width: 100%;
   }
-  .lib-list-acts button {
+  .rt-list-acts button {
     flex: 1 1 0;
   }
 }
-.lib-find {
+.rt-find {
   position: relative;
   margin-bottom: 10px;
 }
-.lib-find.hidden {
+.rt-find.hidden {
   display: none;
 }
-.lib-find input {
+.rt-find input {
   width: 100%;
 }
-.lib-find-results {
+.rt-find-results {
   display: flex;
   flex-direction: column;
   gap: 2px;
   margin-top: 4px;
 }
-.lib-find-results:empty {
+.rt-find-results:empty {
   display: none;
 }
-.lib-place {
+.rt-place {
   display: flex;
   align-items: baseline;
   gap: 6px;
@@ -10571,11 +10571,11 @@ body.sb-rail .sb-toggle .mi {
   font-size: 12.5px;
   cursor: pointer;
 }
-.lib-place:hover {
+.rt-place:hover {
   background: var(--surface-hover);
   border-color: var(--border-hover);
 }
-.lib-place .bi {
+.rt-place .bi {
   align-self: center;
   width: 14px;
   height: 14px;

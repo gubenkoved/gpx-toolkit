@@ -15,7 +15,7 @@ describe("hash routes", () => {
       "climate",
       "forecast",
       "timeline",
-      "library",
+      "routes",
     ] as const) {
       expect(parseRoute(formatRoute({ view }))).toEqual({ view });
     }

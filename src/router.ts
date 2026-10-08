@@ -18,7 +18,7 @@ const pathToView: Record<string, ViewName> = {
   "wind-rose": "climate",
   forecast: "forecast",
   timeline: "timeline",
-  library: "library",
+  routes: "routes",
 };
 
 const viewToPath: Record<ViewName, string> = {
@@ -29,7 +29,7 @@ const viewToPath: Record<ViewName, string> = {
   climate: "wind-rose",
   forecast: "forecast",
   timeline: "timeline",
-  library: "library",
+  routes: "routes",
 };
 
 export function validRoutePoint(point: RoutePoint): boolean {

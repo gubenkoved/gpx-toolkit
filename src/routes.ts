@@ -1,5 +1,5 @@
 /**
- * GPX Toolkit — the route Library: planned and imported routes.
+ * GPX Toolkit — Routes: planned and imported routes.
  *
  * A route is a ride you haven't ridden: a shape with no dates, timestamps or
  * telemetry. Two kinds share one model:
@@ -8,7 +8,7 @@
  *  - **imported**: a GPX file's track, kept as one fixed leg between its first and
  *    last point (its geometry isn't re-routable).
  *
- * The Library lives in its own versioned blob (`gpx-toolkit-routes:all`) on the app's
+ * Routes live in their own versioned blob (`gpx-toolkit-routes:all`) on the app's
  * key/value store, separate from the ride state, so routes never mix into ride
  * filters, stats or the ride backup; Export All carries it as `routes.json`. Leg
  * geometry is stored as an encoded polyline plus rounded elevations, so a long route
@@ -181,7 +181,7 @@ export function thinTrack(
 
 /**
  * An imported route from a GPX file's track (or route points): one fixed leg, thinned
- * to ~15 m spacing, elevation kept. Timestamps are dropped on purpose: a library
+ * to ~15 m spacing, elevation kept. Timestamps are dropped on purpose: a planned
  * route is a shape, not a ride. Null when the file has fewer than two points.
  */
 export function routeFromGpx(
@@ -224,7 +224,7 @@ interface StoredRoute {
   legs: StoredLeg[];
   imported?: boolean;
 }
-interface StoredLibrary {
+interface StoredRoutes {
   schema: number;
   routes: StoredRoute[];
 }
@@ -272,20 +272,20 @@ function decodeRoute(s: StoredRoute): PlannedRoute | null {
   };
 }
 
-/** Parse a stored/exported library blob; tolerant of junk (returns what decodes). */
-export function parseLibrary(text: string): PlannedRoute[] {
+/** Parse a stored/exported routes blob; tolerant of junk (returns what decodes). */
+export function parseRoutes(text: string): PlannedRoute[] {
   let raw: unknown;
   try {
     raw = JSON.parse(text);
   } catch {
     return [];
   }
-  const routes = (raw as StoredLibrary)?.routes;
+  const routes = (raw as StoredRoutes)?.routes;
   if (!Array.isArray(routes)) return [];
   return routes.map(decodeRoute).filter((r): r is PlannedRoute => r != null);
 }
 
-/** The Library: every saved route, in memory, written through to the key/value store. */
+/** Every saved route, in memory, written through to the key/value store. */
 export class RouteStore {
   private routes = new Map<string, PlannedRoute>();
   private loaded = false;
@@ -295,7 +295,7 @@ export class RouteStore {
   async load(): Promise<void> {
     if (this.loaded) return;
     const text = await this.kv.get(STORE_KEY).catch(() => null);
-    this.routes = new Map(text ? parseLibrary(text).map((r) => [r.id, r]) : []);
+    this.routes = new Map(text ? parseRoutes(text).map((r) => [r.id, r]) : []);
     this.loaded = true;
   }
 
@@ -326,17 +326,17 @@ export class RouteStore {
     await this.kv.del(STORE_KEY);
   }
 
-  /** The whole library as JSON (the stored format), for Export All. */
+  /** Every route as JSON (the stored format), for Export All. */
   exportJson(): string {
-    const lib: StoredLibrary = { schema: SCHEMA, routes: this.all().map(encodeRoute) };
+    const lib: StoredRoutes = { schema: SCHEMA, routes: this.all().map(encodeRoute) };
     return JSON.stringify(lib);
   }
 
-  /** Merge an exported library: new ids are added, a known id keeps the newer edit.
+  /** Merge exported routes: new ids are added, a known id keeps the newer edit.
    *  Returns how many routes were added or updated. */
   async importJson(text: string): Promise<number> {
     let n = 0;
-    for (const r of parseLibrary(text)) {
+    for (const r of parseRoutes(text)) {
       const have = this.routes.get(r.id);
       if (have && have.updated >= r.updated) continue;
       this.routes.set(r.id, r);

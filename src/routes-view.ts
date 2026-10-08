@@ -1,5 +1,5 @@
 /**
- * GPX Toolkit — the Library view (`#libraryView`): routes you might ride one day,
+ * GPX Toolkit — the Routes view (`#routesView`): routes you might ride one day,
  * a planner to draw them, and a simulator that rides them through the weather.
  *
  * Two screens in one view:
@@ -17,7 +17,7 @@
  *    day range, so dragging the departure re-simulates in memory, instantly.
  *
  * Departure times are wall-clock times at the route's start (its time zone via
- * tz.ts). Behind a `LibraryDeps` seam: the route store, the controller's
+ * tz.ts). Behind a `RoutesViewDeps` seam: the route store, the controller's
  * `routeWeather`, toasts and the file save are injected.
  */
 
@@ -70,8 +70,8 @@ import { escHtml, statNum } from "./ui";
 import { type CellDayWind, type Dataset, FORECAST_HORIZON_DAYS } from "./weather";
 import { alongColor } from "./windspeed";
 
-export interface LibraryDeps {
-  /** The route Library (loaded on first use). */
+export interface RoutesViewDeps {
+  /** The saved routes (loaded on first use). */
   getStore(): Promise<RouteStore>;
   /** Hourly weather of the grid cells along a line for the given UTC days. */
   routeWeather(
@@ -88,13 +88,13 @@ export interface LibraryDeps {
   homePoint(): LatLon | null;
 }
 
-let deps: LibraryDeps;
+let deps: RoutesViewDeps;
 let store: RouteStore | null = null;
 
 // -- view state -------------------------------------------------------------- //
 
-const OPEN_KEY = "gpx_toolkit.library.open";
-const PROFILE_KEY = "gpx_toolkit.library.profile";
+const OPEN_KEY = "gpx_toolkit.routes.open";
+const PROFILE_KEY = "gpx_toolkit.routes.profile";
 const DAY_MS = 86_400_000;
 /** Departure slider step and the sweep's spacing (minutes). */
 const TIME_STEP_MIN = 15;
@@ -143,9 +143,9 @@ const $ = (id: string): HTMLElement | null => document.getElementById(id);
 // Lifecycle
 // --------------------------------------------------------------------------- //
 
-export function initLibraryView(d: LibraryDeps): void {
+export function initRoutesView(d: RoutesViewDeps): void {
   deps = d;
-  const root = $("libraryView");
+  const root = $("routesView");
   if (!root) return;
   root.addEventListener("click", onClick);
   root.addEventListener("input", onInput);
@@ -156,7 +156,7 @@ export function initLibraryView(d: LibraryDeps): void {
     input.value = "";
     if (files.length) void importFiles(files);
   });
-  const sweepCanvas = $("libSweep") as HTMLCanvasElement | null;
+  const sweepCanvas = $("rtSweep") as HTMLCanvasElement | null;
   sweepCanvas?.addEventListener("pointerdown", (e) => {
     sweepCanvas.setPointerCapture(e.pointerId);
     pickFromSweep(e);
@@ -169,7 +169,7 @@ export function initLibraryView(d: LibraryDeps): void {
   });
 }
 
-export function mountLibraryView(): void {
+export function mountRoutesView(): void {
   if (!deps) return;
   // The app re-mounts the active view on every state change (a job ticking, rides
   // syncing); nothing here depends on ride state, so only a theme change matters.
@@ -193,13 +193,13 @@ export function mountLibraryView(): void {
   })();
 }
 
-export function leaveLibraryView(): void {
+export function leaveRoutesView(): void {
   mounted = false;
   closeRouteIfEmpty();
 }
 
-/** Forget the cached library (after a reset or a backup import). */
-export function resetLibraryView(): void {
+/** Forget the cached routes (after a reset or a backup import). */
+export function resetRoutesView(): void {
   route = null;
   store = null;
   weather = null;
@@ -208,13 +208,13 @@ export function resetLibraryView(): void {
   clearMapLayers();
   if (mounted) {
     mounted = false;
-    mountLibraryView();
+    mountRoutesView();
   }
 }
 
 function render(): void {
-  const listEl = $("libList");
-  const planEl = $("libPlan");
+  const listEl = $("rtList");
+  const planEl = $("rtPlan");
   listEl?.classList.toggle("hidden", !!route);
   planEl?.classList.toggle("hidden", !route);
   if (route) {
@@ -232,20 +232,20 @@ function render(): void {
 // --------------------------------------------------------------------------- //
 
 function renderList(): void {
-  const el = $("libList");
+  const el = $("rtList");
   if (!el || !store) return;
   const routes = store.all();
   const head =
-    `<div class="lib-list-head">` +
-    `<div class="lib-list-intro"><b>Routes you might ride one day.</b> Plan one on the map or ` +
+    `<div class="rt-list-head">` +
+    `<div class="rt-list-intro"><b>Routes you might ride one day.</b> Plan one on the map or ` +
     `import a GPX file, then pick a departure to see how the wind would treat you.</div>` +
-    `<div class="lib-list-acts">` +
-    `<button class="small" data-lib="new">${icon("plus")}New route</button>` +
-    `<button class="small ghost" data-lib="import">${icon("import")}Import GPX</button>` +
+    `<div class="rt-list-acts">` +
+    `<button class="small" data-rt="new">${icon("plus")}New route</button>` +
+    `<button class="small ghost" data-rt="import">${icon("import")}Import GPX</button>` +
     `</div></div>`;
   const cards = routes.length
-    ? `<div class="lib-grid">${routes.map(routeCard).join("")}</div>`
-    : `<div class="lib-empty">Your library is empty. <b>New route</b> opens the planner; ` +
+    ? `<div class="rt-grid">${routes.map(routeCard).join("")}</div>`
+    : `<div class="rt-empty">No routes yet. <b>New route</b> opens the planner; ` +
       `<b>Import GPX</b> adds a route someone shared or you drew elsewhere.</div>`;
   el.innerHTML = head + cards;
 }
@@ -262,18 +262,18 @@ function routeCard(r: PlannedRoute): string {
   });
   const climb = s.ascentM != null ? ` · ↑ ${fmtElevation(s.ascentM)}` : "";
   return (
-    `<button type="button" class="lib-card" data-route="${escHtml(r.id)}">` +
+    `<button type="button" class="rt-card" data-route="${escHtml(r.id)}">` +
     `${routeShapeSvg(r)}` +
-    `<span class="lib-card-body"><span class="lib-card-name">${escHtml(routeLabel(r))}</span>` +
-    `<span class="lib-card-meta">${fmtKmDetail(s.distanceKm)}${climb} · ${escHtml(kind)}</span>` +
-    `<span class="lib-card-when">Edited ${escHtml(edited)}</span></span></button>`
+    `<span class="rt-card-body"><span class="rt-card-name">${escHtml(routeLabel(r))}</span>` +
+    `<span class="rt-card-meta">${fmtKmDetail(s.distanceKm)}${climb} · ${escHtml(kind)}</span>` +
+    `<span class="rt-card-when">Edited ${escHtml(edited)}</span></span></button>`
   );
 }
 
 /** A small, static sketch of a route's shape (no map, no tiles). */
 function routeShapeSvg(r: PlannedRoute): string {
   const pts = routeTrack(r).points;
-  if (pts.length < 2) return `<svg class="lib-shape" viewBox="0 0 64 64"></svg>`;
+  if (pts.length < 2) return `<svg class="rt-shape" viewBox="0 0 64 64"></svg>`;
   const midLat = (pts[0][0] * Math.PI) / 180;
   const kx = Math.cos(midLat);
   let minX = Infinity;
@@ -300,7 +300,7 @@ function routeShapeSvg(r: PlannedRoute): string {
   }
   const [elat, elon] = pts[pts.length - 1];
   d += `L${(ox + (elon * kx - minX) * sc).toFixed(1)} ${(oy + (maxY - elat) * sc).toFixed(1)}`;
-  return `<svg class="lib-shape" viewBox="0 0 64 64" aria-hidden="true"><path d="${d}"/></svg>`;
+  return `<svg class="rt-shape" viewBox="0 0 64 64" aria-hidden="true"><path d="${d}"/></svg>`;
 }
 
 async function importFiles(files: File[]): Promise<void> {
@@ -325,8 +325,8 @@ async function importFiles(files: File[]): Promise<void> {
   if (added.length)
     deps.toast(
       added.length === 1
-        ? `Added "${routeLabel(added[0])}" to the library.`
-        : `Added ${added.length} routes to the library.`,
+        ? `Added "${routeLabel(added[0])}" to your routes.`
+        : `Added ${added.length} routes.`,
     );
   if (failed.length)
     deps.toast(
@@ -390,7 +390,7 @@ async function deleteRoute(): Promise<void> {
   const r = route;
   const ok = await confirmDialog({
     title: "Delete route?",
-    body: `“${routeLabel(r)}” is removed from the library on this device.`,
+    body: `“${routeLabel(r)}” is removed from your routes on this device.`,
     confirmLabel: "Delete",
   });
   if (!ok) return;
@@ -709,32 +709,32 @@ function runSim(): void {
 // --------------------------------------------------------------------------- //
 
 function renderSide(): void {
-  const side = $("libSide");
+  const side = $("rtSide");
   if (!side || !route) return;
   if (!side.dataset.built) {
     side.dataset.built = "1";
     side.innerHTML = sideSkeleton();
   }
   const r = route;
-  const name = $("libName") as HTMLInputElement | null;
+  const name = $("rtName") as HTMLInputElement | null;
   if (name && document.activeElement !== name) name.value = r.name;
   if (name) name.placeholder = routeLabel(r);
   const s = routeStats(r);
-  const statsEl = $("libStats");
+  const statsEl = $("rtStats");
   if (statsEl)
     statsEl.textContent =
       r.waypoints.length >= 2
         ? `${fmtKmDetail(s.distanceKm)}${s.ascentM != null ? ` · ↑ ${fmtElevation(s.ascentM)} ↓ ${fmtElevation(s.descentM ?? 0)}` : ""}`
         : "";
-  const prof = $("libProfile");
+  const prof = $("rtProfile");
   prof?.classList.toggle("hidden", !!r.imported);
-  $("libFindWrap")?.classList.toggle("hidden", !!r.imported);
+  $("rtFindWrap")?.classList.toggle("hidden", !!r.imported);
   prof?.querySelectorAll<HTMLButtonElement>("button[data-profile]").forEach((b) => {
     b.classList.toggle("active", b.dataset.profile === r.profile);
   });
-  const wps = $("libWps");
+  const wps = $("rtWps");
   if (wps) wps.innerHTML = r.imported ? "" : r.waypoints.map(waypointRow).join("");
-  const hint = $("libHint");
+  const hint = $("rtHint");
   if (hint) {
     hint.innerHTML = r.imported
       ? "Imported from a GPX file — its line is kept as recorded."
@@ -744,11 +744,11 @@ function renderSide(): void {
           ? "Now <b>click where it ends</b> — the route follows the paths."
           : "Click the map to extend · drag a point to move it · click the line to add a via · right-click a point to drop it.";
   }
-  for (const id of ["libReverse", "libExport", "libDelete"]) {
+  for (const id of ["rtReverse", "rtExport", "rtDelete"]) {
     const b = $(id) as HTMLButtonElement | null;
     if (b) b.disabled = r.waypoints.length < 2;
   }
-  const del = $("libDelete") as HTMLButtonElement | null;
+  const del = $("rtDelete") as HTMLButtonElement | null;
   if (del) del.disabled = !store?.get(r.id);
   renderSpeed();
 }
@@ -759,45 +759,45 @@ function sideSkeleton(): string {
       `<button type="button" data-profile="${p.id}" title="${escHtml(p.title)}">${escHtml(p.label)}</button>`,
   ).join("");
   return (
-    `<div class="lib-head">` +
-    `<button type="button" class="small ghost lib-back" data-lib="back" title="Back to the library">${icon("back")}Library</button>` +
-    `<input class="lib-name" id="libName" type="text" maxlength="120" aria-label="Route name" />` +
+    `<div class="rt-head">` +
+    `<button type="button" class="small ghost rt-back" data-rt="back" title="Back to all routes">${icon("back")}Routes</button>` +
+    `<input class="rt-name" id="rtName" type="text" maxlength="120" aria-label="Route name" />` +
     `</div>` +
-    `<section class="lib-sec">` +
-    `<h3 class="cl-h">Route <span class="cl-sub" id="libStats"></span></h3>` +
-    `<div class="lib-find" id="libFindWrap">` +
-    `<input type="search" id="libFind" placeholder="Find a place on the map…" aria-label="Find a place" autocomplete="off" />` +
-    `<div class="lib-find-results" id="libFindResults"></div></div>` +
-    `<div class="seg lib-profile" id="libProfile" role="group" aria-label="Routing">${profiles}</div>` +
-    `<ol class="lib-wps" id="libWps"></ol>` +
-    `<p class="cl-hint lib-hint" id="libHint"></p>` +
-    `<div class="lib-acts">` +
-    `<button type="button" class="small ghost" id="libReverse" data-lib="reverse">${icon("swap")}Reverse</button>` +
-    `<button type="button" class="small ghost" id="libExport" data-lib="export">${icon("download")}GPX</button>` +
-    `<button type="button" class="small ghost danger" id="libDelete" data-lib="delete">${icon("trash")}Delete</button>` +
+    `<section class="rt-sec">` +
+    `<h3 class="cl-h">Route <span class="cl-sub" id="rtStats"></span></h3>` +
+    `<div class="rt-find" id="rtFindWrap">` +
+    `<input type="search" id="rtFind" placeholder="Find a place on the map…" aria-label="Find a place" autocomplete="off" />` +
+    `<div class="rt-find-results" id="rtFindResults"></div></div>` +
+    `<div class="seg rt-profile" id="rtProfile" role="group" aria-label="Routing">${profiles}</div>` +
+    `<ol class="rt-wps" id="rtWps"></ol>` +
+    `<p class="cl-hint rt-hint" id="rtHint"></p>` +
+    `<div class="rt-acts">` +
+    `<button type="button" class="small ghost" id="rtReverse" data-rt="reverse">${icon("swap")}Reverse</button>` +
+    `<button type="button" class="small ghost" id="rtExport" data-rt="export">${icon("download")}GPX</button>` +
+    `<button type="button" class="small ghost danger" id="rtDelete" data-rt="delete">${icon("trash")}Delete</button>` +
     `</div></section>` +
-    `<section class="lib-sec">` +
-    `<h3 class="cl-h">Ride it <span class="cl-sub" id="libWxSrc"></span></h3>` +
-    `<div class="lib-depart">` +
-    `<button type="button" class="small ghost lib-daynav" data-lib="day-prev" aria-label="Previous day" title="Previous day">${icon("chevLeft")}</button>` +
-    `<button type="button" class="small lib-day" id="libDay" data-lib="day" title="Pick the departure day">${icon("calendar")}<span id="libDayText"></span></button>` +
-    `<button type="button" class="small ghost lib-daynav" data-lib="day-next" aria-label="Next day" title="Next day">${icon("chevRight")}</button>` +
-    `<output class="lib-time" id="libTimeOut"></output>` +
+    `<section class="rt-sec">` +
+    `<h3 class="cl-h">Ride it <span class="cl-sub" id="rtWxSrc"></span></h3>` +
+    `<div class="rt-depart">` +
+    `<button type="button" class="small ghost rt-daynav" data-rt="day-prev" aria-label="Previous day" title="Previous day">${icon("chevLeft")}</button>` +
+    `<button type="button" class="small rt-day" id="rtDay" data-rt="day" title="Pick the departure day">${icon("calendar")}<span id="rtDayText"></span></button>` +
+    `<button type="button" class="small ghost rt-daynav" data-rt="day-next" aria-label="Next day" title="Next day">${icon("chevRight")}</button>` +
+    `<output class="rt-time" id="rtTimeOut"></output>` +
     `</div>` +
-    `<input type="range" class="uslider lib-time-slider" id="libTime" min="0" max="${24 * 60 - TIME_STEP_MIN}" step="${TIME_STEP_MIN}" aria-label="Departure time" />` +
-    `<div class="lib-sweep"><canvas id="libSweep" aria-label="Ride time for each departure of the day"></canvas></div>` +
-    `<div class="lib-sweep-read" id="libSweepRead"></div>` +
-    `<div class="cl-cards lib-cards" id="libCards"></div>` +
-    `<p class="cl-prov" id="libNote"></p>` +
+    `<input type="range" class="uslider rt-time-slider" id="rtTime" min="0" max="${24 * 60 - TIME_STEP_MIN}" step="${TIME_STEP_MIN}" aria-label="Departure time" />` +
+    `<div class="rt-sweep"><canvas id="rtSweep" aria-label="Ride time for each departure of the day"></canvas></div>` +
+    `<div class="rt-sweep-read" id="rtSweepRead"></div>` +
+    `<div class="cl-cards rt-cards" id="rtCards"></div>` +
+    `<p class="cl-prov" id="rtNote"></p>` +
     `</section>` +
-    `<section class="lib-sec">` +
+    `<section class="rt-sec">` +
     `<h3 class="cl-h">Your speed</h3>` +
-    `<div class="lib-speed">` +
-    `<label class="lib-field"><span>Still-air moving speed</span><input type="number" id="libCalm" min="5" max="60" step="0.5" inputmode="decimal" /><span class="lib-unit">km/h</span></label>` +
-    `<label class="lib-field" title="How much each km/h of tailwind adds to your speed (and a headwind takes away)"><span>Tailwind factor</span><input type="number" id="libSlope" min="0" max="1.5" step="0.05" inputmode="decimal" /><span class="lib-unit">km/h per km/h</span></label>` +
+    `<div class="rt-speed">` +
+    `<label class="rt-field"><span>Still-air moving speed</span><input type="number" id="rtCalm" min="5" max="60" step="0.5" inputmode="decimal" /><span class="rt-unit">km/h</span></label>` +
+    `<label class="rt-field" title="How much each km/h of tailwind adds to your speed (and a headwind takes away)"><span>Tailwind factor</span><input type="number" id="rtSlope" min="0" max="1.5" step="0.05" inputmode="decimal" /><span class="rt-unit">km/h per km/h</span></label>` +
     `</div>` +
-    `<p class="cl-hint lib-speed-src"><span id="libSpeedSrc"></span> ` +
-    `<button type="button" class="linkbtn" id="libSpeedReset" data-lib="speed-reset" hidden></button></p>` +
+    `<p class="cl-hint rt-speed-src"><span id="rtSpeedSrc"></span> ` +
+    `<button type="button" class="linkbtn" id="rtSpeedReset" data-rt="speed-reset" hidden></button></p>` +
     `</section>`
   );
 }
@@ -809,9 +809,9 @@ function waypointRow(p: LatLon, i: number): string {
   const mark = i === 0 ? "A" : i === n - 1 && n > 1 ? "B" : String(i);
   const cls = i === 0 ? "start" : i === n - 1 && n > 1 ? "end" : "via";
   return (
-    `<li class="lib-wp-row"><span class="lib-wp lib-wp--${cls}">${mark}</span>` +
-    `<span class="lib-wp-name">${role}</span>` +
-    `<span class="lib-wp-at">${p[0].toFixed(4)}, ${p[1].toFixed(4)}</span>` +
+    `<li class="rt-wp-row"><span class="rt-wp rt-wp--${cls}">${mark}</span>` +
+    `<span class="rt-wp-name">${role}</span>` +
+    `<span class="rt-wp-at">${p[0].toFixed(4)}, ${p[1].toFixed(4)}</span>` +
     `<button type="button" class="ms-clear" data-wp-remove="${i}" aria-label="Remove ${role}" title="Remove ${role}">${icon("x")}</button></li>`
   );
 }
@@ -820,11 +820,11 @@ function renderSpeed(): void {
   const prefs = readSpeedPrefs();
   const fit = readSpeedFit();
   const model = effectiveSpeedModel(prefs, fit);
-  const calm = $("libCalm") as HTMLInputElement | null;
-  const slope = $("libSlope") as HTMLInputElement | null;
+  const calm = $("rtCalm") as HTMLInputElement | null;
+  const slope = $("rtSlope") as HTMLInputElement | null;
   if (calm && document.activeElement !== calm) calm.value = String(+model.calmKmh.toFixed(1));
   if (slope && document.activeElement !== slope) slope.value = String(+model.slope.toFixed(2));
-  const src = $("libSpeedSrc");
+  const src = $("rtSpeedSrc");
   if (!src) return;
   const fitLine = fit
     ? `Your Wind vs speed fit: ${fit.calmKmh.toFixed(1)} km/h still air, ${fit.slope >= 0 ? "+" : ""}${fit.slope.toFixed(2)} per km/h of tailwind (${fit.segments} segments, R² ${fit.r2.toFixed(2)}).`
@@ -834,7 +834,7 @@ function renderSpeed(): void {
     `a headwind of 10 km/h ${fmtSpeed(Math.max(0, model.calmKmh - model.slope * 10))}.`;
   // A static button (only its label and visibility change), so a click that blurs a
   // just-edited field — which re-renders this hint — still lands on it.
-  const reset = $("libSpeedReset");
+  const reset = $("rtSpeedReset");
   if (reset) {
     reset.hidden = prefs.calmKmh == null && prefs.slope == null;
     reset.textContent = fit ? "Use my fit" : "Reset";
@@ -843,26 +843,26 @@ function renderSpeed(): void {
 
 function renderSim(): void {
   if (!route) return;
-  const dayText = $("libDayText");
+  const dayText = $("rtDayText");
   if (dayText) dayText.textContent = departDay ? fmtDayLabel(departDay) : "";
-  const slider = $("libTime") as HTMLInputElement | null;
+  const slider = $("rtTime") as HTMLInputElement | null;
   if (slider && Number(slider.value) !== departMin) slider.value = String(departMin);
   if (slider) setSliderFill(slider);
-  const out = $("libTimeOut");
+  const out = $("rtTimeOut");
   if (out) out.textContent = departDay ? fmtClock(departureMs(departDay, departMin)) : "";
-  const next = document.querySelector<HTMLButtonElement>('[data-lib="day-next"]');
+  const next = document.querySelector<HTMLButtonElement>('[data-rt="day-next"]');
   if (next) next.disabled = departDay >= lastForecastDay();
 
-  const src = $("libWxSrc");
+  const src = $("rtWxSrc");
   if (src)
     src.textContent = weather
       ? weather.dataset.forecast
         ? "Live forecast"
         : `${weather.dataset.label} history`
       : "";
-  const cards = $("libCards");
-  const note = $("libNote");
-  const read = $("libSweepRead");
+  const cards = $("rtCards");
+  const note = $("rtNote");
+  const read = $("rtSweepRead");
   const ready = route.waypoints.length >= 2 && !!course?.steps.length;
   if (!ready) {
     if (cards) cards.innerHTML = "";
@@ -958,7 +958,7 @@ function sweepSummary(): string {
 /** The departure strip: one bar per half hour (height = ride time, colour = average
  *  head/tailwind), the chosen departure marked. Colours read from tokens now. */
 function drawSweep(): void {
-  const cv = $("libSweep") as HTMLCanvasElement | null;
+  const cv = $("rtSweep") as HTMLCanvasElement | null;
   if (!cv) return;
   const w = cv.clientWidth;
   const h = cv.clientHeight;
@@ -1039,7 +1039,7 @@ function pickFromSweep(e: PointerEvent): void {
 // --------------------------------------------------------------------------- //
 
 function ensureMap(): void {
-  const host = $("libMap");
+  const host = $("rtMap");
   if (!host) return;
   if (map) {
     setTimeout(() => map?.invalidateSize(), 0);
@@ -1079,7 +1079,7 @@ function fitRoute(): void {
     map.fitBounds(L.latLngBounds(all.map((p) => L.latLng(p[0], p[1]))), { padding: [30, 30] });
   else if (all.length === 1) map.setView(all[0], 13);
   else {
-    // A new route opens where the library's last route starts, else where you ride.
+    // A new route opens where your last route starts, else where you ride.
     const last = store?.all().find((r) => r.waypoints.length);
     const home = last?.waypoints[0] ?? deps.homePoint();
     if (home) map.setView(home, 12);
@@ -1169,8 +1169,8 @@ function drawRoute(): void {
       draggable: editable(),
       autoPan: true,
       icon: L.divIcon({
-        className: "lib-wp-marker",
-        html: `<span class="lib-wp lib-wp--${cls}">${mark}</span>`,
+        className: "rt-wp-marker",
+        html: `<span class="rt-wp rt-wp--${cls}">${mark}</span>`,
         iconSize: [24, 24],
         iconAnchor: [12, 12],
       }),
@@ -1222,7 +1222,7 @@ function colourRoute(): void {
       interactive: false,
       keyboard: false,
       icon: L.divIcon({
-        className: "lib-arrow",
+        className: "rt-arrow",
         html:
           `<svg viewBox="0 0 24 24" width="${size}" height="${size}" style="transform:rotate(${travel.toFixed(0)}deg);color:${alongColor(st.along, maxAlong)}">` +
           `<path d="M12 21V4M6 10l6-6 6 6"/></svg>`,
@@ -1235,7 +1235,7 @@ function colourRoute(): void {
 
 /** Hover readout: where on the route, when you'd be there, the wind and your speed. */
 function showHover(at: L.LatLng | null): void {
-  const pill = $("libReadout");
+  const pill = $("rtReadout");
   if (!pill) return;
   if (!at || !map || !sim || !course) {
     pill.classList.add("hidden");
@@ -1285,7 +1285,7 @@ function showHover(at: L.LatLng | null): void {
 }
 
 function setBanner(text: string, busy = false): void {
-  const el = $("libBanner");
+  const el = $("rtBanner");
   if (!el) return;
   el.textContent = text;
   el.classList.toggle("hidden", !text);
@@ -1308,7 +1308,7 @@ function onClick(e: MouseEvent): void {
   if (place?.dataset.place) {
     const [lat, lon] = place.dataset.place.split(",").map(Number);
     map?.setView([lat, lon], 13);
-    const input = $("libFind") as HTMLInputElement | null;
+    const input = $("rtFind") as HTMLInputElement | null;
     if (input) input.value = "";
     showPlaces([]);
     return;
@@ -1323,7 +1323,7 @@ function onClick(e: MouseEvent): void {
     setProfile(prof.dataset.profile);
     return;
   }
-  const act = t.closest<HTMLElement>("[data-lib]")?.dataset.lib;
+  const act = t.closest<HTMLElement>("[data-rt]")?.dataset.rt;
   if (!act) return;
   switch (act) {
     case "new":
@@ -1350,7 +1350,7 @@ function onClick(e: MouseEvent): void {
       setDepartDay(shiftDay(departDay, act === "day-prev" ? -1 : 1));
       break;
     case "day": {
-      const anchor = t.closest<HTMLElement>("[data-lib]")!;
+      const anchor = t.closest<HTMLElement>("[data-rt]")!;
       openDatePicker({
         anchor,
         parent: document.body,
@@ -1380,10 +1380,10 @@ function setDepartDay(day: string): void {
 
 function onInput(e: Event): void {
   const t = e.target as HTMLInputElement;
-  if (t.id === "libTime") {
+  if (t.id === "rtTime") {
     departMin = Number(t.value);
     runSim();
-  } else if (t.id === "libFind") {
+  } else if (t.id === "rtFind") {
     findPlaces(t.value);
   }
 }
@@ -1412,13 +1412,13 @@ function findPlaces(query: string): void {
 }
 
 function showPlaces(results: LocationResult[]): void {
-  const el = $("libFindResults");
+  const el = $("rtFindResults");
   if (!el) return;
   el.innerHTML = results
     .slice(0, 6)
     .map(
       (r) =>
-        `<button type="button" class="lib-place" data-place="${r.lat},${r.lon}">${icon("pin")}` +
+        `<button type="button" class="rt-place" data-place="${r.lat},${r.lon}">${icon("pin")}` +
         `<span>${escHtml(r.label)}</span></button>`,
     )
     .join("");
@@ -1426,16 +1426,16 @@ function showPlaces(results: LocationResult[]): void {
 
 function onChange(e: Event): void {
   const t = e.target as HTMLInputElement;
-  if (t.id === "libName" && route) {
+  if (t.id === "rtName" && route) {
     route.name = t.value.trim();
     void saveRoute();
     renderSide();
     return;
   }
-  if (t.id === "libCalm" || t.id === "libSlope") {
+  if (t.id === "rtCalm" || t.id === "rtSlope") {
     const v = Number(t.value);
     const prefs = readSpeedPrefs();
-    if (t.id === "libCalm") prefs.calmKmh = Number.isFinite(v) && v >= 5 && v <= 60 ? v : null;
+    if (t.id === "rtCalm") prefs.calmKmh = Number.isFinite(v) && v >= 5 && v <= 60 ? v : null;
     else
       prefs.slope =
         t.value.trim() !== "" && Number.isFinite(v) && v >= 0 && v <= 1.5 ? v : null;

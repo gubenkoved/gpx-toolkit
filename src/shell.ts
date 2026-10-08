@@ -24,7 +24,7 @@ export const VIEW_TITLES: Record<ViewName, string> = {
   climate: "Wind rose",
   forecast: "Forecast",
   timeline: "Timeline",
-  library: "Library",
+  routes: "Routes",
 };
 
 /** The two Weather views share one bottom-nav slot on phones. */
