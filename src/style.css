@@ -10415,18 +10415,39 @@ body.sb-rail .sb-toggle .mi {
   box-shadow: var(--shadow-float);
   cursor: grab;
 }
-.rt-arrow {
+/* Wind badge on the map: a glass pill centred on its spot (the 0×0 divIcon anchors
+   the middle), arrow pointing where the wind blows, its speed in km/h beside it. */
+.rt-wind {
   background: transparent;
   border: 0;
 }
-.rt-arrow svg {
-  display: block;
+.rt-wind-badge {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 6px 2px 3px;
+  background: var(--glass-strong);
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  box-shadow: var(--shadow-float);
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.rt-wind-badge svg {
+  width: 14px;
+  height: 14px;
   fill: none;
   stroke: currentColor;
-  stroke-width: 3;
+  stroke-width: 2.6;
   stroke-linecap: round;
   stroke-linejoin: round;
-  filter: drop-shadow(0 0 1.5px var(--map-bg));
 }
 .rt-hint {
   margin: 8px 0 0;

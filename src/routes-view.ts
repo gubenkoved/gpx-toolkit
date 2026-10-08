@@ -934,6 +934,7 @@ function renderSim(): void {
           ? "No weather for this departure yet (the forecast reaches 16 days ahead) — ridden in still air."
           : `No weather for ${Math.round((1 - s.coverage) * 100)}% of the ride — those km are ridden in still air.`,
       );
+    parts.push("The badges point where the wind blows, with its speed in km/h.");
     parts.push(
       `Times at the start's local time${zone && zone !== browserZone() ? ` (${zone})` : ""}. Weather by Open-Meteo.com.`,
     );
@@ -1059,6 +1060,8 @@ function ensureMap(): void {
   });
   map.on("mousemove", (e: L.LeafletMouseEvent) => showHover(e.latlng));
   map.on("mouseout", () => showHover(null));
+  // Badges that would cover a waypoint depend on the zoom: re-place them.
+  map.on("zoomend", () => colourRoute());
   setTimeout(() => map?.invalidateSize(), 0);
 }
 
@@ -1210,27 +1213,40 @@ function colourRoute(): void {
   sim.steps.forEach((s, i) => {
     stepLines[i].setStyle({ color: alongColor(s.along, maxAlong) });
   });
+  // Wind badges: a glass pill with a neutral arrow (where the wind blows TO) and its
+  // speed, so they read as labels over the coloured line rather than part of it.
   arrowLayer?.clearLayers();
-  const every = Math.max(1, Math.round(course.steps.length / 14));
+  const every = Math.max(1, Math.round(course.steps.length / 10));
   for (let i = Math.floor(every / 2); i < course.steps.length; i += every) {
     const st = sim.steps[i];
     const cs = course.steps[i];
-    if (!st.wx) continue;
+    if (!st.wx || nearWaypoint(cs.lat, cs.lon)) continue;
     const travel = (st.wx.fromDeg + 180) % 360;
-    const size = Math.round(14 + Math.min(12, st.wx.speedKmh / 3));
     L.marker(L.latLng(cs.lat, cs.lon), {
       interactive: false,
       keyboard: false,
+      zIndexOffset: -1000, // waypoint markers stay on top
       icon: L.divIcon({
-        className: "rt-arrow",
+        className: "rt-wind",
         html:
-          `<svg viewBox="0 0 24 24" width="${size}" height="${size}" style="transform:rotate(${travel.toFixed(0)}deg);color:${alongColor(st.along, maxAlong)}">` +
-          `<path d="M12 21V4M6 10l6-6 6 6"/></svg>`,
-        iconSize: [size, size],
-        iconAnchor: [size / 2, size / 2],
+          `<span class="rt-wind-badge"><svg viewBox="0 0 24 24" style="transform:rotate(${travel.toFixed(0)}deg)">` +
+          `<path d="M12 20V4M6 10l6-6 6 6"/></svg>${Math.round(st.wx.speedKmh)}</span>`,
+        iconSize: [0, 0],
+        iconAnchor: [0, 0],
       }),
     }).addTo(arrowLayer!);
   }
+}
+
+/** True within ~25 px of a waypoint marker at the current zoom (a badge there would
+ *  cover it). */
+function nearWaypoint(lat: number, lon: number): boolean {
+  if (!map || !route) return false;
+  const p = map.latLngToContainerPoint(L.latLng(lat, lon));
+  return route.waypoints.some((w) => {
+    const q = map!.latLngToContainerPoint(L.latLng(w[0], w[1]));
+    return (q.x - p.x) ** 2 + (q.y - p.y) ** 2 < 25 * 25;
+  });
 }
 
 /** Hover readout: where on the route, when you'd be there, the wind and your speed. */

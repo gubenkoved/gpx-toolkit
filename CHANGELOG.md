@@ -24,7 +24,8 @@ humans and the assistant can read this file as a compressed history of decisions
   Quiet / Fast / Straight profiles; autosaved) or imported from GPX (kept as recorded, times
   dropped). Opening a route simulates it: pick a day and drag the departure time, and each
   ~250 m step reads the wind where and when you'd get there, so the line colours head/tail-
-  wind with wind arrows, and cards give ride time, arrival, the wind's cost vs still air,
+  wind, glass badges along it show the wind's direction and speed (neutral, so they don't
+  blend into the coloured line), and cards give ride time, arrival, the wind's cost vs still air,
   head/tailwind share and rain; a strip charts the ride time for every half-hour departure
   of the day. Speed = your still-air moving speed + tailwind factor × along-track wind;
   both are editable and default to the Wind vs speed fit, which that view now saves. Routes
