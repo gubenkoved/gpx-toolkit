@@ -160,6 +160,8 @@ let ghostLeg = -1;
 let dragging = false;
 /** Dashed preview of the legs a drag is reshaping. */
 let previewLayer: L.LayerGroup | null = null;
+/** The waypoint markers, by waypoint index (so a list row can light up its point). */
+let wpMarkers: L.Marker[] = [];
 /** The coloured per-step lines, parallel to `course.steps` (restyled per simulation). */
 let stepLines: L.Polyline[] = [];
 
@@ -174,6 +176,14 @@ export function initRoutesView(d: RoutesViewDeps): void {
   const root = $("routesView");
   if (!root) return;
   root.addEventListener("click", onClick);
+  root.addEventListener("pointerdown", onRowPointerDown);
+  root.addEventListener("keydown", onGripKey);
+  // A row lights up its point on the map.
+  root.addEventListener("mouseover", (e) => {
+    const row = (e.target as HTMLElement).closest<HTMLElement>("[data-wp]");
+    hotWaypoint(row ? Number(row.dataset.wp) : null);
+  });
+  root.addEventListener("mouseleave", () => hotWaypoint(null));
   root.addEventListener("input", onInput);
   root.addEventListener("change", onChange);
   $("routeFile")?.addEventListener("change", (e) => {
@@ -801,7 +811,14 @@ function renderSide(): void {
     b.classList.toggle("active", b.dataset.profile === r.profile);
   });
   const wps = $("rtWps");
-  if (wps) wps.innerHTML = r.imported ? "" : r.waypoints.map(waypointRow).join("");
+  if (wps) {
+    // Rebuilding the rows must not drop the keyboard focus off a grip (↑ / ↓ re-route,
+    // which re-renders this list once the legs come back).
+    const focused = (document.activeElement as HTMLElement | null)?.dataset?.wpGrip;
+    wps.innerHTML = r.imported ? "" : r.waypoints.map(waypointRow).join("");
+    if (focused != null)
+      wps.querySelector<HTMLElement>(`[data-wp-grip="${focused}"]`)?.focus();
+  }
   const hint = $("rtHint");
   if (hint) {
     hint.innerHTML = r.imported
@@ -810,7 +827,7 @@ function renderSide(): void {
         ? "<b>Click the map</b> where the ride starts."
         : r.waypoints.length === 1
           ? "Now <b>click where it ends</b> — the route follows the paths."
-          : "Click the map to extend · drag a point to move it · drag the line to add a point · right-click a point to drop it.";
+          : "Click the map to extend · drag a point to move it · drag the line to add a point · right-click a point to drop it · drag a row to reorder.";
   }
   for (const id of ["rtReverse", "rtExport", "rtDelete"]) {
     const b = $(id) as HTMLButtonElement | null;
@@ -877,14 +894,23 @@ function sideSkeleton(): string {
   );
 }
 
+/** A waypoint's role by its place in a route of `n`: name, badge mark, badge class. */
+function wpRole(i: number, n: number): { role: string; mark: string; cls: string } {
+  if (i === 0) return { role: "Start", mark: "A", cls: "start" };
+  if (i === n - 1) return { role: "Finish", mark: "B", cls: "end" };
+  return { role: `Via ${i}`, mark: String(i), cls: "via" };
+}
+
 function waypointRow(p: LatLon, i: number): string {
   if (!route) return "";
   const n = route.waypoints.length;
-  const role = i === 0 ? "Start" : i === n - 1 && n > 1 ? "Finish" : `Via ${i}`;
-  const mark = i === 0 ? "A" : i === n - 1 && n > 1 ? "B" : String(i);
-  const cls = i === 0 ? "start" : i === n - 1 && n > 1 ? "end" : "via";
+  const { role, mark, cls } = wpRole(i, n);
+  const grip =
+    n > 1
+      ? `<button type="button" class="rt-grip" data-wp-grip="${i}" aria-label="Move ${role} (arrow keys)" title="Drag to reorder">${icon("grip")}</button>`
+      : "";
   return (
-    `<li class="rt-wp-row"><span class="rt-wp rt-wp--${cls}">${mark}</span>` +
+    `<li class="rt-wp-row${n > 1 ? " rt-wp-row--movable" : ""}" data-wp="${i}">${grip}<span class="rt-wp rt-wp--${cls}">${mark}</span>` +
     `<span class="rt-wp-name">${role}</span>` +
     `<span class="rt-wp-at">${p[0].toFixed(4)}, ${p[1].toFixed(4)}</span>` +
     `<button type="button" class="ms-clear" data-wp-remove="${i}" aria-label="Remove ${role}" title="Remove ${role}">${icon("x")}</button></li>`
@@ -1353,10 +1379,10 @@ function drawRoute(): void {
   }
   // Markers: A, numbered vias, B. Imported routes show their ends, fixed.
   const n = r.waypoints.length;
+  wpMarkers = [];
   r.waypoints.forEach((p, i) => {
     if (r.imported && i > 0 && i < n - 1) return;
-    const cls = i === 0 ? "start" : i === n - 1 && n > 1 ? "end" : "via";
-    const mark = i === 0 ? "A" : i === n - 1 && n > 1 ? "B" : String(i);
+    const { cls, mark } = wpRole(i, n);
     const m = L.marker(L.latLng(p[0], p[1]), {
       draggable: editable(),
       autoPan: true,
@@ -1389,6 +1415,7 @@ function drawRoute(): void {
     });
     m.on("click", (e: L.LeafletMouseEvent) => L.DomEvent.stopPropagation(e));
     m.addTo(markerLayer!);
+    wpMarkers[i] = m;
   });
 }
 
@@ -1472,6 +1499,121 @@ function nearWaypoint(lat: number, lon: number): boolean {
     const q = map!.latLngToContainerPoint(L.latLng(w[0], w[1]));
     return (q.x - p.x) ** 2 + (q.y - p.y) ** 2 < 25 * 25;
   });
+}
+
+// -- reordering the waypoint list --------------------------------------------- //
+
+/** Light up waypoint `i`'s marker (null: none). */
+function hotWaypoint(i: number | null): void {
+  wpMarkers.forEach((m, j) => {
+    m?.getElement()?.classList.toggle("hot", j === i);
+  });
+}
+
+/** Move waypoint `from` to position `to` (the others shift) and re-route: legs whose
+ *  ends are unchanged come straight from the leg cache. */
+function reorderWaypoint(from: number, to: number): void {
+  if (!route || !editable() || from === to) return;
+  const [p] = route.waypoints.splice(from, 1);
+  route.waypoints.splice(to, 0, p);
+  void rebuildLegs();
+}
+
+/**
+ * Drag a row to reorder: grab the grip (or, with a mouse, anywhere on the row but its
+ * remove button), and the row follows the pointer while the rows it passes slide out
+ * of its way; drop to commit. Touch starts only from the grip, so swiping the panel
+ * still scrolls it. Nothing re-renders mid-drag: rows move by transform only.
+ */
+function onRowPointerDown(e: PointerEvent): void {
+  const t = e.target as HTMLElement;
+  const row = t.closest<HTMLElement>(".rt-wp-row--movable");
+  if (!row || !route || !editable() || e.button !== 0) return;
+  const onGrip = !!t.closest("[data-wp-grip]");
+  if (t.closest(".ms-clear") || (e.pointerType !== "mouse" && !onGrip)) return;
+  const list = row.parentElement as HTMLElement;
+  const rows = [...list.querySelectorAll<HTMLElement>(":scope > .rt-wp-row")];
+  const from = rows.indexOf(row);
+  if (from < 0) return;
+  e.preventDefault();
+  const rects = rows.map((r) => r.getBoundingClientRect());
+  // One slot = a row plus the gap to the next.
+  const slot = rows.length > 1 ? rects[1].top - rects[0].top : rects[0].height;
+  const startY = e.clientY;
+  const centre = (i: number): number => rects[i].top + rects[i].height / 2;
+  let to = from;
+  let started = false;
+  const move = (ev: PointerEvent): void => {
+    const dy = ev.clientY - startY;
+    if (!started) {
+      if (Math.abs(dy) < 4) return; // a click, not a drag (yet)
+      started = true;
+      row.setPointerCapture(ev.pointerId);
+      row.classList.add("dragging");
+      list.classList.add("reordering");
+      hotWaypoint(from);
+    }
+    // Keep the lifted row within the list.
+    const lo = rects[0].top - rects[from].top;
+    const hi = rects[rects.length - 1].top - rects[from].top;
+    const y = Math.max(lo, Math.min(hi, dy));
+    row.style.transform = `translateY(${y}px)`;
+    const mid = centre(from) + y;
+    to = from;
+    rows.forEach((_, i) => {
+      // ≤ / ≥: held against the end of the list, the row's middle sits exactly on the
+      // end row's, and that still means "go there".
+      if (i < from && mid <= centre(i)) to = Math.min(to, i);
+      if (i > from && mid >= centre(i)) to = Math.max(to, i);
+    });
+    rows.forEach((r, i) => {
+      const shift =
+        i === from
+          ? 0
+          : from < to && i > from && i <= to
+            ? -slot
+            : from > to && i >= to && i < from
+              ? slot
+              : 0;
+      if (i !== from) r.style.transform = shift ? `translateY(${shift}px)` : "";
+      // Relabel live: each row shows the role it will have if dropped now.
+      const at = i === from ? to : i + Math.round(shift / slot);
+      const { role, mark, cls } = wpRole(at, rows.length);
+      const badge = r.querySelector<HTMLElement>(".rt-wp");
+      if (badge) {
+        badge.textContent = mark;
+        badge.className = `rt-wp rt-wp--${cls}`;
+      }
+      const name = r.querySelector<HTMLElement>(".rt-wp-name");
+      if (name) name.textContent = role;
+    });
+  };
+  const end = (): void => {
+    window.removeEventListener("pointermove", move);
+    window.removeEventListener("pointerup", end);
+    window.removeEventListener("pointercancel", end);
+    if (!started) return;
+    list.classList.remove("reordering");
+    row.classList.remove("dragging");
+    for (const r of rows) r.style.transform = "";
+    hotWaypoint(null);
+    reorderWaypoint(from, to);
+  };
+  window.addEventListener("pointermove", move);
+  window.addEventListener("pointerup", end);
+  window.addEventListener("pointercancel", end);
+}
+
+/** ↑ / ↓ on a grip moves that point one place, keeping the focus on it. */
+function onGripKey(e: KeyboardEvent): void {
+  const grip = (e.target as HTMLElement).closest<HTMLElement>("[data-wp-grip]");
+  if (!grip || !route || (e.key !== "ArrowUp" && e.key !== "ArrowDown")) return;
+  const from = Number(grip.dataset.wpGrip);
+  const to = from + (e.key === "ArrowUp" ? -1 : 1);
+  if (to < 0 || to >= route.waypoints.length) return;
+  e.preventDefault();
+  reorderWaypoint(from, to);
+  ($("rtWps")?.querySelector(`[data-wp-grip="${to}"]`) as HTMLElement | null)?.focus();
 }
 
 // -- dragging the line: insert a via ------------------------------------------ //

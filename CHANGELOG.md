@@ -17,6 +17,17 @@ humans and the assistant can read this file as a compressed history of decisions
 
 ---
 
+## reorder a route's points by dragging the list
+- **What:** Each waypoint row in Routes has a grip: drag it (or, with a mouse, the
+  row itself) and the row lifts and follows the pointer while the others slide aside and
+  relabel live (Start / Via n / Finish as they would be if dropped); dropping re-routes
+  only the legs whose ends changed. ↑ / ↓ on a focused grip moves a point one place,
+  keeping the focus. Hovering or dragging a row lights up its point on the map.
+- **Why:** Points were only added at the end or inserted along the line, so fixing an
+  order meant deleting and re-adding them. Touch starts from the grip only, so swiping
+  the panel still scrolls; rows move by transform during the drag, so nothing re-renders
+  under the pointer.
+
 ## fix a segmented-control thumb stranded on the Forecast map
 - **What:** The Forecast view's side-by-side layout turned the Consensus / All lines
   switch `position: static` (to drop its phone-only stickiness), so its sliding thumb was

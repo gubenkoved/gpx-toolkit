@@ -10539,6 +10539,66 @@ body.sb-rail .sb-toggle .mi {
   display: inline-flex;
   align-items: center;
 }
+/* Reordering: a grip on every row; with a mouse the whole row can be dragged. While
+   one row is lifted, the others slide (transform) to show where it will land. */
+.rt-wp-row--movable {
+  user-select: none;
+}
+@media (pointer: fine) {
+  .rt-wp-row--movable {
+    cursor: grab;
+  }
+}
+.rt-grip {
+  flex: 0 0 auto;
+  display: inline-grid;
+  place-items: center;
+  width: 18px;
+  height: 26px;
+  margin-right: -4px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--muted);
+  cursor: grab;
+  touch-action: none;
+  opacity: 0.55;
+}
+.rt-grip .bi {
+  width: 14px;
+  height: 14px;
+}
+.rt-wp-row:hover .rt-grip,
+.rt-grip:focus-visible {
+  opacity: 1;
+  color: var(--text);
+}
+.rt-wps.reordering .rt-wp-row {
+  transition: transform 0.16s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+.rt-wps.reordering,
+.rt-wps.reordering .rt-wp-row,
+.rt-wps.reordering .rt-grip {
+  cursor: grabbing;
+}
+.rt-wps .rt-wp-row.dragging {
+  position: relative;
+  z-index: 2;
+  transition: none;
+  background: var(--panel2);
+  box-shadow: var(--shadow-float);
+}
+/* The map point of the hovered / dragged row. */
+.rt-wp-marker.hot .rt-wp {
+  transform: scale(1.25);
+  box-shadow:
+    0 0 0 3px color-mix(in srgb, var(--accent) 45%, transparent),
+    var(--shadow-float);
+}
+.rt-wp-marker .rt-wp {
+  transition: transform 0.12s ease;
+}
 /* Waypoint badge — in the list and as the map marker. */
 .rt-wp {
   display: inline-grid;
