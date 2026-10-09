@@ -20,6 +20,7 @@
 
 import L from "leaflet";
 import { icon } from "./icons";
+import { setViewBack } from "./shell";
 import "leaflet.heat";
 
 import { type AreaSelect, createAreaSelect } from "./areaselect";
@@ -263,7 +264,7 @@ export function mountTimelineView(): void {
   if (!store) {
     empty.classList.remove("hidden");
     body.classList.add("hidden");
-    empty.innerHTML = "Loading your location history\u2026";
+    empty.innerHTML = '<div class="onb">Loading your location history\u2026</div>';
     void deps.ensureStore().then(() => {
       if (isActive()) mountTimelineView();
     });
@@ -274,7 +275,7 @@ export function mountTimelineView(): void {
     body.classList.add("hidden");
     empty.classList.remove("hidden");
     empty.innerHTML =
-      `<p><b>Timeline</b> brings your <b>Google Location History</b> into the app \u2014 ` +
+      `<div class="onb"><p><b>Timeline</b> brings your <b>Google Location History</b> into the app \u2014 ` +
       `see where you spend your time, find when you were somewhere, and replay any day. ` +
       `It stays <b>entirely on your device</b>, in its own storage you can drop any time.</p>` +
       `<p class="src-hint">It lives <b>on your phone</b> \u2014 export it from the Google Maps app, ` +
@@ -282,7 +283,7 @@ export function mountTimelineView(): void {
       `<div class="tl-empty-actions">` +
       `<button type="button" class="primary tl-btn" data-tl="import">${ICONS.import}Import Location History</button>` +
       `<button type="button" class="ghost small tl-btn" data-tl="help-open">${ICONS.phone}How to export from your phone</button>` +
-      `</div>`;
+      `</div></div>`;
     return;
   }
 
@@ -320,6 +321,7 @@ export function leaveTimelineView(): void {
   clearEventHighlight();
   closeDatePicker();
   toggleHelp(false);
+  setViewBack(null);
 }
 
 /**
@@ -457,6 +459,19 @@ function renderActiveMode(opts: { fit?: boolean } = {}): void {
   else renderOverview(opts);
 }
 
+/** Replaying a day puts its way back to the overview in the top bar. */
+function syncViewBack(): void {
+  setViewBack(
+    mode === "day" && isActive() ? { title: "Back to the overview", run: showOverview } : null,
+  );
+}
+
+function showOverview(): void {
+  mode = "overview";
+  dayKey = null;
+  renderOverview();
+}
+
 // --------------------------------------------------------------------------- //
 // OVERVIEW mode — dwell heatmap + area-select "when was I here"
 // --------------------------------------------------------------------------- //
@@ -464,6 +479,7 @@ function renderActiveMode(opts: { fit?: boolean } = {}): void {
 const HEAT_GRADIENT = { 0.0: "#1e3a8a", 0.4: "#22d3ee", 0.7: "#facc15", 1.0: "#f97316" };
 
 function renderOverview(opts: { fit?: boolean } = {}): void {
+  syncViewBack();
   // Keep the "building your map" cue visible while the first decode runs.
   if (visitsLoaded) document.getElementById("tlBanner")?.classList.add("hidden");
   clearDayLayer();
@@ -1214,6 +1230,7 @@ async function enterDay(day: string): Promise<void> {
 
 function renderDay(opts: { fit?: boolean } = {}): void {
   if (!map) return;
+  syncViewBack();
   clearHeat();
   clearDayLayer();
   // Hide the overview selection rectangle while replaying a day (renderOverview
@@ -1352,7 +1369,6 @@ function renderDayBar(): void {
   const hasPrev = idx > 0;
   const hasNext = idx >= 0 && idx < visitDays.length - 1;
   bar.innerHTML =
-    `<button class="ghost small tl-btn" data-tl="overview" title="Back to the heatmap">${ICONS.back}Overview</button>` +
     `<button class="tl-step" data-tl="prev-day" ${hasPrev ? "" : "disabled"} title="Previous day with data" aria-label="Previous day">${ICONS.chevLeft}</button>` +
     `<button class="tl-calbtn tl-date" data-tl="open-cal" data-cal="date" title="Jump to a day">${ICONS.calendar}<span>${deps.esc(calBtnLabel(dayKey!))}</span></button>` +
     `<button class="tl-step" data-tl="next-day" ${hasNext ? "" : "disabled"} title="Next day with data" aria-label="Next day">${ICONS.chevRight}</button>` +
@@ -1377,14 +1393,9 @@ function tzToggleHtml(): string {
   );
 }
 
-/** Day-panel header: a "back to overview" breadcrumb sitting right above the day title,
- *  close to where the user is reading the rail (the bottom bar's Overview is far away). */
+/** Day-panel header: the day's title (the way back to the overview is in the top bar). */
 function dayHeadHtml(): string {
-  return (
-    `<div class="tl-side-head tl-day-head">` +
-    `<button class="tl-back" data-tl="overview" title="Back to the overview">${ICONS.back}<span>Overview</span></button>` +
-    `<h2>${deps.esc(dayLabelKey(dayKey!))}</h2></div>`
-  );
+  return `<div class="tl-side-head"><h2>${deps.esc(dayLabelKey(dayKey!))}</h2></div>`;
 }
 
 function renderDaySide(): void {
@@ -1577,11 +1588,6 @@ function onClick(e: Event): void {
       break;
     case "enter-day":
       if (el.dataset.day) void enterDay(el.dataset.day);
-      break;
-    case "overview":
-      mode = "overview";
-      dayKey = null;
-      renderOverview();
       break;
     case "prev-day":
       stepDay(-1);

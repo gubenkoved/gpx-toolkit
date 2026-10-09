@@ -184,24 +184,83 @@ let rideMapBarObserver: ResizeObserver | null = null;
 let rideMapMarker: L.CircleMarker | null = null;
 /** The ride key currently open in the full-screen map (null when closed). */
 let rideMapKey: string | null = null;
+// The toolbar choices below are the user's preferences, not per-ride state: they're
+// remembered (RIDEMAP_PREFS_KEY) and carried from one ride to the next and across reloads.
+const RIDEMAP_PREFS_KEY = "gpx_toolkit.ridemap_prefs";
+const savedPrefs = loadRideMapPrefs();
 /** How the route line is coloured: plain, by elevation, by speed, or by head/tailwind. */
-let rideMapColorMode: "none" | "height" | "speed" | "wind" = "none";
+let rideMapColorMode: "none" | "height" | "speed" | "wind" = savedPrefs.color;
 /** Whether the elevation profile panel is shown (when a full track is loaded). */
-let rideMapProfileShown = true;
+let rideMapProfileShown = savedPrefs.profile;
 /** Which metric the profile graphs: elevation vs distance, or speed vs distance.
  *  Falls back to whichever is available when the chosen one has no data. */
-let rideMapProfileMetric: "elevation" | "speed" = "elevation";
+let rideMapProfileMetric: "elevation" | "speed" = savedPrefs.metric;
 /** The profile's x-axis: along-track distance, or recorded time (only when the full
  *  track carries timestamps). Time stretches idle stretches out so stops read true. */
-let rideMapProfileAxis: "distance" | "time" = "distance";
+let rideMapProfileAxis: "distance" | "time" = savedPrefs.axis;
 /** When on, the profile collapses the stretches we detected as not moving: each stop
  *  contributes zero width so the moving sections fill the chart, and a thin dashed cool
  *  rule marks where the track was cut (instead of the grey stop band). Off by default. */
-let rideMapProfileHideStops = false;
+let rideMapProfileHideStops = savedPrefs.hideStops;
 /** "Rain & wind" on the map: the weather you rode in, drawn with the same effects
  *  overlay as the Forecast map (wind streaks, rain in the air and on the glass),
  *  following the hovered point along the route — the ride's midpoint when idle. */
-let rideMapWeatherOn = false;
+let rideMapWeatherOn = savedPrefs.weather;
+
+interface RideMapPrefs {
+  color: "none" | "height" | "speed" | "wind";
+  weather: boolean;
+  profile: boolean;
+  metric: "elevation" | "speed";
+  axis: "distance" | "time";
+  hideStops: boolean;
+}
+
+function loadRideMapPrefs(): RideMapPrefs {
+  const def: RideMapPrefs = {
+    color: "none",
+    weather: false,
+    profile: true,
+    metric: "elevation",
+    axis: "distance",
+    hideStops: false,
+  };
+  try {
+    const p = JSON.parse(
+      localStorage.getItem(RIDEMAP_PREFS_KEY) || "null",
+    ) as Partial<RideMapPrefs> | null;
+    if (!p) return def;
+    const bool = (v: unknown, d: boolean): boolean => (typeof v === "boolean" ? v : d);
+    return {
+      color:
+        p.color && ["none", "height", "speed", "wind"].includes(p.color) ? p.color : def.color,
+      weather: bool(p.weather, def.weather),
+      profile: bool(p.profile, def.profile),
+      metric: p.metric === "speed" ? "speed" : def.metric,
+      axis: p.axis === "time" ? "time" : def.axis,
+      hideStops: bool(p.hideStops, def.hideStops),
+    };
+  } catch {
+    return def;
+  }
+}
+
+function saveRideMapPrefs(): void {
+  const prefs: RideMapPrefs = {
+    color: rideMapColorMode,
+    weather: rideMapWeatherOn,
+    profile: rideMapProfileShown,
+    metric: rideMapProfileMetric,
+    axis: rideMapProfileAxis,
+    hideStops: rideMapProfileHideStops,
+  };
+  try {
+    localStorage.setItem(RIDEMAP_PREFS_KEY, JSON.stringify(prefs));
+  } catch {
+    /* private mode — non-fatal */
+  }
+}
+
 const rideFx = new WeatherFx();
 /** One forced re-resolve per open, for wind resolved before rain/temperature were
  *  part of the fetch (older cache entries) — never a loop. */
@@ -1157,10 +1216,6 @@ export function openRideMap(key: string): void {
   if (!modal || !host) return;
 
   rideMapKey = key;
-  rideMapColorMode = "none";
-  rideMapProfileMetric = "elevation";
-  rideMapProfileAxis = "distance";
-  rideMapWeatherOn = false;
   weatherForceRequested = false;
   lastHover = null;
   rideFx.detach();
@@ -1217,6 +1272,18 @@ export function openRideMap(key: string): void {
   if (rideHover) {
     map.fitBounds(L.latLngBounds(rideHover.pts), { padding: [24, 24] });
   }
+  // A remembered Wind colouring or Rain & wind overlay is a standing choice: pick up
+  // this ride's weather the same way switching it on would.
+  if (rideMapColorMode === "wind") {
+    resolveRideWind(key);
+    drawRideLine();
+    renderRideMapWind();
+  }
+  if (rideMapWeatherOn) {
+    ensureRideWeather(key);
+    syncRideWeather();
+  }
+  syncRideMapControls();
 
   // If the full GPX is cached (real time + elevation) but not yet parsed into this
   // session, rehydrate it from the cache — no network — so the offline map shows the
@@ -1301,6 +1368,7 @@ export function fetchRideMapFull(): void {
 /** Switch the route-colouring mode (plain / by elevation / by speed). */
 export function setRideMapColor(mode: "none" | "height" | "speed"): void {
   rideMapColorMode = mode;
+  saveRideMapPrefs();
   // Leaving wind mode: drop the wind dial immediately rather than letting it linger
   // until the next hover move (these modes are never "wind").
   windDialEl?.classList.add("hidden");
@@ -1319,15 +1387,22 @@ export function enableRideMapWind(): void {
   const key = rideMapKey;
   if (!key || rideMapColorMode === "wind") return;
   rideMapColorMode = "wind";
-  if (!getController().hasResolvedWind(key) && !getController().isResolvingWind(key)) {
-    const n = getController().resolveWind([key]);
-    if (n === 0) toast("This ride has no track to resolve wind for.");
-  } else {
-    getController().showCachedWind(key); // recompute the overlay from cache if needed
-  }
+  saveRideMapPrefs();
+  resolveRideWind(key);
   drawRideLine();
   syncRideMapControls();
   renderRideMapWind();
+}
+
+/** Resolve the ride's wind (networked) unless it's resolved or on its way; otherwise
+ *  recompute the overlay from the cache. */
+function resolveRideWind(key: string): void {
+  const c = getController();
+  if (!c.hasResolvedWind(key) && !c.isResolvingWind(key)) {
+    if (c.resolveWind([key]) === 0) toast("This ride has no track to resolve wind for.");
+  } else {
+    c.showCachedWind(key);
+  }
 }
 
 /** The "Rain & wind" toggle: show the weather you rode in on the map. Resolves the
@@ -1337,6 +1412,7 @@ export function toggleRideMapWeather(): void {
   const key = rideMapKey;
   if (!key) return;
   rideMapWeatherOn = !rideMapWeatherOn;
+  saveRideMapPrefs();
   if (rideMapWeatherOn) ensureRideWeather(key);
   syncRideWeather();
   syncRideMapControls();
@@ -1514,6 +1590,7 @@ export function toggleRideMapChrome(force?: boolean): void {
 /** Toggle the elevation profile panel, re-measuring the map afterwards. */
 export function toggleRideMapProfile(): void {
   rideMapProfileShown = !rideMapProfileShown;
+  saveRideMapPrefs();
   renderRideProfile();
   syncRideMapControls();
   setTimeout(() => {
@@ -1525,6 +1602,7 @@ export function toggleRideMapProfile(): void {
 /** Switch the profile metric (elevation vs speed), redrawing the graph in place. */
 export function setRideMapProfileMetric(metric: "elevation" | "speed"): void {
   rideMapProfileMetric = metric;
+  saveRideMapPrefs();
   renderRideProfile();
   syncRideMapControls();
 }
@@ -1532,6 +1610,7 @@ export function setRideMapProfileMetric(metric: "elevation" | "speed"): void {
 /** Switch the profile x-axis (distance vs time), redrawing the graph in place. */
 export function setRideMapProfileAxis(axis: "distance" | "time"): void {
   rideMapProfileAxis = axis;
+  saveRideMapPrefs();
   renderRideProfile();
   syncRideMapControls();
 }
@@ -1540,6 +1619,7 @@ export function setRideMapProfileAxis(axis: "distance" | "time"): void {
  *  marked by a thin dashed cut rule), redrawing the graph in place. */
 export function toggleRideMapProfileStops(): void {
   rideMapProfileHideStops = !rideMapProfileHideStops;
+  saveRideMapPrefs();
   renderRideProfile();
   syncRideMapControls();
 }
@@ -1563,7 +1643,6 @@ export function closeRideMap(): void {
   hoverTextEl = null;
   windDialEl = null;
   lastHover = null;
-  rideMapWeatherOn = false;
   weatherForceRequested = false;
   rideFx.detach();
   setRideMapStatus("");

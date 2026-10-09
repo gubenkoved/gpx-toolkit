@@ -125,7 +125,9 @@ export function renderJob(): void {
   if (!busy) jobHidden = false; // a finished batch clears the hide so the next one reappears
   $("#job").classList.toggle("show", busy && !jobHidden);
   $("#jobHandle").classList.toggle("show", busy && jobHidden);
-  document.body.classList.toggle("job-active", busy);
+  // Only the open strip covers the bottom of the pane; the minimized chip sits in the
+  // top bar, so the views reclaim their bottom padding while it's hidden.
+  document.body.classList.toggle("job-active", busy && !jobHidden);
 
   // -- current activity: what is being done right now -----------------------
   // One lean row: the verb in bold, "2 / 3" beside it, the live step muted after
@@ -150,21 +152,17 @@ export function renderJob(): void {
   }
   setThread($("#jobBar"), p && p.total > 0 ? p.done / p.total : null);
 
-  // Minimized handle: keep it a tiny pill, but convey the NATURE of the work and the
-  // PROGRESS, not just a bare count. Show the current verb ("Resolving wind") + a
-  // done/total when the running task reports progress, and turn the spinner into a
-  // determinate ring that fills as work completes (falls back to the indeterminate
-  // spinner when no progress is known, e.g. a scan).
-  const handleText = $("#jobHandleText");
+  // Minimized: a chip in the top bar — the verb plus "done/total" (or the ride count
+  // while the total is unknown), with the thread along its bottom edge. On phones the
+  // count alone stands in (CSS drops the verb when a count is shown).
   const verb = cur ? TASK_VERB[cur.kind] || cur.kind : "Working";
   const hp = cur?.progress;
-  if (hp && hp.total > 0) {
-    handleText.textContent = `${verb} · ${hp.done}/${hp.total}`;
-  } else {
-    handleText.textContent = total
-      ? `${verb} · ${total} ride${total === 1 ? "" : "s"}`
-      : `${verb}\u2026`;
-  }
+  $("#jobHandleVerb").textContent = verb;
+  $("#jobHandleCount").textContent =
+    hp && hp.total > 0 ? `${hp.done}/${hp.total}` : total ? String(total) : "";
+  $("#jobHandle").title = cur
+    ? `${taskTitle(cur)} — ${cur.message || "working…"} (click to show)`
+    : "Show activity";
   setThread($("#jobHandleBar"), hp && hp.total > 0 ? hp.done / hp.total : null);
 
   // -- the rest of the queue: what is to be done ----------------------------

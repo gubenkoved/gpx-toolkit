@@ -71,6 +71,9 @@
   --surface-hover: #222732; /* row/control hover fill */
   --border-hover: #333b48; /* row/control hover border */
   --map-bg: #05070a; /* dark basemap container behind tiles */
+  --grade-climb: rgba(255, 170, 60, 0.38); /* profile: 4–8% climbs */
+  --grade-steep: rgba(255, 72, 64, 0.55); /* profile: 8%+ climbs */
+  --rain: #4ea3ff; /* rain along a planned route */
   --glass: rgba(20, 23, 29, 0.92); /* translucent header/popover backdrop */
   --glass-strong: rgba(20, 23, 29, 0.94); /* more opaque glass variant */
   --track: #2a313c; /* slider / progress-bar rail fill */
@@ -191,6 +194,9 @@
   --surface-hover: #eceff3;
   --border-hover: #c9d0da;
   --map-bg: #e6e8ec;
+  --grade-climb: rgba(230, 130, 20, 0.35);
+  --grade-steep: rgba(220, 40, 40, 0.45);
+  --rain: #2f7fe0;
   --glass: rgba(255, 255, 255, 0.9);
   --glass-strong: rgba(255, 255, 255, 0.95);
   --track: #d9dee6;
@@ -532,8 +538,11 @@ header {
   flex: 1;
 }
 /* A panel's collapse control: a small round chevron; it points up while the panel is
-   open and down once collapsed (aria-expanded drives it). */
-button.collapse-btn {
+   open and down once collapsed (aria-expanded drives it). The ride map's close "×"
+   sits beside it in the same lean icon-only form. */
+button.collapse-btn,
+button.ridemap-close,
+button.tb-back {
   flex: 0 0 auto;
   width: 26px;
   height: 26px;
@@ -547,7 +556,9 @@ button.collapse-btn {
   border-color: transparent;
   color: var(--muted);
 }
-.collapse-btn:hover:not(:disabled) {
+.collapse-btn:hover:not(:disabled),
+.ridemap-close:hover:not(:disabled),
+.tb-back:hover:not(:disabled) {
   color: var(--text);
 }
 .collapse-btn > svg {
@@ -1253,9 +1264,13 @@ button.small {
 }
 
 main {
+  /* Top / bottom padding as variables: the centred empty view (.pane-empty) sizes
+     itself from them. Breakpoints change the variables, not the padding. */
+  --main-pt: 16px;
+  --main-pb: 40px;
   flex: 1;
   min-width: 0;
-  padding: 16px 22px 40px;
+  padding: var(--main-pt) 22px var(--main-pb);
 }
 /* The ride list is the one text-dense view: cap it at a readable measure and
    centre it; every map/chart view uses the full content width. */
@@ -1390,45 +1405,40 @@ details.help kbd {
 .job-bar {
   order: -1; /* the top edge, above the Up-next list and the row */
 }
-/* Minimized: a small pill in the pane's corner, its thread along the bottom edge. */
-.job-handle {
-  position: fixed;
-  right: 16px;
-  bottom: 14px;
-  z-index: 50;
+/* Minimized: a chip at the head of the top bar's actions — in flow, so it never
+   covers a view's controls. Verb + "3/12", the thread along its bottom edge; a click
+   brings the strip back. */
+.job-chip {
   display: none;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 0;
-  padding: 0;
+  position: relative;
   overflow: hidden;
-  background: var(--glass-strong);
-  backdrop-filter: blur(10px);
-  border: 1px solid var(--line);
-  border-radius: 9px;
-  color: var(--text);
-  font-size: 12.5px;
+  align-items: baseline;
+  gap: 6px;
+  max-width: 220px;
   font-weight: 600;
-  box-shadow: var(--shadow-float);
-  opacity: 0;
-  pointer-events: none;
-  cursor: pointer;
-  transform: translateY(10px);
-  transition:
-    opacity 0.18s ease,
-    transform 0.18s ease;
 }
-.job-handle > span:first-child {
-  padding: 7px 13px 6px;
-}
-.job-handle.show {
+.job-chip.show {
   display: inline-flex;
-  opacity: 1;
-  pointer-events: auto;
-  transform: translateY(0);
 }
-.job-handle:hover {
-  border-color: var(--border-hover);
+.job-chip .jc-verb {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.job-chip .jc-count {
+  flex: 0 0 auto;
+  color: var(--accent-soft-text);
+  font-variant-numeric: tabular-nums;
+}
+.job-chip .jc-count:empty {
+  display: none;
+}
+.job-chip .jc-thread {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
 }
 /* While a job runs, the scrolling views keep their last rows clear of the strip. */
 body.job-active main {
@@ -3255,9 +3265,8 @@ body.ridemap-open {
 .ridemap-tools.compact .rmb.hidden {
   display: none;
 }
-/* Close is in the title bar: always a labelled button, never folded. */
+/* Close is in the title bar: pinned at its end, never folded. */
 .ridemap-close {
-  flex: 0 0 auto;
   margin-left: auto;
 }
 .ridemap-color button {
@@ -3350,10 +3359,12 @@ body.ridemap-open {
   color: var(--muted);
   font-weight: 500;
 }
-.ridemap-profile {
+/* The shared profile strip (the ride map's and a planned route's): an SVG stretched to
+   the strip, its labels in HTML beside it. */
+.profile-strip {
   position: relative;
 }
-.ridemap-profile svg {
+.profile-strip svg {
   width: 100%;
   height: 100%;
   display: block;
@@ -3362,13 +3373,13 @@ body.ridemap-open {
 }
 /* The graph stretches to the strip (preserveAspectRatio: none); strokes keep their
    width and the axis labels live outside the SVG so neither is distorted. */
-.ridemap-profile .rp-line,
-.ridemap-profile .rp-cursor,
-.ridemap-profile .rp-cut,
-.ridemap-profile .rp-stop-top {
+.profile-strip .rp-line,
+.profile-strip .rp-cursor,
+.profile-strip .rp-cut,
+.profile-strip .rp-stop-top {
   vector-effect: non-scaling-stroke;
 }
-.ridemap-profile .rp-lbl {
+.profile-strip .rp-lbl {
   position: absolute;
   color: var(--muted);
   font-size: 11px;
@@ -3376,20 +3387,27 @@ body.ridemap-open {
   line-height: 1;
   pointer-events: none;
 }
-.ridemap-profile .rp-lbl-hi {
+.profile-strip .rp-lbl-hi {
   top: 7px;
   left: 14px;
 }
-.ridemap-profile .rp-lbl-lo {
+.profile-strip .rp-lbl-lo {
   bottom: 9px;
   left: 14px;
 }
-.ridemap-profile .rp-lbl-ext {
+.profile-strip .rp-lbl-ext {
   bottom: 9px;
   right: 14px;
 }
-.ridemap-profile .rp-area {
+.profile-strip .rp-area {
   fill: rgba(252, 82, 0, 0.16);
+}
+/* Climbs on a planned route's profile: a warm tint from 4%, red from 8%. */
+.profile-strip .rp-climb {
+  fill: var(--grade-climb);
+}
+.profile-strip .rp-steep {
+  fill: var(--grade-steep);
 }
 /* Stretches detected as not moving (below the stop threshold). A stop sits at ~0 km/h —
    the chart floor, where there's no orange fill — so the band is a faint cool panel
@@ -3397,36 +3415,36 @@ body.ridemap-open {
    reads as "paused" against the warm orange of riding; both are drawn in the BACKGROUND
    (behind the area + line) so the profile stays the foreground. On the distance axis the
    band marks WHERE a stop was; on the time axis its width is the stop's true duration. */
-.ridemap-profile .rp-stop {
+.profile-strip .rp-stop {
   fill: rgba(150, 178, 214, 0.12);
 }
-.ridemap-profile .rp-stop-top {
+.profile-strip .rp-stop-top {
   stroke: rgba(150, 178, 214, 0.7);
   stroke-width: 1;
 }
 /* "Hide stops" collapses each no-movement stretch to zero width, so instead of a band
    a thin dashed cool rule marks the join — a subtle "the track was cut here". */
-.ridemap-profile .rp-cut {
+.profile-strip .rp-cut {
   stroke: rgba(150, 178, 214, 0.45);
   stroke-width: 1;
   stroke-dasharray: 2 4;
 }
-.ridemap-profile .rp-line {
+.profile-strip .rp-line {
   fill: none;
   stroke: var(--accent);
   stroke-width: 1.5;
 }
-.ridemap-profile .rp-axis {
+.profile-strip .rp-axis {
   fill: var(--muted);
   font-size: 11px;
   font-variant-numeric: tabular-nums;
 }
-.ridemap-profile .rp-cursor {
+.profile-strip .rp-cursor {
   stroke: var(--text);
   stroke-width: 1;
   opacity: 0.7;
 }
-.ridemap-profile .rp-empty {
+.profile-strip .rp-empty {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -3452,7 +3470,8 @@ body.ridemap-open {
 #analyticsView.hidden,
 #climateView.hidden,
 #forecastView.hidden,
-#timelineView.hidden {
+#timelineView.hidden,
+#routesView.hidden {
   display: none;
 }
 
@@ -5950,32 +5969,6 @@ button.dp-cell:hover {
   font-size: 13px;
   font-weight: 650;
 }
-/* Day panel: stack a "back to overview" breadcrumb above the day title so the way out
-   sits right where the user is reading the rail, not only in the far-off bottom bar. */
-.tl-day-head {
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 5px;
-}
-.tl-back {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 0;
-  background: none;
-  border: 0;
-  color: var(--muted);
-  font: inherit;
-  font-size: 12px;
-  cursor: pointer;
-}
-.tl-back:hover {
-  color: var(--text);
-}
-.tl-back .bi {
-  width: 14px;
-  height: 14px;
-}
 .tl-side-sub {
   color: var(--muted);
   font-size: 12px;
@@ -6071,6 +6064,7 @@ button.small:has(> .bi) {
 .tl-empty-actions {
   display: flex;
   flex-wrap: wrap;
+  justify-content: center;
   gap: 10px;
   margin-top: 14px;
 }
@@ -8360,6 +8354,16 @@ body.ridemap-open .toast {
   .hdr-actions button .mi {
     display: block;
   }
+  /* The activity chip keeps its count (or a short verb) at the 32px icon height. */
+  .hdr-actions .job-chip {
+    height: var(--tap-min);
+    align-items: center;
+    max-width: 120px;
+    padding: 0 9px;
+  }
+  .job-chip:has(.jc-count:not(:empty)) .jc-verb {
+    display: none;
+  }
   .conn {
     display: contents;
   }
@@ -8395,7 +8399,9 @@ body.ridemap-open .toast {
 @media (max-width: 768px) {
   /* -- overall chrome: trim padding / gaps that eat a 375px viewport ------ */
   main {
-    padding: 14px 12px 56px;
+    --main-pt: 14px;
+    --main-pb: 56px;
+    padding: var(--main-pt) 12px var(--main-pb);
   }
   header {
     padding: 10px 12px;
@@ -8986,7 +8992,9 @@ body.ridemap-open .toast {
 /* ------------------------------------------------------------------------ */
 @media (max-width: 480px) {
   main {
-    padding: 12px 8px 52px;
+    --main-pt: 12px;
+    --main-pb: 52px;
+    padding: var(--main-pt) 8px var(--main-pb);
   }
   header {
     padding: 9px 9px;
@@ -9816,8 +9824,13 @@ body.sb-rail .sb-toggle .mi {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.tb-sub.hidden {
+.tb-sub.hidden,
+.tb-back.hidden {
   display: none;
+}
+/* The drill-in's way back sits tight against the title it returns to. */
+.tb-back {
+  margin-right: -6px;
 }
 .tb-logo,
 .tb-weather {
@@ -9913,7 +9926,8 @@ body.sb-rail .sb-toggle .mi {
     padding: 4px 10px;
   }
   main {
-    padding-bottom: calc(84px + env(safe-area-inset-bottom));
+    --main-pb: calc(84px + env(safe-area-inset-bottom));
+    padding-bottom: var(--main-pb);
   }
   .bottomnav {
     position: fixed;
@@ -9951,14 +9965,10 @@ body.sb-rail .sb-toggle .mi {
     max-width: none;
     bottom: calc(80px + var(--vv-bottom, 0px) + env(safe-area-inset-bottom, 0px));
   }
-  .job,
-  .job-handle {
+  .job {
     left: 10px;
     right: 10px;
     bottom: calc(80px + var(--vv-bottom, 0px) + env(safe-area-inset-bottom, 0px));
-  }
-  .job-handle {
-    left: auto;
   }
   .job-now {
     gap: 8px;
@@ -10171,12 +10181,709 @@ body.sb-rail .sb-toggle .mi {
     overflow: visible;
     white-space: normal;
   }
+  /* No stickiness needed here — but stay positioned: the sliding thumb is placed
+     relative to its .seg, and a static seg left it stranded where the switch had
+     been once the splitter moved it. */
   #forecastView:not(.hidden):not(:has(.fc-top.collapsed)) .fc-compare-style {
-    position: static;
+    position: relative;
   }
   #forecastView:not(.hidden):not(:has(.fc-top.collapsed)) .fc-credit-footer {
     grid-column: 1 / -1;
     grid-row: 3;
     margin: 6px 2px 0;
   }
+}
+
+/* === Routes (route planner + ride simulator) ===============================
+   Two screens in #routesView: the list of routes (cards with a drawn shape) and
+   an open route — the map beside a side panel, laid out like the Wind rose view
+   (.cl-wrap): stacked under the map on narrow screens. */
+/* The cards keep a readable measure; the list itself spans the pane, so its empty
+   state centres in the pane like every other view's. */
+.rt-list-head,
+.rt-grid {
+  max-width: 1100px;
+}
+.rt-list.hidden,
+.rt-plan.hidden {
+  display: none;
+}
+.rt-list-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+  margin-bottom: 14px;
+}
+.rt-list-intro {
+  flex: 1 1 320px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.rt-list-intro b {
+  color: var(--text);
+}
+.rt-list-acts {
+  display: flex;
+  gap: 8px;
+}
+.rt-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 10px;
+}
+.rt-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  text-align: left;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+.rt-card:hover {
+  background: var(--accent-wash);
+  border-color: var(--accent-dim);
+}
+.rt-shape {
+  flex: 0 0 auto;
+  width: 56px;
+  height: 56px;
+  border-radius: 8px;
+  background: var(--map-bg);
+}
+.rt-shape path {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.rt-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.rt-card-name {
+  font-size: 13.5px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rt-card-meta,
+.rt-card-when {
+  font-size: 11.5px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.rt-plan {
+  display: grid;
+  grid-template-columns: 1fr 380px;
+  gap: 12px;
+  height: calc(100vh - var(--chrome-h));
+  min-height: 460px;
+}
+.rt-main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+/* The map and the banners floating over it (the readout pins to its bottom-left). */
+.rt-mapwrap {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  isolation: isolate;
+}
+.rt-profile-wrap {
+  flex: 0 0 auto;
+  padding: 6px 10px 8px 14px;
+}
+.rt-profile-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12.5px;
+}
+.rt-profile-title {
+  font-weight: 600;
+  color: var(--text);
+}
+.rt-profile-sum {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rt-profile {
+  position: relative;
+  height: 86px;
+  margin-top: 4px;
+}
+/* Folded: the head line (title + climb summary) stays. */
+.rt-profile-wrap.collapsed .rt-profile-body {
+  display: none;
+}
+.rt-profile-body {
+  touch-action: none;
+  cursor: crosshair;
+}
+/* Clock ruler: when you'd pass each point. Labels are HTML, placed by percent. */
+.rt-ruler {
+  position: relative;
+  height: 15px;
+  margin-top: 2px;
+  border-bottom: 1px solid var(--line);
+}
+.rt-ruler:empty {
+  display: none;
+}
+.rt-tick {
+  position: absolute;
+  bottom: 0;
+  transform: translateX(-50%);
+  padding-bottom: 2px;
+  color: var(--muted);
+  font-size: 10.5px;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.rt-tick::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: -1px;
+  height: 4px;
+  border-left: 1px solid var(--line);
+}
+/* Rain lane: precipitation bars on a fixed scale (full height = 4 mm/h, heavy rain),
+   deeper blue the harder it rains; each wet stretch's peak mm/h is labelled below. */
+.rt-rainlane {
+  position: relative;
+  height: 18px;
+  margin-top: 3px;
+  border-bottom: 1px solid var(--line);
+}
+.rt-rainlane:empty {
+  display: none;
+}
+.rt-rainlane svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.rt-rainlane path {
+  fill: var(--rain);
+}
+.rt-rainlane .rr1 {
+  opacity: 0.45;
+}
+.rt-rainlane .rr2 {
+  opacity: 0.75;
+}
+.rt-rainlane .rr3 {
+  opacity: 1;
+}
+.rt-rainlbls {
+  position: relative;
+  height: 14px;
+}
+.rt-rainlbls:empty {
+  display: none;
+}
+.rt-rainlbl {
+  position: absolute;
+  top: 2px;
+  transform: translateX(-50%);
+  color: var(--rain);
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.rt-models {
+  margin: 0 0 10px;
+}
+.rt-models.hidden {
+  display: none;
+}
+.rt-model-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+.rt-models .cl-hint {
+  margin: 8px 0 0;
+  font-size: 12px;
+}
+.rt-wxsrc:disabled {
+  cursor: default;
+  text-decoration: none;
+}
+.rt-profile-wrap.hidden {
+  display: none;
+}
+/* The Flat / Hills switch spans the field and unit columns, starting at the fields'
+   left edge. */
+.rt-terrain .seg {
+  grid-column: 2 / 4;
+  justify-self: start;
+}
+#rtMap {
+  flex: 1;
+  min-height: 0;
+  border-radius: var(--radius);
+  overflow: hidden;
+  border: 1px solid var(--line);
+  background: var(--map-bg);
+  cursor: crosshair;
+}
+#rtMap .leaflet-container {
+  height: 100%;
+  width: 100%;
+  background: var(--map-bg);
+}
+/* Same dark, desaturated basemap treatment as every other map. */
+#rtMap .leaflet-tile-pane {
+  filter: var(--tile-filter);
+}
+#rtMap .leaflet-grab {
+  cursor: crosshair;
+}
+.rt-side {
+  padding: 14px;
+  overflow-y: auto;
+  min-width: 0;
+}
+.rt-name {
+  width: 100%;
+  margin-bottom: 12px;
+  font-weight: 600;
+}
+.rt-sec + .rt-sec {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+.rt-routing {
+  width: 100%;
+}
+.rt-routing.hidden {
+  display: none;
+}
+.rt-routing button {
+  flex: 1 1 0;
+}
+.rt-wps {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.rt-wp-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 4px;
+  border-radius: 8px;
+  font-size: 12.5px;
+}
+.rt-wp-row:hover {
+  background: var(--surface-soft);
+}
+.rt-wp-name {
+  color: var(--text);
+}
+.rt-wp-at {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rt-wp-row .ms-clear {
+  display: inline-flex;
+  align-items: center;
+}
+/* Reordering: a grip on every row; with a mouse the whole row can be dragged. While
+   one row is lifted, the others slide (transform) to show where it will land. */
+.rt-wp-row--movable {
+  user-select: none;
+}
+@media (pointer: fine) {
+  .rt-wp-row--movable {
+    cursor: grab;
+  }
+}
+.rt-grip {
+  flex: 0 0 auto;
+  display: inline-grid;
+  place-items: center;
+  width: 18px;
+  height: 26px;
+  margin-right: -4px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--muted);
+  cursor: grab;
+  touch-action: none;
+  opacity: 0.55;
+}
+.rt-grip .bi {
+  width: 14px;
+  height: 14px;
+}
+.rt-wp-row:hover .rt-grip,
+.rt-grip:focus-visible {
+  opacity: 1;
+  color: var(--text);
+}
+.rt-wps.reordering .rt-wp-row {
+  transition: transform 0.16s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+.rt-wps.reordering,
+.rt-wps.reordering .rt-wp-row,
+.rt-wps.reordering .rt-grip {
+  cursor: grabbing;
+}
+.rt-wps .rt-wp-row.dragging {
+  position: relative;
+  z-index: 2;
+  transition: none;
+  background: var(--panel2);
+  box-shadow: var(--shadow-float);
+}
+/* The map point of the hovered / dragged row. */
+.rt-wp-marker.hot .rt-wp {
+  transform: scale(1.25);
+  box-shadow:
+    0 0 0 3px color-mix(in srgb, var(--accent) 45%, transparent),
+    var(--shadow-float);
+}
+.rt-wp-marker .rt-wp {
+  transition: transform 0.12s ease;
+}
+/* Waypoint badge — in the list and as the map marker. */
+.rt-wp {
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  border: 1.5px solid var(--map-bg);
+  background: var(--accent);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+}
+.rt-wp--start {
+  background: var(--green);
+}
+.rt-wp--via {
+  background: var(--panel2);
+  color: var(--text);
+  border-color: var(--accent);
+}
+.rt-wp-marker {
+  background: transparent;
+  border: 0;
+}
+.rt-wp-marker .rt-wp {
+  width: 24px;
+  height: 24px;
+  box-shadow: var(--shadow-float);
+  cursor: grab;
+}
+/* Wind badge on the map: a glass pill centred on its spot (the 0×0 divIcon anchors
+   the middle), arrow pointing where the wind blows, its speed in km/h beside it. */
+.rt-wind {
+  background: transparent;
+  border: 0;
+}
+.rt-wind-badge {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 6px 2px 3px;
+  background: var(--glass-strong);
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  box-shadow: var(--shadow-float);
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.rt-wind-badge svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.rt-hint {
+  margin: 8px 0 0;
+}
+.rt-acts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+.rt-depart {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.rt-daynav {
+  width: var(--tap-min);
+  height: var(--tap-min);
+  padding: 0;
+  display: inline-grid;
+  place-items: center;
+}
+.rt-day {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+.rt-time {
+  margin-left: auto;
+  font-size: 20px;
+  font-weight: 650;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.rt-time-slider {
+  width: 100%;
+  margin: 10px 0 6px;
+}
+.rt-sweep canvas {
+  display: block;
+  width: 100%;
+  height: 74px;
+  cursor: pointer;
+  touch-action: none;
+}
+.rt-sweep-read {
+  margin: 4px 0 12px;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+.rt-sweep-read b {
+  color: var(--text);
+}
+.rt-cards {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px 10px;
+}
+/* One grid for every row (label · field · unit) so the fields line up; each row is
+   `display: contents`, its children sit in the shared columns. */
+.rt-speed {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 84px 56px;
+  align-items: center;
+  gap: 8px 10px;
+  font-size: 12.5px;
+  color: var(--text);
+}
+.rt-field {
+  display: contents;
+}
+.rt-field.hidden {
+  display: none;
+}
+.rt-field input {
+  width: 100%;
+  padding-top: 5px;
+  padding-bottom: 5px;
+  text-align: right;
+}
+.rt-unit {
+  color: var(--muted);
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+.rt-speed-src {
+  margin-top: 10px;
+  font-size: 12px;
+}
+
+@media (max-width: 1000px) {
+  /* Stack the panel under the map; the page scrolls. */
+  .rt-plan {
+    grid-template-columns: 1fr;
+    grid-template-rows: 52vh minmax(0, auto);
+    height: auto;
+    min-height: 0;
+  }
+  .rt-side {
+    overflow: visible;
+  }
+}
+@media (max-width: 560px) {
+  .rt-grid {
+    grid-template-columns: 1fr;
+  }
+  .rt-cards {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .rt-list-acts {
+    width: 100%;
+  }
+  .rt-list-acts button {
+    flex: 1 1 0;
+  }
+}
+.rt-find {
+  position: relative;
+  margin-bottom: 10px;
+}
+.rt-find.hidden {
+  display: none;
+}
+.rt-find input {
+  width: 100%;
+}
+.rt-find-results {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 4px;
+}
+.rt-find-results:empty {
+  display: none;
+}
+.rt-place {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 6px 8px;
+  text-align: left;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: var(--text);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.rt-place:hover {
+  background: var(--surface-hover);
+  border-color: var(--border-hover);
+}
+.rt-place .bi {
+  align-self: center;
+  width: 14px;
+  height: 14px;
+  color: var(--accent);
+}
+.rt-profile .rp-lbl-hi {
+  top: 2px;
+  left: 4px;
+}
+.rt-profile .rp-lbl-lo {
+  bottom: 2px;
+  left: 4px;
+}
+.rt-profile .rp-lbl-ext {
+  bottom: 2px;
+  right: 4px;
+}
+/* The handle that rides the line under the pointer: pull it to add a point there. */
+.rt-ghost-marker {
+  background: transparent;
+  border: 0;
+}
+.rt-ghost {
+  display: block;
+  width: 14px;
+  height: 14px;
+  margin: 1px;
+  box-sizing: border-box;
+  border-radius: 50%;
+  border: 1.5px solid var(--accent);
+  background: var(--panel);
+  box-shadow: var(--shadow-float);
+  cursor: grab;
+}
+.rt-rain-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin: 0 1px 1px;
+  border-radius: 50%;
+  background: var(--rain);
+  vertical-align: middle;
+}
+
+/* A view with nothing to show yet (Explore's onboarding, Stats, Wind vs speed,
+   Timeline, Routes): one message, centred both ways in the pane, its body an `.onb`
+   (title · lede · buttons) so every empty view reads the same. */
+.pane-empty {
+  display: grid;
+  place-items: center;
+  box-sizing: border-box;
+  /* Exactly the visible band — under the header (--hdr-h), above a phone's bottom nav
+     (--nav-h), both measured live by shell.ts — less main's top padding on both sides,
+     so the box's middle is the middle of what you see. The negative bottom margin
+     hands back main's extra bottom padding, so an empty view never scrolls. */
+  min-height: calc(100svh - var(--hdr-h, 54px) - var(--nav-h, 0px) - 2 * var(--main-pt, 16px));
+  margin-bottom: min(
+    0px,
+    calc(var(--main-pt, 16px) + var(--nav-h, 0px) - var(--main-pb, 40px))
+  );
+  padding: 24px 20px;
+  color: var(--muted);
+  font-size: 13.5px;
+  line-height: 1.7;
+  text-align: center;
+}
+.pane-empty.hidden {
+  display: none;
+}
+.pane-empty .onb {
+  max-width: 460px;
+}
+.pane-empty .onb p {
+  margin: 0 0 10px;
+}
+.pane-empty .onb .onb-lede {
+  margin-bottom: 18px;
+}
+.pane-empty a {
+  color: var(--accent);
 }

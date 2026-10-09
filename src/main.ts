@@ -185,6 +185,13 @@ import {
   validRoutePoint,
   writeRoute,
 } from "./router";
+import { RouteStore } from "./routes";
+import {
+  initRoutesView,
+  leaveRoutesView,
+  mountRoutesView,
+  resetRoutesView,
+} from "./routes-view";
 import { initSegSliding } from "./seg";
 import { initShell, lastWeatherView, setViewSubtitle, syncShell } from "./shell";
 import type { SourceFactory } from "./source";
@@ -718,6 +725,17 @@ function goGpx(): void {
 let locStore: LocationHistoryStore | null = null;
 let locLoading: Promise<LocationHistoryStore> | null = null;
 
+/** The saved routes: their own blob on the key/value store, never mixed into rides. */
+let routeStore: RouteStore | null = null;
+async function ensureRouteStore(): Promise<RouteStore> {
+  if (!routeStore) {
+    const s = new RouteStore(storageBackend);
+    await s.load();
+    routeStore ??= s;
+  }
+  return routeStore;
+}
+
 /** Live forecasts use their own cache/preferences bucket and never touch ride state. */
 let forecastStore: ForecastStore | null = null;
 let forecastLoading: Promise<ForecastStore> | null = null;
@@ -1170,8 +1188,11 @@ function rowEl(key: string): HTMLElement | null {
 let lastWeatherSig = "";
 
 const yearOf = (mkey: string): string => (mkey || "").slice(0, 4);
+/** A group checkbox's tri-state: `true` checked, `false` clear, `null` indeterminate. */
 function setChecked(el: HTMLInputElement | null, on: boolean | null): void {
-  if (el) el.indeterminate = on === null;
+  if (!el) return;
+  el.checked = on === true;
+  el.indeterminate = on === null;
 }
 function esc(s: string): string {
   return (s || "").replace(/[^a-zA-Z0-9]/g, "_");
@@ -1572,11 +1593,12 @@ function applyView(): void {
   const isClimate = activeView() === "climate";
   const isForecast = activeView() === "forecast";
   const isTimeline = activeView() === "timeline";
+  const isRoutes = activeView() === "routes";
   document
     .getElementById("exploreView")
     ?.classList.toggle(
       "hidden",
-      isMap || isStats || isAnalytics || isClimate || isForecast || isTimeline,
+      isMap || isStats || isAnalytics || isClimate || isForecast || isTimeline || isRoutes,
     );
   document.getElementById("mapView")?.classList.toggle("hidden", !isMap);
   document.getElementById("statsView")?.classList.toggle("hidden", !isStats);
@@ -1584,6 +1606,7 @@ function applyView(): void {
   document.getElementById("climateView")?.classList.toggle("hidden", !isClimate);
   document.getElementById("forecastView")?.classList.toggle("hidden", !isForecast);
   document.getElementById("timelineView")?.classList.toggle("hidden", !isTimeline);
+  document.getElementById("routesView")?.classList.toggle("hidden", !isRoutes);
   if (!isMap && document.body.classList.contains("map-expanded")) setMapExpanded(false);
   if (!isStats && document.body.classList.contains("heat-expanded")) setHeatExpanded(false);
   if (!isMap && mapAreaSelect.isArmed()) mapAreaSelect.setMode(false);
@@ -1594,6 +1617,7 @@ function applyView(): void {
   if (!isClimate) leaveClimateView();
   if (!isForecast) leaveForecastView();
   if (!isTimeline) leaveTimelineView();
+  if (!isRoutes) leaveRoutesView();
   // The subtitle belongs to the view: Explore writes its ride count on render, the
   // Wind rose its dataset line on mount; every other view shows none.
   if (activeView() !== "explore" && !isClimate) setViewSubtitle("");
@@ -2223,7 +2247,7 @@ function render(): void {
   // Empty state: distinguish "no rides at all" from "filters hid everything".
   const emptyEl = $("#empty") as HTMLElement;
   if (allRides.length === 0) {
-    emptyEl.style.display = "block";
+    emptyEl.style.display = ""; // the stylesheet's centred .pane-empty
     // Light onboarding: one line on the model (a library fed by sources), then the
     // two ways in as plain buttons + a demo link. Kept minimal on purpose.
     emptyEl.innerHTML =
@@ -2237,9 +2261,9 @@ function render(): void {
       `<p class="onb-foot">Just exploring? <a href="#" id="emptyDemo">Try the demo</a>.</p>` +
       `</div>`;
   } else if (rides.length === 0) {
-    emptyEl.style.display = "block";
+    emptyEl.style.display = "";
     emptyEl.innerHTML =
-      'No rides match the current filters. <a href="#" id="emptyClear">Clear filters</a>';
+      '<div class="onb">No rides match the current filters. <a href="#" id="emptyClear">Clear filters</a></div>';
   } else {
     emptyEl.style.display = "none";
   }
@@ -2407,7 +2431,7 @@ function render(): void {
     ybox.innerHTML = `
       <div class="yhead" data-y="${year}">
         <span class="caret${yOpen ? " open" : ""}" aria-hidden="true"></span>
-        <input type="checkbox" class="selall" data-selyear="${year}" ${ySel === true ? "checked" : ""}>
+        <input type="checkbox" class="selall" data-selyear="${year}">
         <span class="ytitle">${year}</span>
         ${volumeBar(ykm, maxYearKm)}
         <span class="ymeta">${yRides.length} rides · ${fmtKm(ykm)}</span>
@@ -2441,7 +2465,7 @@ function render(): void {
       box.innerHTML = `
         <div class="mhead" data-m="${mkey}">
           <span class="caret${isOpen ? " open" : ""}" aria-hidden="true"></span>
-          <input type="checkbox" class="selall" data-selmonth="${mkey}" ${mSel === true ? "checked" : ""}>
+          <input type="checkbox" class="selall" data-selmonth="${mkey}">
           <span class="mtitle">${m.label}</span>
           ${volumeBar(mkm, maxMonthKm)}
           <span class="mmeta">${m.rides.length} rides · ${fmtKm(mkm)}</span>
@@ -2517,6 +2541,7 @@ function render(): void {
   else if (activeView() === "climate") mountClimateView();
   else if (activeView() === "forecast") void mountForecastView();
   else if (activeView() === "timeline") mountTimelineView();
+  else if (activeView() === "routes") mountRoutesView();
   else mountMaps();
   // The consolidated actions menu lives in static markup (not rebuilt here), so
   // sync its open state from the shared `openMenu` flag.
@@ -2955,6 +2980,10 @@ async function exportAll(): Promise<void> {
         bytes: item.bytes,
       });
     }
+    entries.push({
+      name: "routes.json",
+      bytes: new TextEncoder().encode((await ensureRouteStore()).exportJson()),
+    });
     const zipBytes = await buildZip(entries);
     const now = new Date();
     const yyyymmdd = now.toISOString().slice(0, 10);
@@ -3013,7 +3042,8 @@ function importRides(file: File): void {
         const arrayBuf = reader.result as ArrayBuffer;
         toast("Importing full backup…");
         const result = await controller.importAllZip(arrayBuf);
-        const forecastEntries = (await unzip(new Uint8Array(arrayBuf)))
+        const zipEntries = await unzip(new Uint8Array(arrayBuf));
+        const forecastEntries = zipEntries
           .filter((entry) => entry.name.startsWith("forecast/") && entry.name.endsWith(".bin"))
           .map((entry) => ({
             key: decodeURIComponent(entry.name.slice("forecast/".length, -".bin".length)),
@@ -3022,12 +3052,22 @@ function importRides(file: File): void {
         const forecastImported = await (await ensureForecastStore()).importBlobs(
           forecastEntries,
         );
+        const routesEntry = zipEntries.find((entry) => entry.name === "routes.json");
+        const routesImported = routesEntry
+          ? await (await ensureRouteStore()).importJson(
+              new TextDecoder().decode(routesEntry.bytes),
+            )
+          : 0;
+        if (routesImported) resetRoutesView();
         const msg =
           `Imported — ${result.ridesImported} ride${result.ridesImported === 1 ? "" : "s"}, ` +
           `${result.gpxCacheImported} cached GPX${result.gpxCacheImported === 1 ? "" : "s"}, ` +
           `${result.gpxDataImported} imported GPX${result.gpxDataImported === 1 ? "" : "s"}, ` +
           `${result.windImported} wind cache entries, ` +
-          `${forecastImported} forecast entries.`;
+          `${forecastImported} forecast entries` +
+          (routesImported
+            ? `, ${routesImported} planned route${routesImported === 1 ? "" : "s"}.`
+            : ".");
         toast(msg);
       } else {
         // Import JSON state file (rides + settings, no caches).
@@ -3095,6 +3135,8 @@ async function resetEverything(): Promise<void> {
   await ensureLocStore().then((s) => s.clear());
   await ensureForecastStore().then((s) => s.clearAll());
   resetForecastViewData(true);
+  await ensureRouteStore().then((s) => s.clear());
+  resetRoutesView();
   setActiveView("explore");
   writeRoute({ view: "explore" }, "replace");
   applyView();
@@ -4111,6 +4153,8 @@ initSourcesView({
   },
 });
 
+const forecastProvider = new OpenMeteoForecastAdapter();
+
 initTimelineView({
   getStore: () => locStore,
   ensureStore: ensureLocStore,
@@ -4132,11 +4176,36 @@ initClimateView({
 });
 
 initForecastView({
-  provider: new OpenMeteoForecastAdapter(),
+  provider: forecastProvider,
   ensureStore: ensureForecastStore,
   toast,
   esc: escHtml,
   onPointChange: (point) => onRoutedPointChange("forecast", point),
+});
+
+initRoutesView({
+  getStore: ensureRouteStore,
+  routeWeather: (points, days, onStage, models) =>
+    controller.routeWeather(points, days, onStage, models),
+  forecastModels: forecastProvider.models,
+  searchPlaces: (query, signal) => forecastProvider.searchLocations(query, signal),
+  homePoint: () => {
+    const latest = STATE.rides
+      .filter((r) => !r.deleted && r.track)
+      .sort(compareRidesByDateDesc)[0];
+    const start = latest ? decodePolyline(latest.track)[0] : undefined;
+    if (start) return start;
+    const fp = forecastPoint();
+    return fp ? [fp.lat, fp.lon] : null;
+  },
+  toast,
+  saveText: (filename, text, mime) =>
+    saveGpxFile({
+      filename,
+      downloadName: filename,
+      bytes: new TextEncoder().encode(text),
+      mime,
+    }),
 });
 
 initWindSpeedView({
@@ -4290,11 +4359,11 @@ document.addEventListener("visibilitychange", () => {
 });
 window.addEventListener("pagehide", () => void controller?.flush());
 
-// Keep the floating job pill/handle clear of browser chrome that overlays the
+// Keep the floating job strip clear of browser chrome that overlays the
 // bottom of the layout viewport — chiefly Chrome on Android's retractable
 // address bar (and the on-screen keyboard). The visual viewport shrinks from the
 // bottom when that chrome is shown; we publish that gap as `--vv-bottom` so the
-// pill's `bottom` can lift by exactly that much (see .job / .job-handle in CSS).
+// pill's `bottom` can lift by exactly that much (see .job in CSS).
 function trackViewportInset(): void {
   const vv = window.visualViewport;
   if (!vv) return; // unsupported: CSS falls back to env(safe-area-inset-bottom)
