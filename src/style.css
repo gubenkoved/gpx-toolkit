@@ -3462,7 +3462,8 @@ body.ridemap-open {
 #analyticsView.hidden,
 #climateView.hidden,
 #forecastView.hidden,
-#timelineView.hidden {
+#timelineView.hidden,
+#routesView.hidden {
   display: none;
 }
 
@@ -10354,19 +10355,6 @@ body.sb-rail .sb-toggle .mi {
   touch-action: none;
   cursor: crosshair;
 }
-.rt-profile-rain {
-  flex: 0 1 auto;
-  min-width: 0;
-  color: var(--rain);
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.rt-profile-rain:empty {
-  display: none;
-}
 /* Clock ruler: when you'd pass each point. Labels are HTML, placed by percent. */
 .rt-ruler {
   position: relative;
@@ -10396,13 +10384,13 @@ body.sb-rail .sb-toggle .mi {
   height: 4px;
   border-left: 1px solid var(--line);
 }
-/* Rain lane: blue where you'd be riding in rain, deeper for heavier rain. */
+/* Rain lane: precipitation bars on a fixed scale (full height = 4 mm/h, heavy rain),
+   deeper blue the harder it rains; each wet stretch's peak mm/h is labelled below. */
 .rt-rainlane {
   position: relative;
-  height: 10px;
+  height: 18px;
   margin-top: 3px;
-  border-radius: 3px;
-  background: var(--surface-soft);
+  border-bottom: 1px solid var(--line);
 }
 .rt-rainlane:empty {
   display: none;
@@ -10412,17 +10400,35 @@ body.sb-rail .sb-toggle .mi {
   width: 100%;
   height: 100%;
 }
-.rt-rainlane rect {
+.rt-rainlane path {
   fill: var(--rain);
 }
 .rt-rainlane .rr1 {
-  opacity: 0.35;
+  opacity: 0.45;
 }
 .rt-rainlane .rr2 {
-  opacity: 0.65;
+  opacity: 0.75;
 }
 .rt-rainlane .rr3 {
   opacity: 1;
+}
+.rt-rainlbls {
+  position: relative;
+  height: 14px;
+}
+.rt-rainlbls:empty {
+  display: none;
+}
+.rt-rainlbl {
+  position: absolute;
+  top: 2px;
+  transform: translateX(-50%);
+  color: var(--rain);
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 .rt-models {
   margin: 0 0 10px;
@@ -10447,6 +10453,8 @@ body.sb-rail .sb-toggle .mi {
 .rt-profile-wrap.hidden {
   display: none;
 }
+/* The Flat / Hills switch spans the field and unit columns, starting at the fields'
+   left edge. */
 .rt-terrain .seg {
   grid-column: 2 / 4;
   justify-self: start;
@@ -10660,21 +10668,24 @@ body.sb-rail .sb-toggle .mi {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px 10px;
 }
+/* One grid for every row (label · field · unit) so the fields line up; each row is
+   `display: contents`, its children sit in the shared columns. */
 .rt-speed {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.rt-field {
   display: grid;
-  grid-template-columns: 1fr 84px auto;
+  grid-template-columns: minmax(0, 1fr) 84px 56px;
   align-items: center;
-  gap: 8px;
+  gap: 8px 10px;
   font-size: 12.5px;
   color: var(--text);
 }
+.rt-field {
+  display: contents;
+}
+.rt-field.hidden {
+  display: none;
+}
 .rt-field input {
-  width: 84px;
+  width: 100%;
   padding-top: 5px;
   padding-bottom: 5px;
   text-align: right;
@@ -10682,7 +10693,7 @@ body.sb-rail .sb-toggle .mi {
 .rt-unit {
   color: var(--muted);
   font-size: 11.5px;
-  min-width: 34px;
+  white-space: nowrap;
 }
 .rt-speed-src {
   margin-top: 10px;

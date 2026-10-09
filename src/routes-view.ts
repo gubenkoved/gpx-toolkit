@@ -854,7 +854,7 @@ function sideSkeleton(): string {
     `<h3 class="cl-h">Your speed</h3>` +
     `<div class="rt-speed">` +
     `<label class="rt-field"><span>Still-air moving speed</span><input type="number" id="rtCalm" min="5" max="60" step="0.5" inputmode="decimal" /><span class="rt-unit">km/h</span></label>` +
-    `<label class="rt-field" title="How much each km/h of tailwind adds to your speed (and a headwind takes away)"><span>Tailwind factor</span><input type="number" id="rtSlope" min="0" max="1.5" step="0.05" inputmode="decimal" /><span class="rt-unit">km/h per km/h</span></label>` +
+    `<label class="rt-field" title="How much each km/h of tailwind adds to your speed (and a headwind takes away)"><span>Tailwind factor</span><input type="number" id="rtSlope" min="0" max="1.5" step="0.05" inputmode="decimal" /><span class="rt-unit">per km/h</span></label>` +
     `<div class="rt-field rt-terrain"><span>Terrain</span>` +
     `<div class="seg" id="rtTerrain" role="group" aria-label="Terrain">` +
     `<button type="button" data-hills="0" title="Ride every stretch as if it were flat">Flat</button>` +
@@ -1681,6 +1681,9 @@ function rainText(mm: number | null): string {
   return `${kind} ${mm < 1 ? mm.toFixed(1) : Math.round(mm)} mm/h`;
 }
 
+/** The rain lane's full-height intensity: 4 mm/h is heavy rain on a bike. */
+const RAIN_FULL_MM = 4;
+
 /** 0 dry, 1 light (< 1 mm/h), 2 moderate (< 4), 3 heavy. */
 function rainLevel(mm: number | null | undefined): number {
   if (mm == null || mm < 0.1) return 0;
@@ -1697,12 +1700,12 @@ function rainLevel(mm: number | null | undefined): number {
 function renderTimeline(): void {
   const ruler = $("rtRuler");
   const lane = $("rtRain");
-  const rainSum = $("rtProfileRain");
-  if (!ruler || !lane || !rainSum) return;
+  const lbls = $("rtRainLbls");
+  if (!ruler || !lane || !lbls) return;
   if (!sim || !course?.steps.length) {
     ruler.innerHTML = "";
     lane.innerHTML = "";
-    rainSum.textContent = "";
+    lbls.innerHTML = "";
     return;
   }
   const s = sim;
@@ -1730,46 +1733,68 @@ function renderTimeline(): void {
   }
   ruler.innerHTML = ticks;
 
-  // Rain lane: runs of equal intensity, as rects on the 0..1000 distance axis.
-  let rects = "";
-  const windows: [number, number][] = [];
-  let runStart = -1;
-  let runLevel = 0;
-  const close = (end: number): void => {
-    if (runStart < 0) return;
-    const x0 = (course!.steps[runStart].km / total) * 1000;
-    const x1 = ((course!.steps[end].km + course!.steps[end].lenKm) / total) * 1000;
-    rects += `<rect class="rr${runLevel}" x="${x0.toFixed(1)}" y="0" width="${Math.max(2, x1 - x0).toFixed(1)}" height="10"/>`;
-    runStart = -1;
+  // Rain lane: one bar per step on a fixed scale (full height at RAIN_FULL_MM, so light
+  // and heavy rain look different whatever the day), merged where neighbours match.
+  // Below it, each wet stretch's peak in mm/h, under where it peaks (where there's room).
+  if (s.wetShare == null) {
+    lane.innerHTML = "";
+    lbls.innerHTML = "";
+    return;
+  }
+  const H = 18;
+  const xOf = (km: number): number => (km / total) * 1000;
+  // One shape per stretch of equal intensity class (its outline steps with the mm/h of
+  // each step), so neighbouring bars don't leave anti-aliasing seams.
+  let bars = "";
+  let shape = "";
+  let shapeLevel = 0;
+  let shapeEnd = 0;
+  const closeShape = (): void => {
+    if (shape) bars += `<path class="rr${shapeLevel}" d="${shape} V${H} Z"/>`;
+    shape = "";
+    shapeLevel = 0;
   };
-  let wetFrom = -1;
+  const runs: { peak: number; peakKm: number }[] = [];
+  let run: { peak: number; peakKm: number } | null = null;
   s.steps.forEach((st, i) => {
-    const lv = rainLevel(st.wx?.rainMm);
-    if (lv !== runLevel) {
-      close(i - 1);
-      if (lv) runStart = i;
-      runLevel = lv;
+    const mm = st.wx?.rainMm ?? 0;
+    const cs = course!.steps[i];
+    const lv = rainLevel(mm);
+    if (lv !== shapeLevel || (shape && xOf(cs.km) - shapeEnd > 0.01)) closeShape();
+    if (!lv) {
+      run = null;
+      return;
     }
-    if (lv && wetFrom < 0) wetFrom = i;
-    if (!lv && wetFrom >= 0) {
-      windows.push([s.steps[wetFrom].tMs, st.tMs]);
-      wetFrom = -1;
+    const y = (H - Math.max(3, Math.min(1, mm / RAIN_FULL_MM) * H)).toFixed(1);
+    const x0 = xOf(cs.km).toFixed(1);
+    shapeEnd = xOf(cs.km + cs.lenKm);
+    shape += shape
+      ? ` V${y} H${shapeEnd.toFixed(1)}`
+      : `M${x0},${H} V${y} H${shapeEnd.toFixed(1)}`;
+    shapeLevel = lv;
+    const mid = cs.km + cs.lenKm / 2;
+    if (!run) {
+      run = { peak: mm, peakKm: mid };
+      runs.push(run);
+    } else if (mm > run.peak) {
+      run.peak = mm;
+      run.peakKm = mid;
     }
   });
-  close(s.steps.length - 1);
-  if (wetFrom >= 0) windows.push([s.steps[wetFrom].tMs, s.endMs]);
-  const known = s.wetShare != null;
-  lane.innerHTML = known
-    ? `<svg viewBox="0 0 1000 10" preserveAspectRatio="none" role="img" aria-label="Rain along the route">${rects}</svg>`
-    : "";
-  rainSum.textContent = !known
-    ? ""
-    : windows.length === 0
-      ? "dry ride"
-      : `rain ${windows
-          .slice(0, 2)
-          .map(([a, b]) => `${fmtClock(a)}–${fmtClock(b)}`)
-          .join(", ")}${windows.length > 2 ? ` (+${windows.length - 2} more)` : ""}`;
+  closeShape();
+  lane.innerHTML = bars
+    ? `<svg viewBox="0 0 1000 ${H}" preserveAspectRatio="none" role="img" aria-label="Rain along the route">${bars}</svg>`
+    : `<svg viewBox="0 0 1000 ${H}" preserveAspectRatio="none" aria-hidden="true"></svg>`;
+  let lastPct = -100;
+  lbls.innerHTML = runs
+    .map((r) => {
+      const pct = (r.peakKm / total) * 100;
+      if (pct - lastPct < 9) return "";
+      lastPct = pct;
+      const v = r.peak < 10 ? r.peak.toFixed(1) : Math.round(r.peak).toString();
+      return `<span class="rt-rainlbl" style="left:${Math.min(95, Math.max(5, pct)).toFixed(2)}%">${v} mm/h</span>`;
+    })
+    .join("");
 }
 
 // --------------------------------------------------------------------------- //

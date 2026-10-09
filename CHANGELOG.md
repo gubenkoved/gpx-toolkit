@@ -24,15 +24,16 @@ humans and the assistant can read this file as a compressed history of decisions
   descents capped at 50 km/h), and a "hills effect" card sits beside "wind effect" (each
   against its own baseline). A foldable **profile** under the map puts three things on
   one distance axis: a clock ruler (when you'd pass each point), the elevation with
-  climbs tinted from 4% and 8%, and a **rain lane** (deeper blue for heavier rain); the
-  head line names the wet window ("rain 11:00–11:07"), the map gets a blue halo on wet
-  stretches, and the departure strip dots the start times that get you wet. Hovering the
+  climbs tinted from 4% and 8%, and a **rain lane**: bars on a fixed scale (full height
+  at 4 mm/h, deeper blue the harder it rains) with each wet stretch's peak mm/h
+  labelled under it; the map gets a blue halo on wet stretches, and the departure strip dots the start times that get you wet. Hovering the
   profile or the map shows the same point on both. **Forecast source**: a disclosure on
   "Ride it" switches from Open-Meteo's best match to the hour-by-hour median of chosen
   models (the recommended set for the start by default, the same catalogue as the
   Forecast view). **Drag the line**: a handle follows the pointer along the route; pull
   it to add a point between its neighbours, with a dashed preview (also when dragging a
-  point); tapping the line still adds one on touch screens.
+  point); tapping the line still adds one on touch screens. The Your speed fields sit
+  on one grid so label, field and unit line up row to row.
 - **Why:** Distance is the natural axis for terrain, time for rain; the simulation maps
   one onto the other, so a time ruler on the distance profile answers "when will it rain
   on me, and where" without a second chart. Hills use a small effort model with one
