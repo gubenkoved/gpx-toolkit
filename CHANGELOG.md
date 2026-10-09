@@ -17,6 +17,16 @@ humans and the assistant can read this file as a compressed history of decisions
 
 ---
 
+## fix a segmented-control thumb stranded on the Forecast map
+- **What:** The Forecast view's side-by-side layout turned the Consensus / All lines
+  switch `position: static` (to drop its phone-only stickiness), so its sliding thumb was
+  placed in an ancestor's frame; dragging the map/chart splitter moved the switch but
+  left the thumb as an empty pill over the map. The rule now uses `position: relative`,
+  and `seg.ts` makes any static `.seg` relative before placing its thumb.
+- **Why:** The thumb's position is only meaningful relative to its own seg; guarding the
+  invariant in the one module that relies on it keeps a future stylesheet tweak from
+  stranding a thumb again.
+
 ## centre every empty view
 - **What:** A view with nothing to show (Explore's onboarding and its "no rides match",
   Stats, Wind vs speed, Timeline, Routes) is one shared `.pane-empty` block, centred both

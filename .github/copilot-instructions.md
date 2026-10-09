@@ -355,7 +355,8 @@ password persistence, and keep every cloud action behind `withBeelineAccess`.
   are the one exception.
 - **A segmented control is a `.seg` with `button.active`**, nothing else: the sliding thumb
   ([seg.ts](../src/seg.ts)) finds it by that shape. Toggle `.active`; never set a
-  background on the active button (the thumb carries the fill).
+  background on the active button (the thumb carries the fill), and never make a `.seg`
+  `position: static` (its thumb is placed relative to it; `seg.ts` guards this).
 - **Button glyphs come from one registry.** A button that wants an icon takes it from
   [icons.ts](../src/icons.ts): `${icon("name")}` in a template, or `data-icon="name"` on
   static markup (injected by `decorateIcons()` at boot). Never paste an SVG or use a

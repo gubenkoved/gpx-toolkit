@@ -10189,8 +10189,11 @@ body.sb-rail .sb-toggle .mi {
     overflow: visible;
     white-space: normal;
   }
+  /* No stickiness needed here — but stay positioned: the sliding thumb is placed
+     relative to its .seg, and a static seg left it stranded where the switch had
+     been once the splitter moved it. */
   #forecastView:not(.hidden):not(:has(.fc-top.collapsed)) .fc-compare-style {
-    position: static;
+    position: relative;
   }
   #forecastView:not(.hidden):not(:has(.fc-top.collapsed)) .fc-credit-footer {
     grid-column: 1 / -1;
