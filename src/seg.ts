@@ -10,8 +10,11 @@
  *  - a ResizeObserver re-measures when a seg's size changes (labels folding to icons,
  *    a hidden seg becoming visible, a window resize).
  *
- * The thumb is positioned by transform (compositor-only), first placed without
- * animation, and hidden when no button is active. Styling lives in style.css
+ * The thumb is positioned by transform (compositor-only) relative to its seg — so a
+ * seg must be a positioned box; one a stylesheet left `static` is made `relative`,
+ * else the thumb would be placed in some ancestor's frame and stay behind when the
+ * seg moves. It is first placed without animation, and hidden when no button is
+ * active. Styling lives in style.css
  * (`.seg-thumb`); `prefers-reduced-motion` turns the slide off.
  */
 
@@ -25,6 +28,9 @@ function place(seg: HTMLElement, animate: boolean): void {
     thumb?.classList.add("off");
     return;
   }
+  // The thumb's frame must be the seg (see the module note); a media query can flip
+  // a seg's position later, so this is checked on every placement, not once.
+  if (getComputedStyle(seg).position === "static") seg.style.position = "relative";
   let fresh = false;
   if (!thumb) {
     thumb = document.createElement("i");
