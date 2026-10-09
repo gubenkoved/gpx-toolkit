@@ -22,6 +22,7 @@ import { fmtKm, fmtKmDetail, fmtSpeed } from "./format";
 import { icon } from "./icons";
 import type { DateRange } from "./mapview";
 import { compareRidesByDateDesc, rideShortLabel } from "./parsing";
+import { saveSpeedFit } from "./route-sim";
 import { segmentDemo } from "./segment-demo";
 import type { LatLon } from "./track";
 import { escHtml, statNum } from "./ui";
@@ -80,6 +81,9 @@ type RideSegEntry = {
 };
 
 let deps!: WindSpeedDeps;
+
+/** Fewest segments a fit needs before the route simulator adopts it. */
+const MIN_FIT_SEGMENTS = 20;
 
 const segCacheByUid = new Map<string, RideSegEntry>();
 let analyticsSeq = 0;
@@ -321,18 +325,19 @@ function renderAnalyticsEmpty(kind: "wind" | "gpx", n: number): void {
   if (!el) return;
   if (kind === "wind") {
     el.innerHTML =
+      '<div class="onb">' +
       "See how much the wind speeds you up or slows you down. This needs rides with " +
       "<b>resolved wind</b> — once some are resolved, each roughly-straight stretch of a " +
       "ride becomes a point: headwind on the left, tailwind on the right, your speed up the " +
       `side. <button type="button" class="linkbtn" id="analyticsResolveEmpty">${icon("wind")}` +
-      "Resolve wind for these rides</button>";
+      "Resolve wind for these rides</button></div>";
   } else {
     el.innerHTML =
-      `Wind is resolved, but charting speed needs each ride's <b>full GPX</b> (real ` +
+      `<div class="onb">Wind is resolved, but charting speed needs each ride's <b>full GPX</b> (real ` +
       `timestamps). Without it, a segment's speed would be guessed from evenly-spaced ` +
       `points rather than your real pace, so ${n === 1 ? "this ride is" : `these ${n} rides are`} ` +
       `left out. <button type="button" class="linkbtn" id="analyticsFetchGpxEmpty">${icon("cloudDown")}` +
-      `Fetch full GPX for these rides</button>`;
+      `Fetch full GPX for these rides</button></div>`;
   }
 }
 
@@ -700,6 +705,16 @@ async function runAnalyticsView(my: number, _opts: { fit?: boolean } = {}): Prom
   const ys = shown.map((s) => s.avgSpeedKmh);
   const w = shown.map((s) => s.distanceKm);
   const reg = linearRegression(xs, ys, w);
+  // The head/tailwind line is the rider's speed model: hand it to the route
+  // simulator (Routes), which rides planned routes with it.
+  if (xAxis === "along" && shown.length >= MIN_FIT_SEGMENTS && reg.intercept > 0)
+    saveSpeedFit({
+      calmKmh: reg.intercept,
+      slope: reg.slope,
+      r2: reg.r2,
+      segments: shown.length,
+      fittedAt: Date.now(),
+    });
 
   // Dot colouring: tint each dot by the chosen wind dimension's magnitude, on a ramp
   // normalised to the strongest value in view (floored so a near-still chart doesn't

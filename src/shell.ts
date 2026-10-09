@@ -7,7 +7,7 @@
  * `data-view` click through `setView`. This module only (1) reflects the active
  * view onto those links + the top-bar title, (2) owns the sidebar's rail/expanded
  * toggle, (3) opens/closes the phone "More" sheet, and (4) on phones *moves* the
- * sidebar's Research group and footer (Sources / Settings / connection state) into
+ * sidebar's Plan and Research groups and footer (Sources / Settings / connection state) into
  * that sheet — the same DOM nodes, re-parented on a media-query flip, so ids stay
  * unique and nothing is rendered twice. (The live activity tile stays at body level:
  * it is a fixed strip along the bottom of the main pane on every width.)
@@ -24,6 +24,7 @@ export const VIEW_TITLES: Record<ViewName, string> = {
   climate: "Wind rose",
   forecast: "Forecast",
   timeline: "Timeline",
+  routes: "Routes",
 };
 
 /** The two Weather views share one bottom-nav slot on phones. */
@@ -108,22 +109,54 @@ function setRail(rail: boolean): void {
 /** Re-parent the Research group + footer between the sidebar and the phone sheet. */
 function placeSharedNav(): void {
   const phone = !!phoneQuery?.matches;
+  const plan = document.getElementById("sbPlan");
   const research = document.getElementById("sbResearch");
   const foot = document.getElementById("sbFoot");
+  const rides = document.getElementById("sbRides");
   const sidebarNav = document.getElementById("viewTabs");
   const sidebar = document.getElementById("sidebar");
   const sheetBody = document.getElementById("moreBody");
-  if (!research || !foot || !sidebarNav || !sidebar || !sheetBody) return;
+  if (!plan || !research || !foot || !rides || !sidebarNav || !sidebar || !sheetBody) return;
   if (phone) {
-    sheetBody.append(research, foot);
+    sheetBody.append(plan, research, foot);
   } else {
+    rides.after(plan);
     sidebarNav.append(research);
     sidebar.append(foot);
     setMoreSheet(false);
   }
 }
 
+/**
+ * Publish the header's and the phone bottom nav's live heights as `--hdr-h` /
+ * `--nav-h`, so a view can fill exactly the band between them (the centred empty
+ * state does). Measured, not assumed: the header can wrap, the nav exists only on
+ * phones and grows with the safe-area inset.
+ */
+function trackChromeHeights(): void {
+  const root = document.documentElement;
+  const header = document.querySelector<HTMLElement>("header.topbar");
+  const nav = document.querySelector<HTMLElement>(".bottomnav");
+  const update = (): void => {
+    root.style.setProperty(
+      "--hdr-h",
+      `${Math.round(header?.getBoundingClientRect().height ?? 54)}px`,
+    );
+    root.style.setProperty(
+      "--nav-h",
+      `${Math.round(nav?.getBoundingClientRect().height ?? 0)}px`,
+    );
+  };
+  update();
+  if (typeof ResizeObserver === "function") {
+    const ro = new ResizeObserver(update);
+    if (header) ro.observe(header);
+    if (nav) ro.observe(nav);
+  }
+}
+
 export function initShell(): void {
+  trackChromeHeights();
   let rail = false;
   try {
     rail = localStorage.getItem(RAIL_KEY) === "1";

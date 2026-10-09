@@ -263,7 +263,7 @@ export function mountTimelineView(): void {
   if (!store) {
     empty.classList.remove("hidden");
     body.classList.add("hidden");
-    empty.innerHTML = "Loading your location history\u2026";
+    empty.innerHTML = '<div class="onb">Loading your location history\u2026</div>';
     void deps.ensureStore().then(() => {
       if (isActive()) mountTimelineView();
     });
@@ -274,7 +274,7 @@ export function mountTimelineView(): void {
     body.classList.add("hidden");
     empty.classList.remove("hidden");
     empty.innerHTML =
-      `<p><b>Timeline</b> brings your <b>Google Location History</b> into the app \u2014 ` +
+      `<div class="onb"><p><b>Timeline</b> brings your <b>Google Location History</b> into the app \u2014 ` +
       `see where you spend your time, find when you were somewhere, and replay any day. ` +
       `It stays <b>entirely on your device</b>, in its own storage you can drop any time.</p>` +
       `<p class="src-hint">It lives <b>on your phone</b> \u2014 export it from the Google Maps app, ` +
@@ -282,7 +282,7 @@ export function mountTimelineView(): void {
       `<div class="tl-empty-actions">` +
       `<button type="button" class="primary tl-btn" data-tl="import">${ICONS.import}Import Location History</button>` +
       `<button type="button" class="ghost small tl-btn" data-tl="help-open">${ICONS.phone}How to export from your phone</button>` +
-      `</div>`;
+      `</div></div>`;
     return;
   }
 

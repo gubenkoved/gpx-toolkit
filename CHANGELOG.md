@@ -17,6 +17,99 @@ humans and the assistant can read this file as a compressed history of decisions
 
 ---
 
+## reorder a route's points by dragging the list
+- **What:** Each waypoint row in Routes has a grip: drag it (or, with a mouse, the
+  row itself) and the row lifts and follows the pointer while the others slide aside and
+  relabel live (Start / Via n / Finish as they would be if dropped); dropping re-routes
+  only the legs whose ends changed. ↑ / ↓ on a focused grip moves a point one place,
+  keeping the focus. Hovering or dragging a row lights up its point on the map.
+- **Why:** Points were only added at the end or inserted along the line, so fixing an
+  order meant deleting and re-adding them. Touch starts from the grip only, so swiping
+  the panel still scrolls; rows move by transform during the drag, so nothing re-renders
+  under the pointer.
+
+## fix a segmented-control thumb stranded on the Forecast map
+- **What:** The Forecast view's side-by-side layout turned the Consensus / All lines
+  switch `position: static` (to drop its phone-only stickiness), so its sliding thumb was
+  placed in an ancestor's frame; dragging the map/chart splitter moved the switch but
+  left the thumb as an empty pill over the map. The rule now uses `position: relative`,
+  and `seg.ts` makes any static `.seg` relative before placing its thumb.
+- **Why:** The thumb's position is only meaningful relative to its own seg; guarding the
+  invariant in the one module that relies on it keeps a future stylesheet tweak from
+  stranding a thumb again.
+
+## centre every empty view
+- **What:** A view with nothing to show (Explore's onboarding and its "no rides match",
+  Stats, Wind vs speed, Timeline, Routes) is one shared `.pane-empty` block, centred both
+  ways in the pane, its message in the `.onb` onboarding layout (title, lede, buttons).
+  The dashed left-aligned boxes are gone, and Routes' empty list now leads with New
+  route / Import GPX like Explore's empty library leads with its sources. The box fills
+  exactly the visible band — the header's and phone bottom nav's heights are measured
+  live (`--hdr-h` / `--nav-h`, shell.ts) and `main`'s padding is exposed as
+  `--main-pt` / `--main-pb` — so it centres to the pixel at every width and never
+  scrolls.
+- **Why:** The empty states sat in different places with different chrome (a centred
+  heading near the top in Explore, dashed boxes hugging the left elsewhere), which read as
+  unfinished on a wide screen. One centred pattern makes an empty view look intentional
+  and the same everywhere.
+
+## Routes: hills, a profile with rain timing, model consensus, drag the line
+- **What:** Five additions to the route simulator. **Hills** (Terrain: Flat / Hills, plus
+  rider + bike weight): each ~250 m step's grade replays your wind-adjusted flat effort
+  with gravity added (touring drag and rolling resistance, a little more effort uphill,
+  descents capped at 50 km/h), and a "hills effect" card sits beside "wind effect" (each
+  against its own baseline). A foldable **profile** under the map puts three things on
+  one distance axis: a clock ruler (when you'd pass each point), the elevation with
+  climbs tinted from 4% and 8%, and a **rain lane**: bars on a fixed scale (full height
+  at 4 mm/h, deeper blue the harder it rains) with each wet stretch's peak mm/h
+  labelled under it; the map gets a blue halo on wet stretches, and the departure strip dots the start times that get you wet. Hovering the
+  profile or the map shows the same point on both. **Forecast source**: a disclosure on
+  "Ride it" switches from Open-Meteo's best match to the hour-by-hour median of chosen
+  models (the recommended set for the start by default, the same catalogue as the
+  Forecast view). **Drag the line**: a handle follows the pointer along the route; pull
+  it to add a point between its neighbours, with a dashed preview (also when dragging a
+  point); tapping the line still adds one on touch screens. The Your speed fields sit
+  on one grid so label, field and unit line up row to row.
+- **Why:** Distance is the natural axis for terrain, time for rain; the simulation maps
+  one onto the other, so a time ruler on the distance profile answers "when will it rain
+  on me, and where" without a second chart. Hills use a small effort model with one
+  intuitive knob (weight) rather than a second fitted slope, so climbs scale sensibly
+  with grade. The model consensus reuses the Forecast view's catalogue and medians the
+  wind as a vector so opposing directions don't cancel to nonsense.
+
+## add Routes: plan routes and ride them through the weather
+- **What:** A new **Routes** tab (sidebar group "Plan"; under More on phones) keeps routes
+  you might ride one day: planned on a map (click for start and finish, drag points, click
+  the line for a via; legs follow the paths via the public BRouter server with Bike paths /
+  Quiet / Fast / Straight profiles; autosaved) or imported from GPX (kept as recorded, times
+  dropped). Opening a route simulates it: pick a day and drag the departure time, and each
+  ~250 m step reads the wind where and when you'd get there, so the line colours head/tail-
+  wind, glass badges along it show the wind's direction and speed (neutral, so they don't
+  blend into the coloured line), and cards give ride time, arrival, the wind's cost vs still air,
+  head/tailwind share and rain; a strip charts the ride time for every half-hour departure
+  of the day. Speed = your still-air moving speed + tailwind factor × along-track wind;
+  both are editable and default to the Wind vs speed fit, which that view now saves. Routes
+  live in their own blob (in Export All as `routes.json`, cleared by Reset); export a route
+  as GPX.
+- **Why:** The weather tools only looked backwards (rides) or at a point (forecast); the
+  question before a ride is "when should I go, and how bad is it" along a whole route. The
+  weather is fetched once per route (the whole 16-day forecast, or the archive for a past
+  day) so changing the start time is an in-memory re-run and feels instant. Forecast
+  cell-days stay in memory rather than the wind cache, so a stale forecast can never later
+  pass for a ridden day's weather. Ride time is moving time on the flat: the fit has no
+  grade or stops in it, and the cards say "still air" to keep that honest. Named "Routes",
+  not "Library": the app already calls the ride collection "your library".
+
+## move the minimized activity into the top bar
+- **What:** Hiding the activity strip now leaves a chip at the head of the top bar's
+  actions (the verb and "3/12", with the thread along its bottom edge; the count alone on
+  phones) instead of a pill floating in the pane's bottom-right corner. A click brings the
+  strip back, and the views drop the strip's bottom padding while it's minimized.
+- **Why:** The floating pill sat over whatever the view had in that corner (map
+  attribution and controls, the last rows, chart controls) and read as off-place. The top
+  bar is chrome every view already has, so the chip is always findable and never covers
+  anything.
+
 ## docs: actualized
 - **What:** The README is a short overview: a link to the live app, the three ways to get
   rides in, privacy (every outside service the app calls), local dev, and a gallery of
