@@ -17,6 +17,17 @@ humans and the assistant can read this file as a compressed history of decisions
 
 ---
 
+## centre every empty view
+- **What:** A view with nothing to show (Explore's onboarding and its "no rides match",
+  Stats, Wind vs speed, Timeline, Routes) is one shared `.pane-empty` block, centred both
+  ways in the pane, its message in the `.onb` onboarding layout (title, lede, buttons).
+  The dashed left-aligned boxes are gone, and Routes' empty list now leads with New
+  route / Import GPX like Explore's empty library leads with its sources.
+- **Why:** The empty states sat in different places with different chrome (a centred
+  heading near the top in Explore, dashed boxes hugging the left elsewhere), which read as
+  unfinished on a wide screen. One centred pattern makes an empty view look intentional
+  and the same everywhere.
+
 ## Routes: hills, a profile with rain timing, model consensus, drag the line
 - **What:** Five additions to the route simulator. **Hills** (Terrain: Flat / Hills, plus
   rider + bike weight): each ~250 m step's grade replays your wind-adjusted flat effort

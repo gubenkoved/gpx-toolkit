@@ -2244,7 +2244,7 @@ function render(): void {
   // Empty state: distinguish "no rides at all" from "filters hid everything".
   const emptyEl = $("#empty") as HTMLElement;
   if (allRides.length === 0) {
-    emptyEl.style.display = "block";
+    emptyEl.style.display = ""; // the stylesheet's centred .pane-empty
     // Light onboarding: one line on the model (a library fed by sources), then the
     // two ways in as plain buttons + a demo link. Kept minimal on purpose.
     emptyEl.innerHTML =
@@ -2258,9 +2258,9 @@ function render(): void {
       `<p class="onb-foot">Just exploring? <a href="#" id="emptyDemo">Try the demo</a>.</p>` +
       `</div>`;
   } else if (rides.length === 0) {
-    emptyEl.style.display = "block";
+    emptyEl.style.display = "";
     emptyEl.innerHTML =
-      'No rides match the current filters. <a href="#" id="emptyClear">Clear filters</a>';
+      '<div class="onb">No rides match the current filters. <a href="#" id="emptyClear">Clear filters</a></div>';
   } else {
     emptyEl.style.display = "none";
   }

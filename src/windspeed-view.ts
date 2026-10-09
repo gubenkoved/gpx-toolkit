@@ -325,18 +325,19 @@ function renderAnalyticsEmpty(kind: "wind" | "gpx", n: number): void {
   if (!el) return;
   if (kind === "wind") {
     el.innerHTML =
+      '<div class="onb">' +
       "See how much the wind speeds you up or slows you down. This needs rides with " +
       "<b>resolved wind</b> — once some are resolved, each roughly-straight stretch of a " +
       "ride becomes a point: headwind on the left, tailwind on the right, your speed up the " +
       `side. <button type="button" class="linkbtn" id="analyticsResolveEmpty">${icon("wind")}` +
-      "Resolve wind for these rides</button>";
+      "Resolve wind for these rides</button></div>";
   } else {
     el.innerHTML =
-      `Wind is resolved, but charting speed needs each ride's <b>full GPX</b> (real ` +
+      `<div class="onb">Wind is resolved, but charting speed needs each ride's <b>full GPX</b> (real ` +
       `timestamps). Without it, a segment's speed would be guessed from evenly-spaced ` +
       `points rather than your real pace, so ${n === 1 ? "this ride is" : `these ${n} rides are`} ` +
       `left out. <button type="button" class="linkbtn" id="analyticsFetchGpxEmpty">${icon("cloudDown")}` +
-      `Fetch full GPX for these rides</button>`;
+      `Fetch full GPX for these rides</button></div>`;
   }
 }
 

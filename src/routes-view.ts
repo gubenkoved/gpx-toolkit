@@ -280,19 +280,28 @@ function renderList(): void {
   const el = $("rtList");
   if (!el || !store) return;
   const routes = store.all();
-  const head =
+  if (!routes.length) {
+    // Nothing saved yet: the app's shared centred onboarding (as Explore's).
+    el.innerHTML =
+      `<div class="pane-empty"><div class="onb">` +
+      `<h2 class="onb-title">No routes yet</h2>` +
+      `<p class="onb-lede">Plan one on the map or import a GPX file, then pick a departure ` +
+      `to see how the wind, the hills and the rain would treat you.</p>` +
+      `<div class="onb-cta">` +
+      `<button class="primary small" data-rt="new">${icon("plus")}New route</button>` +
+      `<button class="ghost small" data-rt="import">${icon("import")}Import GPX</button>` +
+      `</div></div></div>`;
+    return;
+  }
+  el.innerHTML =
     `<div class="rt-list-head">` +
-    `<div class="rt-list-intro"><b>Routes you might ride one day.</b> Plan one on the map or ` +
-    `import a GPX file, then pick a departure to see how the wind would treat you.</div>` +
+    `<div class="rt-list-intro"><b>Routes you might ride one day.</b> Open one to pick a ` +
+    `departure and see how the wind, the hills and the rain would treat you.</div>` +
     `<div class="rt-list-acts">` +
     `<button class="small" data-rt="new">${icon("plus")}New route</button>` +
     `<button class="small ghost" data-rt="import">${icon("import")}Import GPX</button>` +
-    `</div></div>`;
-  const cards = routes.length
-    ? `<div class="rt-grid">${routes.map(routeCard).join("")}</div>`
-    : `<div class="rt-empty">No routes yet. <b>New route</b> opens the planner; ` +
-      `<b>Import GPX</b> adds a route someone shared or you drew elsewhere.</div>`;
-  el.innerHTML = head + cards;
+    `</div></div>` +
+    `<div class="rt-grid">${routes.map(routeCard).join("")}</div>`;
 }
 
 function routeCard(r: PlannedRoute): string {

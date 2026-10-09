@@ -220,7 +220,7 @@
       <div id="months"></div>
       <div class="ride-pane" id="rideList"></div>
     </div>
-    <div class="onb-empty" id="empty">
+    <div class="onb-empty pane-empty" id="empty">
       Loading your ride library…
     </div>
   </div>
@@ -245,9 +245,11 @@
     </div>
   </div>
   <div id="statsView" class="view-wide hidden">
-    <div class="stats-empty" id="statsEmpty">
-      No rides yet. <button type="button" class="linkbtn" data-act="open-sources">Connect a source</button> to see your
-      lifetime totals, records and a route-frequency heatmap.
+    <div class="pane-empty" id="statsEmpty">
+      <div class="onb">
+        No rides yet. <button type="button" class="linkbtn" data-act="open-sources">Connect a source</button> to see your
+        lifetime totals, records and a route-frequency heatmap.
+      </div>
     </div>
     <div class="stats-body" id="statsBody">
       <div class="stats-kpis" id="statsKpis">
@@ -291,11 +293,13 @@
   </div>
 
   <div id="analyticsView" class="view-wide hidden">
-    <div class="stats-empty" id="analyticsEmpty">
+    <div class="pane-empty" id="analyticsEmpty">
+      <div class="onb">
       See how much the wind speeds you up or slows you down. This needs rides with
       <b>resolved wind</b> — once some are resolved, each roughly-straight stretch of a ride
       becomes a point: headwind on the left, tailwind on the right, your speed up the side.
       <button type="button" class="linkbtn" id="analyticsResolveEmpty" data-icon="wind">Resolve wind for these rides</button>
+      </div>
     </div>
     <div class="stats-body hidden" id="analyticsBody">
       <section class="stats-section">
@@ -575,7 +579,7 @@
   </div>
 
   <div id="timelineView" class="view-wide hidden">
-    <div class="stats-empty" id="timelineEmpty"></div>
+    <div class="pane-empty" id="timelineEmpty"></div>
     <div class="tl-wrap hidden" id="timelineBody">
       <div class="tl-main">
         <div id="timelineMap"></div>

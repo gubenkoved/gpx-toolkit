@@ -6082,6 +6082,7 @@ button.small:has(> .bi) {
 .tl-empty-actions {
   display: flex;
   flex-wrap: wrap;
+  justify-content: center;
   gap: 10px;
   margin-top: 14px;
 }
@@ -10230,17 +10231,6 @@ body.sb-rail .sb-toggle .mi {
   display: flex;
   gap: 8px;
 }
-.rt-empty {
-  padding: 18px;
-  color: var(--muted);
-  font-size: 13px;
-  line-height: 1.5;
-  border: 1px dashed var(--line);
-  border-radius: var(--radius);
-}
-.rt-empty b {
-  color: var(--text);
-}
 .rt-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
@@ -10806,4 +10796,40 @@ body.sb-rail .sb-toggle .mi {
   border-radius: 50%;
   background: var(--rain);
   vertical-align: middle;
+}
+
+/* A view with nothing to show yet (Explore's onboarding, Stats, Wind vs speed,
+   Timeline, Routes): one message, centred both ways in the pane, its body an `.onb`
+   (title · lede · buttons) so every empty view reads the same. */
+.pane-empty {
+  display: grid;
+  place-items: center;
+  box-sizing: border-box;
+  min-height: calc(100vh - var(--chrome-h));
+  padding: 24px 20px;
+  color: var(--muted);
+  font-size: 13.5px;
+  line-height: 1.7;
+  text-align: center;
+}
+.pane-empty.hidden {
+  display: none;
+}
+.pane-empty .onb {
+  max-width: 460px;
+}
+.pane-empty .onb p {
+  margin: 0 0 10px;
+}
+.pane-empty .onb .onb-lede {
+  margin-bottom: 18px;
+}
+.pane-empty a {
+  color: var(--accent);
+}
+@media (max-width: 768px) {
+  /* Leave the bottom nav's band out of the centring. */
+  .pane-empty {
+    min-height: calc(100svh - var(--chrome-h) - 80px);
+  }
 }

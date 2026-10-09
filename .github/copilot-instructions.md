@@ -77,6 +77,10 @@ request pushes against them.
 - **Guide without overwhelming.** A first-time or empty state orients the user (what
   sources are, the two ways in, a demo) in a few quiet lines, not a wall of text or a nag.
   Lead to the next step, then get out of the way. Density is for the working surfaces.
+  A view with nothing to show is one `.pane-empty` (centred both ways in the pane) whose
+  body is an `.onb` (optional `.onb-title`, `.onb-lede`, `.onb-cta` buttons), never a
+  left-aligned box; every empty view (Explore, Stats, Wind vs speed, Timeline, Routes)
+  uses it.
 - **Mobile is non-negotiable.** This is a phone-first PWA: a feature that works on a wide
   desktop but breaks on a narrow viewport is not done. Verify every new surface at a phone
   width (see [Mobile](#mobile)); if you can't, say so.
