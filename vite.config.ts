@@ -54,17 +54,23 @@ export default defineConfig({
     // The full-GPX relay URL, baked in at build time ("" when unset).
     __GPX_RELAY_URL__: JSON.stringify(gpxRelayUrl),
   },
-  server: devProxy
-    ? {
-        proxy: {
-          "/bl-storage": {
-            target: "https://firebasestorage.googleapis.com",
-            changeOrigin: true,
-            rewrite: (p) => p.replace(/^\/bl-storage/, ""),
+  server: {
+    // `.tmp/` is the scratch workspace (previews, experiments, their own node_modules):
+    // never watch it — a big scratch tree exhausted the inotify watchers and took the
+    // dev server down (ENOSPC).
+    watch: { ignored: ["**/.tmp/**"] },
+    ...(devProxy
+      ? {
+          proxy: {
+            "/bl-storage": {
+              target: "https://firebasestorage.googleapis.com",
+              changeOrigin: true,
+              rewrite: (p: string) => p.replace(/^\/bl-storage/, ""),
+            },
           },
-        },
-      }
-    : undefined,
+        }
+      : {}),
+  },
   build: {
     target: "esnext",
   },

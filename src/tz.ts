@@ -131,6 +131,15 @@ export function offsetMinutes(epochMs: number, iana: string): number {
   return Math.round((asUTC - epochMs) / 60000);
 }
 
+/** The instant a calendar day (`YYYY-MM-DD`) begins in `iana` — DST-correct (the
+ *  offset is re-read at the first guess, so a midnight next to a switch lands right). */
+export function zonedMidnight(day: string, iana: string): number {
+  const [y, m, d] = day.split("-").map(Number);
+  const wall = Date.UTC(y, m - 1, d);
+  const guess = wall - offsetMinutes(wall, iana) * 60_000;
+  return wall - offsetMinutes(guess, iana) * 60_000;
+}
+
 /**
  * The ride-local wall-clock, hour and offset for a start instant in a zone. Falls
  * back to the browser zone when `iana` is "" (unknown location).

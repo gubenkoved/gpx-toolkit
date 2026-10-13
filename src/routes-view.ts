@@ -70,7 +70,9 @@ import {
   routeLeg,
   straightLeg,
 } from "./routing";
+import { setViewBack } from "./shell";
 import { setSliderFill } from "./slider";
+import { hideTip, showTip } from "./tooltip";
 import type { LatLon } from "./track";
 import { browserZone, loadTz, offsetMinutes, zoneForPoint } from "./tz";
 import { escHtml, initCollapse, statNum } from "./ui";
@@ -134,6 +136,12 @@ let modelsOpen = false;
 let weatherSeq = 0;
 let weatherBusy = false;
 let weatherError = "";
+/** What the map banner says for each job; `syncBanner` shows the one running now. */
+let routingMsg = "";
+let weatherMsg = "";
+/** When the current weather fetch began, and the 1 s tick that shows its age. */
+let weatherSince = 0;
+let weatherTick: ReturnType<typeof setInterval> | null = null;
 /** Departure: a day at the route's start ("YYYY-MM-DD") + minutes after midnight. */
 let departDay = "";
 let departMin = 9 * 60;
@@ -192,14 +200,6 @@ export function initRoutesView(d: RoutesViewDeps): void {
     input.value = "";
     if (files.length) void importFiles(files);
   });
-  const sweepCanvas = $("rtSweep") as HTMLCanvasElement | null;
-  sweepCanvas?.addEventListener("pointerdown", (e) => {
-    sweepCanvas.setPointerCapture(e.pointerId);
-    pickFromSweep(e);
-  });
-  sweepCanvas?.addEventListener("pointermove", (e) => {
-    if (sweepCanvas.hasPointerCapture(e.pointerId)) pickFromSweep(e);
-  });
   window.addEventListener("resize", () => {
     if (mounted && route) drawSweep();
   });
@@ -251,6 +251,7 @@ export function mountRoutesView(): void {
 export function leaveRoutesView(): void {
   mounted = false;
   closeRouteIfEmpty();
+  setViewBack(null);
 }
 
 /** Forget the cached routes (after a reset or a backup import). */
@@ -272,6 +273,17 @@ function render(): void {
   const planEl = $("rtPlan");
   listEl?.classList.toggle("hidden", !!route);
   planEl?.classList.toggle("hidden", !route);
+  setViewBack(
+    route
+      ? {
+          title: "Back to all routes",
+          run: () => {
+            closeRouteIfEmpty();
+            backToList();
+          },
+        }
+      : null,
+  );
   if (route) {
     ensureMap();
     renderSide();
@@ -540,7 +552,7 @@ async function rebuildLegs(): Promise<void> {
   const my = ++editSeq;
   // The old simulation belongs to the old line: draw plain until the new one rides.
   sim = null;
-  weatherSeq++;
+  cancelWeather();
   const pending: number[] = [];
   r.legs = [];
   for (let i = 0; i + 1 < r.waypoints.length; i++) {
@@ -565,10 +577,8 @@ async function rebuildLegs(): Promise<void> {
     return;
   }
   routingBusy++;
-  setBanner(
-    `Following the paths for ${pending.length} leg${pending.length === 1 ? "" : "s"}…`,
-    true,
-  );
+  routingMsg = `Following the paths for ${pending.length} leg${pending.length === 1 ? "" : "s"}…`;
+  syncBanner();
   const errors: string[] = [];
   const work = pending.slice();
   const worker = async (): Promise<void> => {
@@ -593,9 +603,9 @@ async function rebuildLegs(): Promise<void> {
     await Promise.all([worker(), worker()]);
   } finally {
     routingBusy--;
+    syncBanner();
   }
   if (my !== editSeq || route !== r) return;
-  setBanner("");
   if (errors.length)
     deps.toast(
       `Couldn't follow the paths for ${errors.length} leg${errors.length === 1 ? "" : "s"} — ` +
@@ -709,6 +719,7 @@ async function onGeometryChanged(): Promise<void> {
 
 async function ensureWeather(): Promise<void> {
   if (!route || !course?.steps.length) {
+    cancelWeather();
     sim = null;
     renderSim();
     return;
@@ -718,12 +729,17 @@ async function ensureWeather(): Promise<void> {
   const models = forecastModelIds();
   const key = `${route.id}|${t.points.length}|${t.cum[t.cum.length - 1].toFixed(3)}|${days[0]}|${days[days.length - 1]}|${models.join(",")}`;
   if (weather?.key === key) {
+    // Already here — and an older fetch still running (another day, say) must not
+    // land over it later.
+    if (weatherBusy) cancelWeather();
     runSim();
     return;
   }
   const my = ++weatherSeq;
   const c = course;
   weatherBusy = true;
+  weatherSince = Date.now();
+  weatherTick ??= setInterval(syncBanner, 1000);
   weatherError = "";
   renderSim();
   try {
@@ -731,7 +747,9 @@ async function ensureWeather(): Promise<void> {
       t.points,
       days,
       (msg) => {
-        if (my === weatherSeq) setBanner(msg, true);
+        if (my !== weatherSeq) return;
+        weatherMsg = msg;
+        syncBanner();
       },
       models,
     );
@@ -747,9 +765,13 @@ async function ensureWeather(): Promise<void> {
     weather = null;
     weatherError = err instanceof Error ? err.message : String(err);
   } finally {
+    // Only the current fetch speaks for the busy state; a superseded one was already
+    // accounted for by whoever superseded it (a newer fetch, or cancelWeather).
     if (my === weatherSeq) {
       weatherBusy = false;
-      if (!routingBusy) setBanner("");
+      weatherMsg = "";
+      syncBanner();
+      renderSim();
     }
   }
   sweepKey = "";
@@ -792,6 +814,7 @@ function renderSide(): void {
   if (!side.dataset.built) {
     side.dataset.built = "1";
     side.innerHTML = sideSkeleton();
+    wireSweep();
   }
   const r = route;
   const name = $("rtName") as HTMLInputElement | null;
@@ -844,10 +867,7 @@ function sideSkeleton(): string {
       `<button type="button" data-profile="${p.id}" title="${escHtml(p.title)}">${escHtml(p.label)}</button>`,
   ).join("");
   return (
-    `<div class="rt-head">` +
-    `<button type="button" class="small ghost rt-back" data-rt="back" title="Back to all routes">${icon("back")}Routes</button>` +
     `<input class="rt-name" id="rtName" type="text" maxlength="120" aria-label="Route name" />` +
-    `</div>` +
     `<section class="rt-sec">` +
     `<h3 class="cl-h">Route <span class="cl-sub" id="rtStats"></span></h3>` +
     `<div class="rt-find" id="rtFindWrap">` +
@@ -1051,12 +1071,14 @@ function renderSim(): void {
   }
   if (!sim) {
     if (cards) cards.innerHTML = "";
-    if (note)
-      note.textContent = weatherBusy
-        ? "Fetching the weather along the route…"
-        : weatherError
-          ? `No weather for this route: ${weatherError}.`
-          : "";
+    if (note) {
+      if (weatherBusy) note.textContent = "Fetching the weather along the route…";
+      else if (weatherError)
+        note.innerHTML =
+          `No weather for this route: ${escHtml(weatherError.replace(/\.$/, ""))}. ` +
+          `<button type="button" class="linkbtn" data-rt="weather-retry">Try again</button>`;
+      else note.textContent = "";
+    }
     if (read) read.textContent = "";
     drawSweep();
     return;
@@ -1080,13 +1102,15 @@ function renderSim(): void {
         value: fmtDuration(s.durationSec),
         label: "ride time",
         sub: `arrive ${fmtClock(s.endMs)}`,
-        title: "Moving time, no stops",
+        title: "Ride time\nMoving time from this departure, no stops",
         small: true,
       }),
       statNum({
         value: signed(s.durationSec - s.calmSec),
         label: "wind effect",
         sub: `${fmtDuration(s.calmSec)} in still air`,
+        title:
+          "Wind effect\nTime the wind adds (+) or saves (−) against the same ride in still air",
         small: true,
       }),
       statNum({
@@ -1096,9 +1120,17 @@ function renderSim(): void {
           climb?.ascentM != null
             ? `↑ ${fmtElevation(climb.ascentM)}${hillsOn ? "" : " not counted"}`
             : "no elevation",
+        title: hillsOn
+          ? "Hills effect\nTime the climbs and descents add (+) or save (−) against a flat ride"
+          : "Hills effect\nNot counted: set your rider + bike weight below to include the terrain",
         small: true,
       }),
-      statNum({ value: fmtSpeed(s.avgSpeedKmh), label: "avg speed", small: true }),
+      statNum({
+        value: fmtSpeed(s.avgSpeedKmh),
+        label: "avg speed",
+        title: "Average speed\nDistance over the moving time, wind and hills included",
+        small: true,
+      }),
       statNum({
         value: `${Math.round(s.headShare * 100)}%`,
         label: "headwind",
@@ -1109,7 +1141,14 @@ function renderSim(): void {
       statNum({
         value: rain,
         label: "rain",
-        sub: s.avgTempC != null ? `${Math.round(s.avgTempC)} °C` : undefined,
+        sub:
+          [
+            s.rainMm != null && s.rainMm >= 0.1 ? `${fmtMm(s.rainMm)} mm` : "",
+            s.avgTempC != null ? `${Math.round(s.avgTempC)} °C` : "",
+          ]
+            .filter(Boolean)
+            .join(" · ") || undefined,
+        title: "Share of the riding time in rain, and the rain you'd ride through",
         small: true,
       }),
     ].join("");
@@ -1139,16 +1178,38 @@ function sweepSummary(): string {
   const best = known.reduce((a, b) => (b.durationSec < a.durationSec ? b : a));
   const worst = known.reduce((a, b) => (b.durationSec > a.durationSec ? b : a));
   const spread = Math.round((worst.durationSec - best.durationSec) / 60);
-  const wet = known.some((d) => (d.wetShare ?? 0) >= 0.05);
+  const rained = known.filter((d) => d.rainMm != null);
+  const wettest = rained.length
+    ? rained.reduce((a, b) => ((b.rainMm ?? 0) > (a.rainMm ?? 0) ? b : a))
+    : null;
+  const driest = rained.length
+    ? rained.reduce((a, b) => ((b.rainMm ?? 0) < (a.rainMm ?? 0) ? b : a))
+    : null;
+  let rain = "";
+  if (wettest && driest && (wettest.rainMm ?? 0) >= RAIN_MIN_MM) {
+    const lo = driest.rainMm ?? 0;
+    rain =
+      ` · <span class="rt-rain-dot"></span> up to ${fmtMm(wettest.rainMm ?? 0)} mm of rain, ` +
+      `least at ${fmtClock(driest.startMs)} (${lo >= RAIN_MIN_MM ? `${fmtMm(lo)} mm` : "dry"})`;
+  }
   return (
     `Ride time by departure · fastest <b>${fmtClock(best.startMs)}</b> (${fmtDuration(best.durationSec)})` +
     (spread >= 2 ? `, slowest ${fmtClock(worst.startMs)} (+${spread} min)` : "") +
-    (wet ? ` · <span class="rt-rain-dot"></span> rain on the way` : "")
+    rain
   );
 }
 
+/** Less rain than this over a whole ride is a few stray drops: it reads as dry. */
+const RAIN_MIN_MM = 0.1;
+
+/** "0.4", "3.1", "12" — rain totals in mm. */
+function fmtMm(mm: number): string {
+  return mm < 10 ? mm.toFixed(1) : String(Math.round(mm));
+}
+
 /** The departure strip: one bar per half hour (height = ride time, colour = average
- *  head/tailwind), the chosen departure marked. Colours read from tokens now. */
+ *  head/tailwind), a rain lane above it (height = the rain you'd ride through), the
+ *  chosen departure marked. Colours read from tokens now. */
 function drawSweep(): void {
   const cv = $("rtSweep") as HTMLCanvasElement | null;
   if (!cv) return;
@@ -1166,7 +1227,7 @@ function drawSweep(): void {
   const muted = css.getPropertyValue("--muted").trim() || "#888";
   const line = css.getPropertyValue("--line").trim() || "#333";
   const accent = css.getPropertyValue("--accent").trim() || "#fc5200";
-  const top = 10; // room above the bars for the rain dots
+  const top = 14; // room above the bars for the rain lane
   const base = h - 14;
   ctx.strokeStyle = line;
   ctx.lineWidth = 1;
@@ -1202,15 +1263,20 @@ function drawSweep(): void {
       ctx.fillRect(i * bw + 1, base - bh, Math.max(1, bw - 2), bh);
     });
   }
-  // A blue dot over each departure that would get you wet (≥ 5% of the ride in rain).
+  // The rain lane: a blue bar over each departure that would get you wet, rising with
+  // the rain you'd ride through. Scaled to the day's wettest departure, but never below
+  // 2 mm, so a day of drizzle doesn't draw like a downpour; the square root keeps a
+  // light shower visible beside a soaking.
   const rainCol = css.getPropertyValue("--rain").trim() || "#4ea3ff";
   const bw = w / Math.max(1, sweep.length);
+  const lane = top - 4;
+  const scale = Math.max(2, ...sweep.map((d) => (d.coverage > 0.5 ? (d.rainMm ?? 0) : 0)));
+  ctx.fillStyle = rainCol;
   sweep.forEach((d, i) => {
-    if (d.coverage <= 0.5 || d.wetShare == null || d.wetShare < 0.05) return;
-    ctx.fillStyle = rainCol;
-    ctx.beginPath();
-    ctx.arc(i * bw + bw / 2, 4, Math.min(2.5, bw / 2.5), 0, Math.PI * 2);
-    ctx.fill();
+    const mm = d.rainMm ?? 0;
+    if (d.coverage <= 0.5 || mm < RAIN_MIN_MM) return;
+    const rh = Math.max(1.5, Math.sqrt(mm / scale) * lane);
+    ctx.fillRect(i * bw + 1, top - 3 - rh, Math.max(1, bw - 2), rh);
   });
   if (route && route.waypoints.length >= 2) {
     const x = (departMin / (24 * 60)) * w;
@@ -1221,6 +1287,88 @@ function drawSweep(): void {
     ctx.lineTo(x, base);
     ctx.stroke();
   }
+}
+
+/** The departure strip's pointer handling — wired once its canvas exists (the side
+ *  panel is built on the first open route, after init). Press or drag to pick a start;
+ *  hover (or a dragging finger) shows what the bar under the pointer means. */
+function wireSweep(): void {
+  const sweepCanvas = $("rtSweep") as HTMLCanvasElement | null;
+  if (!sweepCanvas) return;
+  sweepCanvas.addEventListener("pointerdown", (e) => {
+    sweepCanvas.setPointerCapture(e.pointerId);
+    pickFromSweep(e);
+    showSweepTip(e);
+  });
+  sweepCanvas.addEventListener("pointermove", (e) => {
+    const dragging = sweepCanvas.hasPointerCapture(e.pointerId);
+    if (dragging) pickFromSweep(e);
+    if (e.pointerType !== "touch" || dragging) showSweepTip(e);
+  });
+  sweepCanvas.addEventListener("pointerleave", () => hideTip(sweepCanvas));
+  sweepCanvas.addEventListener("pointerup", (e) => {
+    if (e.pointerType === "touch") hideTip(sweepCanvas);
+  });
+}
+
+/** What one bar of the departure strip means: leave, arrive, ride time against the
+ *  day's fastest, the average head/tailwind and the rain on the way. */
+function showSweepTip(e: PointerEvent): void {
+  const cv = e.currentTarget as HTMLCanvasElement;
+  const rect = cv.getBoundingClientRect();
+  if (!sweep.length || !rect.width) return;
+  const i = Math.min(
+    sweep.length - 1,
+    Math.max(0, Math.floor(((e.clientX - rect.left) / rect.width) * sweep.length)),
+  );
+  const d = sweep[i];
+  const known = sweep.filter((item) => item.coverage > 0.5);
+  const x = rect.left + ((i + 0.5) / sweep.length) * rect.width;
+  if (d.coverage <= 0.5 || !known.length) {
+    showTip(
+      x,
+      rect.top,
+      {
+        title: `Leave ${fmtClock(d.startMs)}`,
+        note: "No forecast covers this departure yet.",
+      },
+      cv,
+    );
+    return;
+  }
+  const fastest = Math.min(...known.map((item) => item.durationSec));
+  const slower = Math.round((d.durationSec - fastest) / 60);
+  const along = Math.round(d.avgAlongKmh);
+  const mm = d.rainMm ?? 0;
+  // The strip is the day's departures from local midnight: a long ride lands tomorrow.
+  const startMin = (i * 24 * 60) / sweep.length;
+  const nextDays = Math.floor((startMin + d.durationSec / 60) / (24 * 60));
+  const later = nextDays === 1 ? " (+1 day)" : nextDays > 1 ? ` (+${nextDays} days)` : "";
+  showTip(
+    x,
+    rect.top,
+    {
+      title: `Leave ${fmtClock(d.startMs)} → arrive ${fmtClock(d.startMs + d.durationSec * 1000)}${later}`,
+      rows: [
+        [
+          "Ride time",
+          `${fmtDuration(d.durationSec)}${slower >= 1 ? ` (+${slower} min)` : " · fastest"}`,
+        ],
+        [
+          "Wind on average",
+          along === 0
+            ? "calm"
+            : `${Math.abs(along)} km/h ${along > 0 ? "tailwind" : "headwind"}`,
+        ],
+        [
+          "Rain on the way",
+          d.rainMm == null ? "—" : mm < RAIN_MIN_MM ? "dry" : `${fmtMm(mm)} mm`,
+        ],
+      ],
+      note: "Bar height: ride time · colour: green tailwind, red headwind, grey calm · blue above: rain. Click to pick.",
+    },
+    cv,
+  );
 }
 
 function pickFromSweep(e: PointerEvent): void {
@@ -1871,18 +2019,35 @@ function renderTimeline(): void {
     const f = next > st.tMs ? (tMs - st.tMs) / (next - st.tMs) : 0;
     return cs.km + f * cs.lenKm;
   };
-  const durMin = s.durationSec / 60;
-  const every = durMin <= 90 ? 15 : durMin <= 240 ? 30 : durMin <= 600 ? 60 : 120;
-  let ticks = "";
-  for (let m = Math.ceil(departMin / every) * every; ; m += every) {
-    const t = departureMs(departDay, m);
-    const km = kmAt(t);
-    if (km == null) break;
-    const pct = (km / total) * 100;
-    if (pct < 3 || pct > 97) continue; // keep the end labels inside the strip
-    ticks += `<span class="rt-tick" style="left:${pct.toFixed(2)}%">${fmtClock(t)}</span>`;
+  // The first round interval whose labels clear each other at this width (ticks sit by
+  // distance, so a slow stretch packs them closer than the clock suggests). Spacing by
+  // duration alone overlapped "10:00 AM12:00 PM…" on a phone-wide profile.
+  const width = ruler.clientWidth || 600;
+  const labelPx = fmtClock(departureMs(departDay, 600)).length * 6.4 + 12;
+  const ticksAt = (every: number): { pct: number; t: number }[] => {
+    const out: { pct: number; t: number }[] = [];
+    for (let m = Math.ceil(departMin / every) * every; ; m += every) {
+      const t = departureMs(departDay, m);
+      const km = kmAt(t);
+      if (km == null) break;
+      const pct = (km / total) * 100;
+      if (pct >= 3 && pct <= 97) out.push({ pct, t }); // end labels stay inside the strip
+    }
+    return out;
+  };
+  let chosen: { pct: number; t: number }[] = [];
+  for (const every of [15, 30, 60, 120, 180, 240, 360, 480, 720]) {
+    chosen = ticksAt(every);
+    const tight = chosen.some(
+      (k, i) => i > 0 && ((k.pct - chosen[i - 1].pct) / 100) * width < labelPx,
+    );
+    if (!tight) break;
   }
-  ruler.innerHTML = ticks;
+  ruler.innerHTML = chosen
+    .map(
+      (k) => `<span class="rt-tick" style="left:${k.pct.toFixed(2)}%">${fmtClock(k.t)}</span>`,
+    )
+    .join("");
 
   // Rain lane: one bar per step on a fixed scale (full height at RAIN_FULL_MM, so light
   // and heavy rain look different whatever the day), merged where neighbours match.
@@ -1936,11 +2101,14 @@ function renderTimeline(): void {
   lane.innerHTML = bars
     ? `<svg viewBox="0 0 1000 ${H}" preserveAspectRatio="none" role="img" aria-label="Rain along the route">${bars}</svg>`
     : `<svg viewBox="0 0 1000 ${H}" preserveAspectRatio="none" aria-hidden="true"></svg>`;
+  // A label is ~7 characters: keep the next one at least that far on at this width
+  // (a fixed 9% let "0.2 mm/h0.1 mm/h" collide on a phone).
+  const gapPct = Math.max(9, (66 / (lbls.clientWidth || 600)) * 100);
   let lastPct = -100;
   lbls.innerHTML = runs
     .map((r) => {
       const pct = (r.peakKm / total) * 100;
-      if (pct - lastPct < 9) return "";
+      if (pct - lastPct < gapPct) return "";
       lastPct = pct;
       const v = r.peak < 10 ? r.peak.toFixed(1) : Math.round(r.peak).toString();
       return `<span class="rt-rainlbl" style="left:${Math.min(95, Math.max(5, pct)).toFixed(2)}%">${v} mm/h</span>`;
@@ -2038,6 +2206,31 @@ function renderProfile(): void {
     `<span class="rp-lbl rp-lbl-ext">${total.toFixed(1)} km</span>`;
 }
 
+/** The banner shows what is running now: routing first (the weather waits for the
+ *  line), then the weather fetch, nothing once both are done. One place decides, so a
+ *  job finishing (or being dropped) can never leave the other's message behind. */
+function syncBanner(): void {
+  if (!weatherBusy && weatherTick) {
+    clearInterval(weatherTick);
+    weatherTick = null;
+  }
+  // A slow weather service reads as slow, not stuck: past a few seconds, its age.
+  const age = Math.round((Date.now() - weatherSince) / 1000);
+  if (routingBusy > 0 && routingMsg) setBanner(routingMsg, true);
+  else if (weatherBusy && weatherMsg)
+    setBanner(age >= 8 ? `${weatherMsg} · ${age}s` : weatherMsg, true);
+  else setBanner("");
+}
+
+/** Drop the weather fetch in flight (its line or day is gone) and its busy state. */
+function cancelWeather(): void {
+  weatherSeq++;
+  if (!weatherBusy && !weatherMsg) return;
+  weatherBusy = false;
+  weatherMsg = "";
+  syncBanner();
+}
+
 function setBanner(text: string, busy = false): void {
   const el = $("rtBanner");
   if (!el) return;
@@ -2105,10 +2298,6 @@ function onClick(e: MouseEvent): void {
     case "import":
       $("routeFile")?.click();
       break;
-    case "back":
-      closeRouteIfEmpty();
-      backToList();
-      break;
     case "reverse":
       reverseRoute();
       break;
@@ -2149,6 +2338,10 @@ function onClick(e: MouseEvent): void {
     case "models-recommended":
       writePref(MODELS_KEY, "[]");
       renderModels();
+      void ensureWeather();
+      break;
+    case "weather-retry":
+      weatherError = "";
       void ensureWeather();
       break;
     case "speed-reset":

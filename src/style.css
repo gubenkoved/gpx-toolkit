@@ -69,6 +69,28 @@
   --blue: #4c8dff;
   /* --- semantic surface/border tokens (repeated literals promoted) --- */
   --surface-hover: #222732; /* row/control hover fill */
+  /* ghost buttons: a wash of the text colour, so they lift off any surface */
+  --ghost-bg: color-mix(in srgb, var(--text) 5%, transparent);
+  --ghost-bg-hover: color-mix(in srgb, var(--text) 9%, transparent);
+  --ghost-line: color-mix(in srgb, var(--text) 14%, transparent);
+  /* tag colours (tags.ts TAG_COLOR_NAMES): light hues that read on the dark panel */
+  --tag-red: #f87171;
+  --tag-orange: #fb923c;
+  --tag-amber: #fbbf24;
+  --tag-green: #4ade80;
+  --tag-teal: #2dd4bf;
+  --tag-sky: #38bdf8;
+  --tag-blue: #60a5fa;
+  --tag-violet: #a78bfa;
+  --tag-pink: #f472b6;
+  --tag-slate: #94a3b8;
+  /* an unchecked checkbox: a quiet outline, firmer on hover */
+  --chk-line: color-mix(in srgb, var(--text) 24%, transparent);
+  --chk-line-hover: color-mix(in srgb, var(--text) 45%, transparent);
+  /* the app tooltip: a card a step above the panel */
+  --tip-bg: #1d222c;
+  --tip-line: rgba(255, 255, 255, 0.09);
+  --tip-shadow: 0 8px 28px rgba(0, 0, 0, 0.5), 0 1px 3px rgba(0, 0, 0, 0.4);
   --border-hover: #333b48; /* row/control hover border */
   --map-bg: #05070a; /* dark basemap container behind tiles */
   --grade-climb: rgba(255, 170, 60, 0.38); /* profile: 4–8% climbs */
@@ -132,6 +154,7 @@
   --fc-cloud: 155, 176, 196; /* rgb triplet behind the cloud-cover wash */
   --fc-direction: #b8c9d9; /* the wind-direction line + its legend swatch */
   --fc-now: #ff7a33; /* the current-moment rule + its "now" tag */
+  --fc-now-ink: #1a0e06; /* the tag's text: dark ink on the bright tag (7.3:1; white was 2.6) */
   /* Timetable cell tints (rgb triplets; the cell sets the alpha from its value). */
   --fc-heat-wind: 252, 82, 0;
   --fc-heat-rain: 76, 141, 255;
@@ -141,7 +164,6 @@
   /* --- shell geometry --- */
   --sb-w: 232px; /* expanded sidebar */
   --sb-rail-w: 60px; /* collapsed icon rail */
-  --chrome-h: 96px; /* top bar + main padding: what a viewport-tall view subtracts */
   /* --- elevation (drop-shadow scale) --- */
   --shadow-thumb: 0 1px 4px rgba(0, 0, 0, 0.5); /* slider thumbs */
   --shadow-float: 0 2px 10px rgba(0, 0, 0, 0.35); /* floating buttons / banners */
@@ -193,6 +215,19 @@
   --blue: #2563eb;
   --surface-hover: #eceff3;
   --border-hover: #c9d0da;
+  --tip-bg: #ffffff;
+  --tip-line: rgba(15, 23, 42, 0.12);
+  --tag-red: #dc2626;
+  --tag-orange: #ea580c;
+  --tag-amber: #d97706;
+  --tag-green: #16a34a;
+  --tag-teal: #0d9488;
+  --tag-sky: #0284c7;
+  --tag-blue: #2563eb;
+  --tag-violet: #7c3aed;
+  --tag-pink: #db2777;
+  --tag-slate: #64748b;
+  --tip-shadow: 0 8px 28px rgba(15, 23, 42, 0.16), 0 1px 3px rgba(15, 23, 42, 0.1);
   --map-bg: #e6e8ec;
   --grade-climb: rgba(230, 130, 20, 0.35);
   --grade-steep: rgba(220, 40, 40, 0.45);
@@ -252,7 +287,8 @@
   --fc-zebra: rgba(0, 0, 0, 0.03);
   --fc-cloud: 110, 125, 145;
   --fc-direction: #4f6078;
-  --fc-now: #d94500;
+  --fc-now: #c2410c; /* deep enough for white tag text (5.2:1) */
+  --fc-now-ink: #ffffff;
   --fc-heat-wind: 252, 82, 0;
   --fc-heat-rain: 37, 99, 235;
   --fc-heat-warm: 234, 88, 12;
@@ -278,11 +314,15 @@ body {
    narrow screens an un-wrapped control row would otherwise widen the document and
    push the centred (left:50%) bottom job pill off to the right. Surfaces that need
    horizontal scrolling (map, tables, segmented controls) own their own
-   overflow:auto containers, so clamping the page is safe. */
+   overflow:auto containers, so clamping the page is safe. `clip`, not `hidden`:
+   `hidden` on both html and body made <body> its own scroll box (the viewport never
+   scrolled), so with nothing focused PageUp/PageDown, Home/End and Space did nothing
+   until a click landed inside the list. `clip` clamps without a scroll box — the
+   page scrolls as a page. */
 html,
 body {
   max-width: 100%;
-  overflow-x: hidden;
+  overflow-x: clip;
 }
 
 /* scrollbars — slim, themed, fade-friendly */
@@ -391,7 +431,12 @@ header {
   align-items: center;
   gap: 4px;
   margin-left: 10px;
-  padding: 4px 6px 4px 4px;
+  /* Exactly inside the top bar's 33px content box (54px less its 10px padding and
+     hairline): taller, it grew the bar by ~6px and shifted the page on every first
+     pick. The 29px buttons sit centred in it. */
+  box-sizing: border-box;
+  height: 32px;
+  padding: 0 6px 0 2px;
   background: var(--accent-tint);
   border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--line));
   border-radius: 10px;
@@ -418,8 +463,8 @@ header {
   color: var(--text);
 }
 .selbar-x > .bi {
-  width: 15px;
-  height: 15px;
+  width: 16px;
+  height: 16px;
 }
 .selbar-count {
   flex: 0 0 auto;
@@ -482,11 +527,11 @@ header {
   font-weight: 600;
 }
 .selbar-caret {
-  width: 14px;
-  height: 14px;
+  width: 16px;
+  height: 16px;
   fill: none;
   stroke: currentColor;
-  stroke-width: 2.2;
+  stroke-width: 2;
   stroke-linecap: round;
   stroke-linejoin: round;
   transition: transform 0.15s ease;
@@ -538,8 +583,11 @@ header {
   flex: 1;
 }
 /* A panel's collapse control: a small round chevron; it points up while the panel is
-   open and down once collapsed (aria-expanded drives it). */
-button.collapse-btn {
+   open and down once collapsed (aria-expanded drives it). The ride map's close "×"
+   sits beside it in the same lean icon-only form. */
+button.collapse-btn,
+button.ridemap-close,
+button.tb-back {
   flex: 0 0 auto;
   width: 26px;
   height: 26px;
@@ -553,13 +601,15 @@ button.collapse-btn {
   border-color: transparent;
   color: var(--muted);
 }
-.collapse-btn:hover:not(:disabled) {
+.collapse-btn:hover:not(:disabled),
+.ridemap-close:hover:not(:disabled),
+.tb-back:hover:not(:disabled) {
   color: var(--text);
 }
 .collapse-btn > svg {
   flex: 0 0 auto;
-  width: 15px;
-  height: 15px;
+  width: 16px;
+  height: 16px;
   fill: none;
   stroke: currentColor;
   stroke-width: 2;
@@ -695,12 +745,21 @@ button.primary:hover:not(:disabled) {
   gap: 7px;
 }
 #btnScan svg {
-  width: 15px;
-  height: 15px;
+  width: 16px;
+  height: 16px;
   display: block;
 }
-button.ghost {
-  background: transparent;
+/* A ghost button is quieter than a filled one, never invisible: a faint wash of the
+   text colour (so it reads on any surface, in either theme) and a firmer edge. Before,
+   a transparent fill with a hairline border sank into the page. The lean round chrome
+   (panel chevron, bare ×, back arrow) stays bare by design. */
+button.ghost:not(:where(.collapse-btn, .ridemap-close, .tb-back)) {
+  background: var(--ghost-bg);
+  border-color: var(--ghost-line);
+}
+button.ghost:not(:where(.collapse-btn, .ridemap-close, .tb-back)):hover:not(:disabled) {
+  background: var(--ghost-bg-hover);
+  border-color: var(--border-hover);
 }
 button.danger {
   color: var(--err-text);
@@ -1068,8 +1127,8 @@ button.small {
   display: block;
 }
 .ffilters-toggle .mi {
-  width: 15px;
-  height: 15px;
+  width: 16px;
+  height: 16px;
   flex: 0 0 auto;
 }
 /* The long-intended hide of "Clear filters" when nothing is filtered. The JS
@@ -1263,6 +1322,15 @@ main {
      itself from them. Breakpoints change the variables, not the padding. */
   --main-pt: 16px;
   --main-pb: 40px;
+  /* A viewport-tall view (map, charts, an open route…) fills exactly the visible band:
+     under the header, above a phone's bottom nav (both measured live by shell.ts),
+     with main's top padding as the gap on both sides — `--view-mb` hands back main's
+     larger bottom padding, so it never scrolls the page. `--chrome-h` is what such a
+     view subtracts from 100vh. Defined here, from the live parts, so it can't drift:
+     a hard-coded 96px (vs 54 + 16 + 40) once left every such view 14px too tall. */
+  --chrome-h: calc(var(--hdr-h, 54px) + var(--nav-h, 0px) + 2 * var(--main-pt));
+  --view-h: calc(100svh - var(--chrome-h));
+  --view-mb: min(0px, calc(var(--main-pt) + var(--nav-h, 0px) - var(--main-pb)));
   flex: 1;
   min-width: 0;
   padding: var(--main-pt) 22px var(--main-pb);
@@ -1565,8 +1633,8 @@ body.job-active main {
   transform: rotate(90deg);
 }
 .job button {
-  background: transparent;
-  border-color: transparent;
+  background: var(--ghost-bg);
+  border-color: var(--ghost-line);
 }
 .job button:hover:not(:disabled) {
   background: var(--surface-hover);
@@ -1592,8 +1660,8 @@ body.job-active main {
    red-tinted button — easy to find and hard to misfire — rather than an icon. */
 .job #btnCancel {
   color: var(--err-text);
-  background: transparent;
-  border-color: transparent;
+  background: color-mix(in srgb, var(--err-text) 8%, transparent);
+  border-color: color-mix(in srgb, var(--err-text) 28%, transparent);
   font-weight: 600;
 }
 .job #btnCancel:hover:not(:disabled) {
@@ -2067,6 +2135,16 @@ span.caret.open::before {
   padding: 4px 10px;
   font-size: 11.5px;
 }
+/* Folding (fold.ts autoFold, mildest first) — labels give way before the row wraps:
+   1 · Distance / Speed show their icons only (named in title / aria-label);
+   2 · the secondary figures go, total and rides stay. */
+.sp-head-main.fold-1 .sp-metric button {
+  gap: 0;
+  font-size: 0;
+}
+.sp-head-main.fold-2 .sp-kpis > .kpi:nth-child(n + 3) {
+  display: none;
+}
 .sp-kpis {
   display: flex;
   gap: 22px;
@@ -2224,8 +2302,8 @@ span.caret.open::before {
   margin-right: -2px; /* trim the .rtitle gap a touch so it hugs the name */
 }
 .src-mark svg {
-  width: 15px;
-  height: 15px;
+  width: 16px;
+  height: 16px;
   display: block;
 }
 .src-mark.src-gpx {
@@ -2352,6 +2430,52 @@ span.caret.open::before {
 .rrow.sel:hover {
   background: var(--accent-tint-strong);
 }
+/* Shift-range preview (main.ts renderRangePreview): with Shift held, the rows a click
+   would select get a lighter tint, a fainter stripe and a dashed ring on the box;
+   rows it would clear fade. The hovered end names the count in a pill. */
+.rrow.range-add:not(.sel) {
+  background: color-mix(in srgb, var(--accent) 5%, transparent);
+  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--accent) 45%, transparent);
+}
+.rrow.range-add:not(.sel) .chk {
+  outline: 1.5px dashed color-mix(in srgb, var(--accent) 75%, transparent);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+.rrow.range-remove.sel {
+  background: color-mix(in srgb, var(--muted) 7%, transparent);
+  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--muted) 60%, transparent);
+}
+.rrow.range-remove.sel .rmain,
+.rrow.range-remove.sel .chk {
+  opacity: 0.5;
+}
+.rrow.range-end {
+  position: relative;
+}
+.rrow.range-end::after {
+  content: attr(data-range);
+  position: absolute;
+  top: 50%;
+  right: 60px;
+  transform: translateY(-50%);
+  padding: 3px 9px;
+  border: 1px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  border-radius: 999px;
+  /* Opaque soft accent with the text colour: white on the orange is only 3.3:1. */
+  background: color-mix(in srgb, var(--accent) 20%, var(--panel));
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 650;
+  white-space: nowrap;
+  pointer-events: none;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+}
+.rrow.range-end.range-remove::after {
+  background: var(--panel2);
+  color: var(--text);
+  border: 1px solid var(--line-strong);
+}
 /* Transient pulse when a ride is opened from a map's "Selected" list, so the eye
    lands on the row we scrolled to. Reuses the accent stripe + tint of .rrow.sel,
    fading out over ~1.2s. */
@@ -2383,6 +2507,53 @@ span.caret.open::before {
 }
 .rrow.deleted .chk {
   opacity: 0.4;
+}
+/* App checkboxes: an unchecked box is a quiet outline (the native one was a filled
+   grey square that shouted on every row); checked / mixed take the accent with a white
+   mark. Zero specificity (:where) so a component's own size / spacing still wins. */
+:where(input[type="checkbox"]) {
+  appearance: none;
+  -webkit-appearance: none;
+  box-sizing: border-box;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  flex: 0 0 auto;
+  border: 1.5px solid var(--chk-line);
+  border-radius: 4px;
+  background: transparent center / 12px 12px no-repeat;
+  cursor: pointer;
+  vertical-align: middle;
+  transition:
+    background-color 0.12s ease,
+    border-color 0.12s ease;
+}
+:where(input[type="checkbox"]):hover:not(:disabled) {
+  border-color: var(--chk-line-hover);
+}
+:where(input[type="checkbox"]):checked {
+  border-color: var(--accent);
+  background-color: var(--accent);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 6.2 5 8.6 9.6 3.6' fill='none' stroke='%23fff' stroke-width='1.9' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
+:where(input[type="checkbox"]):indeterminate {
+  border-color: var(--accent);
+  background-color: var(--accent);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M3 6h6' fill='none' stroke='%23fff' stroke-width='1.9' stroke-linecap='round'/%3E%3C/svg%3E");
+}
+:where(input[type="checkbox"]):disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+/* Keyboard focus rings are the app's own; a pointer never leaves one behind (Chrome
+   counts a Shift/Ctrl-click as keyboard use and drew its white default ring on the
+   clicked box). `data-input` comes from ui.ts trackInputModality. */
+:where(:focus-visible) {
+  outline: 2px solid color-mix(in srgb, var(--accent) 85%, transparent);
+  outline-offset: 2px;
+}
+:root[data-input="pointer"] :focus-visible {
+  outline: none;
 }
 .chk {
   margin-top: 2px;
@@ -3260,9 +3431,8 @@ body.ridemap-open {
 .ridemap-tools.compact .rmb.hidden {
   display: none;
 }
-/* Close is in the title bar: always a labelled button, never folded. */
+/* Close is in the title bar: pinned at its end, never folded. */
 .ridemap-close {
-  flex: 0 0 auto;
   margin-left: auto;
 }
 .ridemap-color button {
@@ -3321,6 +3491,68 @@ body.ridemap-open {
 .ridemap-profile.hidden {
   display: none;
 }
+/* "Rain & wind" on: a rain lane under the profile, on the same axis (ridemap.ts
+   rideRainLaneHtml). The strip grows by the lane; the graph and its lower labels move
+   up so nothing overlaps. Bars and shades match the Routes rain lane. */
+.ridemap-profile.has-rain {
+  height: 156px;
+}
+.ridemap-profile.has-rain > svg {
+  height: calc(100% - 24px);
+}
+.ridemap-profile.has-rain .rp-lbl-lo,
+.ridemap-profile.has-rain .rp-lbl-ext {
+  bottom: 34px;
+}
+.rp-rain {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 10px;
+  height: 18px;
+}
+.rp-rain svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  cursor: crosshair;
+}
+.rp-rain rect {
+  fill: var(--rain);
+}
+.rp-rain .rr1 {
+  opacity: 0.45;
+}
+.rp-rain .rr2 {
+  opacity: 0.75;
+}
+.rp-rain .rp-rain-base {
+  stroke: color-mix(in srgb, var(--rain) 35%, transparent);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+.rp-rain-peak,
+.rp-rain-dry {
+  position: absolute;
+  top: -1px;
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--panel) 80%, transparent);
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.rp-rain-peak {
+  color: var(--rain);
+}
+.rp-rain-dry {
+  left: 0;
+  color: var(--muted);
+  font-weight: 500;
+}
 /* Persistent strip of headline stats the full recorded track unlocks (point
    count, measured distance, real elevation gain/loss, recording span, speeds).
    Sits between the bar and the map; only shown once a full track is loaded. */
@@ -3377,6 +3609,10 @@ body.ridemap-open {
 }
 .profile-strip .rp-lbl {
   position: absolute;
+  /* A soft backing: the line runs through the corners on a narrow strip. */
+  padding: 1px 3px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--panel) 78%, transparent);
   color: var(--muted);
   font-size: 11px;
   font-variant-numeric: tabular-nums;
@@ -3482,8 +3718,9 @@ body.ridemap-open {
   top: 90px;
 }
 .fc-map-hide .mi {
-  width: 17px;
-  height: 17px;
+  width: 20px;
+  height: 20px;
+  stroke-width: 1.75;
   pointer-events: none;
 }
 /* Map collapsed: a one-line location strip; the charts take the room. */
@@ -3573,16 +3810,18 @@ body.ridemap-open {
 }
 .fc-map-locate .mi {
   display: block;
-  width: 17px;
-  height: 17px;
+  width: 20px;
+  height: 20px;
+  stroke-width: 1.75;
   pointer-events: none;
 }
 .fc-map-search {
   top: 50px;
 }
 .fc-map-search .mi {
-  width: 17px;
-  height: 17px;
+  width: 20px;
+  height: 20px;
+  stroke-width: 1.75;
   pointer-events: none;
 }
 .fc-map-search.active {
@@ -3722,8 +3961,8 @@ body.ridemap-open {
   color: var(--muted);
 }
 .fc-location-close .mi {
-  width: 15px;
-  height: 15px;
+  width: 16px;
+  height: 16px;
 }
 .fc-search-wrap {
   position: relative;
@@ -3873,8 +4112,8 @@ body.ridemap-open {
 }
 .fc-rename-trigger .mi,
 .fc-name-action .mi {
-  width: 14px;
-  height: 14px;
+  width: 16px;
+  height: 16px;
 }
 .fc-name-editor {
   display: flex;
@@ -3942,6 +4181,9 @@ body.ridemap-open {
 }
 .fc-option-row {
   display: flex;
+  /* Never wider than the panel: between the phone grid and a roomy desktop (a tablet,
+     a narrow window) the actions drop to a second line instead of scrolling the page. */
+  flex-wrap: wrap;
   align-items: flex-end;
   gap: 12px 18px;
   container-type: inline-size;
@@ -3976,17 +4218,31 @@ body.ridemap-open {
   padding: 0;
   box-shadow: var(--shadow-thumb);
 }
+/* The legend fold is one of the cluster: same square chrome and glyph weight as
+   settings / refresh beside it, not the app's lean round panel chevron. */
+.fc-option-actions button.collapse-btn {
+  border-color: var(--line);
+  border-radius: var(--ctrl-radius);
+  color: var(--text);
+}
+.fc-option-actions .collapse-btn > svg {
+  width: 20px;
+  height: 20px;
+  stroke-width: 1.75;
+}
 .fc-option-actions .mi,
 #forecastPresentation .mi {
-  width: 17px;
-  height: 17px;
+  width: 20px;
+  height: 20px;
+  stroke-width: 1.75;
 }
 #forecastPresentation .mi {
   display: none;
 }
 .fc-refresh .mi {
-  width: 17px;
-  height: 17px;
+  width: 20px;
+  height: 20px;
+  stroke-width: 1.75;
 }
 .fc-refresh.loading .mi {
   animation: fc-refresh-spin 0.8s linear infinite;
@@ -4012,6 +4268,69 @@ body.ridemap-open {
 .fc-option-group .seg button {
   min-width: 42px;
   padding-inline: 9px;
+}
+/* Two-character day counts need less than the shared minimum — it keeps the row
+   (When · Range · Presentation · actions) on one line at a laptop's width. Desktop
+   only: as an id rule it would beat the phone's tighter `min-width: 0`. */
+@media (min-width: 761px) {
+  #forecastRange button {
+    min-width: 36px;
+  }
+}
+/* A settled past day hides refresh; the cluster's inline-flex must not undo that. */
+.fc-option-actions button[hidden] {
+  display: none;
+}
+/* Folding (fold.ts autoFold, mildest first) — labels give way before the row wraps:
+   1 · the "Updated …" age (the refresh button's tooltip still has it);
+   2 · Presentation shows its icons only (named in title / aria-label);
+   3 · "Past day" becomes its calendar glyph (a picked day keeps its short date). */
+.fc-option-row.fold-1 .fc-fetched-at {
+  display: none;
+}
+.fc-option-row.fold-2 #forecastPresentation .mi {
+  display: block;
+  flex: none;
+  width: 18px;
+  height: 18px;
+}
+.fc-option-row.fold-2 #forecastPresentation button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 36px;
+  padding-inline: 9px;
+}
+.fc-option-row.fold-2 #forecastPresentation button span {
+  display: none;
+}
+.fc-option-row.fold-3 #forecastWhen .fc-when-day {
+  display: none;
+}
+.fc-option-row.fold-3 #forecastWhen .fc-when-date.active .fc-when-short {
+  display: inline;
+}
+.fc-option-row.fold-3 #forecastWhen .fc-when-date:not(.active) {
+  gap: 0;
+}
+/* When: "Now" or a past day — the day button names the picked day (short on a
+   phone) and opens the calendar; its glyph sits beside the label. */
+#forecastWhen .fc-when-date {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-variant-numeric: tabular-nums;
+}
+#forecastWhen .fc-when-short {
+  display: none;
+}
+@media (max-width: 560px) {
+  #forecastWhen .fc-when-day {
+    display: none;
+  }
+  #forecastWhen .fc-when-short {
+    display: inline;
+  }
 }
 .fc-settings {
   z-index: 1010;
@@ -4409,15 +4728,16 @@ body.ridemap-open {
 /* The hovered hour's figures beside each model. The slot is always laid out (empty =
    invisible) so the legend never reflows when figures appear; each item is a fixed
    three-column grid — dot · name · figures — so the figures line up as a table. */
-/* The legend is a grid of equal cells (as many per row as fit): a cell's width comes
-   from the grid, never from its content, so the figures appearing on hover trim the
-   model's name inside the cell instead of re-flowing the rows — the chart below
-   never moves. At rest the names fill their cells; no space is held empty. */
+/* The legend is one header row — the Consensus / All lines switch and the
+   "● ● ● 9 models" fold button — over the model list, which folds away behind that
+   button (remembered; folded by default on a phone) to give the chart the room.
+   Unfolded, the list is a grid of equal cells (as many per row as fit): a cell's
+   width comes from the grid, never from its content, so the figures appearing on
+   hover trim the model's name inside the cell instead of re-flowing the rows — the
+   chart below never moves. At rest the names fill their cells; no space is held empty. */
 .fc-model-legend {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
-  gap: 2px 10px;
-  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 10px;
 }
 .fc-model-legend .fc-track-toggle {
   display: grid;
@@ -4449,26 +4769,35 @@ body.ridemap-open {
 .fc-track-toggle:not(.active) .fc-track-val {
   visibility: hidden;
 }
-.fc-model-legend .fc-compare-style {
-  justify-self: start;
-}
 .fc-model-legend .fc-tracks-reset {
   justify-self: start;
 }
-/* The model list is a wrapper only (it is rebuilt without touching the seg); its
-   items lay out as the legend's own flex children. */
 .fc-model-list {
-  display: contents;
+  display: none;
+}
+.fc-model-legend.open .fc-model-list {
+  display: grid;
+  flex: 1 1 100%;
+  grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
+  gap: 2px 10px;
+  align-items: center;
 }
 .fc-models-peek {
-  display: none;
+  display: inline-flex;
   align-items: center;
   gap: 8px;
   padding: 6px 10px;
+  border: 1px solid var(--ghost-line);
   border-radius: 8px;
-  background: transparent;
+  background: var(--ghost-bg);
   color: var(--text);
+  font: inherit;
   font-size: 12.5px;
+}
+.fc-models-peek:hover,
+.fc-models-peek:focus-visible {
+  border-color: var(--line-strong);
+  background: var(--surface-hover);
 }
 .fc-peek-dots {
   display: inline-flex;
@@ -4488,11 +4817,11 @@ body.ridemap-open {
   opacity: 0.3;
 }
 .fc-peek-caret {
-  width: 14px;
-  height: 14px;
+  width: 16px;
+  height: 16px;
   fill: none;
   stroke: currentColor;
-  stroke-width: 2.2;
+  stroke-width: 2;
   stroke-linecap: round;
   stroke-linejoin: round;
   transition: transform 0.15s ease;
@@ -4580,6 +4909,56 @@ body.ridemap-open {
 }
 .fc-charts:focus {
   outline: none;
+}
+/* A chart canvas with sticky copies of its axes (forecast-view `stickyWrap`): all in
+   one grid cell; the y gutter pins left (right of a per-model row's sticky name), the
+   combined chart's time header pins top, and the corner names the day at the left
+   edge once scrolled sideways. None of them take the pointer — hover hits the chart. */
+.fc-canvas-wrap {
+  display: grid;
+  width: max-content;
+}
+.fc-canvas-wrap > * {
+  grid-area: 1 / 1;
+}
+.fc-canvas-wrap > .fc-axis-y,
+.fc-canvas-wrap > .fc-axis-x,
+.fc-canvas-wrap > .fc-axis-day {
+  position: sticky;
+  pointer-events: none;
+  align-self: start;
+  justify-self: start;
+}
+.fc-axis-y {
+  left: var(--fc-axis-left, 0px);
+  z-index: 2;
+}
+.fc-axis-x {
+  top: 0;
+  z-index: 1;
+}
+.fc-axis-day {
+  left: var(--fc-axis-left, 0px);
+  z-index: 3;
+  width: 70px;
+  height: 20px;
+  padding-left: 8px;
+  box-sizing: border-box;
+  overflow: hidden;
+  background: var(--panel);
+  color: var(--text);
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 20px;
+  white-space: nowrap;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+.fc-axis-day.on {
+  opacity: 0.86;
+}
+.fc-canvas-wrap.has-header > .fc-axis-day {
+  top: 0;
 }
 /* -- Table mode: the timetable (hours down, models across) ------------------------ */
 .fc-tt {
@@ -4707,7 +5086,7 @@ body.ridemap-open {
   padding: 1px 4px;
   border-radius: 4px;
   background: var(--fc-now);
-  color: #fff;
+  color: var(--fc-now-ink);
   font-size: 9.5px;
   font-weight: 650;
   line-height: 1.3;
@@ -5046,9 +5425,33 @@ button.fc-model-reveal[aria-pressed="true"] {
   .fc-options {
     padding: 8px;
   }
+  /* A phone can't hold When · Range · Presentation · actions on one line (~450px of
+     controls in ~380): two balanced rows instead — When with the actions, then the
+     range with the presentation — so nothing ever scrolls the page sideways. */
   .fc-option-row {
+    display: grid;
+    grid-template-columns: auto auto;
+    grid-template-areas:
+      "when actions"
+      "range pres";
+    justify-content: space-between;
     align-items: center;
-    gap: 5px;
+    gap: 6px 5px;
+  }
+  .fc-option-row > .fc-option-group:has(#forecastWhen) {
+    grid-area: when;
+  }
+  .fc-option-row > .fc-option-group:has(#forecastRange) {
+    grid-area: range;
+  }
+  .fc-option-row > .fc-option-group:has(#forecastPresentation) {
+    grid-area: pres;
+    justify-self: end;
+  }
+  .fc-option-row > .fc-option-actions {
+    grid-area: actions;
+    justify-self: end;
+    margin-left: 0;
   }
   .fc-option-row .fc-option-group > b {
     position: absolute;
@@ -5066,6 +5469,9 @@ button.fc-model-reveal[aria-pressed="true"] {
   }
   #forecastPresentation .mi {
     display: block;
+    flex: none;
+    width: 18px;
+    height: 18px;
   }
   #forecastPresentation button {
     width: 29px;
@@ -5107,8 +5513,8 @@ button.fc-model-reveal[aria-pressed="true"] {
     display: block;
   }
   .fc-table-metric-icon {
-    width: 17px;
-    height: 17px;
+    width: 16px;
+    height: 16px;
   }
   .fc-table-controls > small {
     margin-left: 0;
@@ -5235,7 +5641,8 @@ button.fc-model-reveal[aria-pressed="true"] {
 .stats-body {
   display: flex;
   flex-direction: column;
-  height: calc(100vh - var(--chrome-h));
+  height: var(--view-h);
+  margin-bottom: var(--view-mb);
   min-height: 560px;
 }
 .stats-section {
@@ -5413,7 +5820,8 @@ button.fc-model-reveal[aria-pressed="true"] {
   display: grid;
   grid-template-columns: 1fr 300px;
   gap: 12px;
-  height: calc(100vh - var(--chrome-h));
+  height: var(--view-h);
+  margin-bottom: var(--view-mb);
   min-height: 460px;
 }
 .tl-wrap.hidden {
@@ -5615,8 +6023,8 @@ button.fc-model-reveal[aria-pressed="true"] {
   background: var(--surface-hover);
 }
 .tl-calbtn .bi {
-  width: 14px;
-  height: 14px;
+  width: 16px;
+  height: 16px;
   color: var(--muted);
 }
 .tl-date {
@@ -5772,8 +6180,8 @@ button.dp-month.dp-zoom:hover {
   cursor: pointer;
 }
 .dp-arrow .bi {
-  width: 15px;
-  height: 15px;
+  width: 16px;
+  height: 16px;
 }
 .dp-arrow:hover:not(:disabled) {
   border-color: var(--border-hover);
@@ -5902,8 +6310,8 @@ button.dp-cell:hover {
   cursor: pointer;
 }
 .tl-step .bi {
-  width: 17px;
-  height: 17px;
+  width: 18px;
+  height: 18px;
 }
 .tl-step:hover:not(:disabled) {
   border-color: var(--border-hover);
@@ -5965,32 +6373,6 @@ button.dp-cell:hover {
   font-size: 13px;
   font-weight: 650;
 }
-/* Day panel: stack a "back to overview" breadcrumb above the day title so the way out
-   sits right where the user is reading the rail, not only in the far-off bottom bar. */
-.tl-day-head {
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 5px;
-}
-.tl-back {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 0;
-  background: none;
-  border: 0;
-  color: var(--muted);
-  font: inherit;
-  font-size: 12px;
-  cursor: pointer;
-}
-.tl-back:hover {
-  color: var(--text);
-}
-.tl-back .bi {
-  width: 14px;
-  height: 14px;
-}
 .tl-side-sub {
   color: var(--muted);
   font-size: 12px;
@@ -6048,8 +6430,8 @@ button.small > .bi,
 .seg button > .bi,
 .splitmenu button > .bi,
 .ovr-items > button > .bi {
-  width: 15px;
-  height: 15px;
+  width: 16px;
+  height: 16px;
 }
 button.small:has(> .bi) {
   gap: 6px;
@@ -6069,8 +6451,8 @@ button.small:has(> .bi) {
   color: inherit;
 }
 .linkbtn > .bi {
-  width: 14px;
-  height: 14px;
+  width: 16px;
+  height: 16px;
 }
 .linkbtn:has(> .bi) {
   display: inline-flex;
@@ -6079,8 +6461,8 @@ button.small:has(> .bi) {
   vertical-align: -3px;
 }
 .tl-btn.primary .bi {
-  width: 17px;
-  height: 17px;
+  width: 16px;
+  height: 16px;
 }
 /* Two-up call-to-action row in the empty state (import + how-to-export). */
 .tl-empty-actions {
@@ -6496,7 +6878,8 @@ body.tl-expanded {
   display: grid;
   grid-template-columns: 1fr 340px;
   gap: 12px;
-  height: calc(100vh - var(--chrome-h));
+  height: var(--view-h);
+  margin-bottom: var(--view-mb);
   min-height: 460px;
 }
 .cl-wrap.hidden {
@@ -6687,8 +7070,8 @@ body.tl-expanded {
   font-weight: 600;
 }
 .cl-cmp-head > b > .bi {
-  width: 14px;
-  height: 14px;
+  width: 16px;
+  height: 16px;
   color: var(--cmp);
 }
 .cl-cmp-head > button.small {
@@ -7502,7 +7885,8 @@ body.climate-expanded .cl-ctl input[type="range"] {
   grid-template-columns: 1fr 280px;
   gap: 12px;
   /* Fill the viewport below the sticky header + tab bar. */
-  height: calc(100vh - var(--chrome-h));
+  height: var(--view-h);
+  margin-bottom: var(--view-mb);
   min-height: 460px;
 }
 .map-main {
@@ -7603,8 +7987,9 @@ body.climate-expanded .cl-ctl input[type="range"] {
   color: #fff;
 }
 .map-locate .mi {
-  width: 17px;
-  height: 17px;
+  width: 20px;
+  height: 20px;
+  stroke-width: 1.75;
   display: block;
   pointer-events: none;
 }
@@ -7629,8 +8014,9 @@ body.climate-expanded .cl-ctl input[type="range"] {
    while full-screen; Select shows the dashed marquee, flips to an X while armed. */
 .map-expand .mi,
 .map-select .mi {
-  width: 17px;
-  height: 17px;
+  width: 20px;
+  height: 20px;
+  stroke-width: 1.75;
   display: block;
   pointer-events: none;
 }
@@ -7832,8 +8218,8 @@ input[type="range"].uslider:disabled::-moz-range-thumb {
 /* Leading "whole range" icon (double-ended arrow) — sized to sit with the label so
    every "All" reset reads as one control, Timeline bar and basemap filters alike. */
 .range-filter .rf-reset .bi {
-  width: 14px;
-  height: 14px;
+  width: 16px;
+  height: 16px;
 }
 .range-filter .rf-reset:hover {
   color: var(--text);
@@ -8146,6 +8532,8 @@ body.heat-expanded {
 }
 /* The selected-segment card sits below the chart in flow, so give it a little air. */
 #analyticsSelected {
+  /* Scrolled into view after a tap: clear the phone's bottom nav. */
+  scroll-margin-bottom: calc(var(--nav-h, 0px) + 12px);
   margin-top: 12px;
 }
 /* No global `.hidden` rule exists (each component scopes its own), so hide the empty
@@ -8405,8 +8793,8 @@ body.ridemap-open .toast {
   .hdr-actions .filterwrap > .ffilters-toggle .mi,
   .hdr-actions .split > .iconmenu .ki {
     flex: 0 0 auto;
-    width: 17px;
-    height: 17px;
+    width: 18px;
+    height: 18px;
   }
 }
 
@@ -8926,8 +9314,8 @@ body.ridemap-open .toast {
     padding: 0;
     justify-content: center;
   }
-  /* Forecast: the measures legend is one sideways line; the models fold behind
-     a "● ● ● 9 models" button (they are named again on each lane and in the sheet). */
+  /* Forecast: the measures legend is one sideways line; the models start folded
+     behind their button (they are named again on each lane and in the sheet). */
   .fc-legend {
     flex-wrap: nowrap;
     gap: 6px 14px;
@@ -8940,20 +9328,9 @@ body.ridemap-open .toast {
     display: none;
   }
   .fc-model-legend {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
     gap: 6px 10px;
   }
-  .fc-models-peek {
-    display: inline-flex;
-  }
-  .fc-model-legend .fc-model-list {
-    display: none;
-  }
   .fc-model-legend.open .fc-model-list {
-    display: grid;
-    flex: 1 1 100%;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 0 8px;
   }
@@ -9467,6 +9844,104 @@ body.dragging-files::after {
   color: var(--text);
   font-style: italic;
 }
+/* Tag colours: a coloured tag (`--tc` from tags.ts tagColorStyle) is a soft tint of
+   its hue with text mixed toward the theme's ink, so any hue — palette or custom —
+   stays readable in both themes. */
+.rtag[style*="--tc"] {
+  background: color-mix(in srgb, var(--tc) 20%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tc) 34%, transparent);
+  color: color-mix(in srgb, var(--tc) 62%, var(--text));
+}
+.tag-dot {
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--tc);
+}
+.tagmodal-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+/* The chip's colour dot: tap to pick. An unset tag shows a dashed empty ring. */
+button.tagmodal-dot {
+  width: 18px;
+  height: 18px;
+  min-width: 0;
+  padding: 0;
+  border: 1.5px dashed var(--chk-line);
+  border-radius: 50%;
+  background: transparent;
+}
+button.tagmodal-dot.set {
+  border: 2px solid var(--panel);
+  background: var(--tc);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--tc) 60%, transparent);
+}
+button.tagmodal-dot:hover:not(:disabled) {
+  border-color: var(--chk-line-hover);
+}
+.tagmodal-chip[style*="--tc"].on {
+  border-color: var(--tc);
+  background: color-mix(in srgb, var(--tc) 22%, var(--panel2));
+}
+#tagModal .modal-card {
+  position: relative;
+}
+.tagcolor-pop {
+  position: absolute;
+  z-index: 5;
+  display: grid;
+  grid-template-columns: repeat(6, 26px);
+  gap: 7px;
+  padding: 10px;
+  border: 1px solid var(--tip-line);
+  border-radius: 10px;
+  background: var(--tip-bg);
+  box-shadow: var(--tip-shadow);
+}
+button.tagcolor-sw,
+.tagcolor-sw {
+  position: relative;
+  width: 26px;
+  height: 26px;
+  min-width: 0;
+  padding: 0;
+  border: 2px solid var(--tip-bg);
+  border-radius: 50%;
+  background: var(--tc);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--tc) 55%, transparent);
+  cursor: pointer;
+}
+button.tagcolor-sw:hover:not(:disabled),
+.tagcolor-sw:hover {
+  background: var(--tc);
+  transform: scale(1.08);
+}
+.tagcolor-sw.on {
+  box-shadow: 0 0 0 2px var(--text);
+}
+/* "Any colour": a rainbow ring over the native picker (invisible, full-size). */
+.tagcolor-custom {
+  background: conic-gradient(#f87171, #fbbf24, #4ade80, #38bdf8, #a78bfa, #f472b6, #f87171);
+}
+.tagcolor-custom.on {
+  background: var(--tc);
+}
+.tagcolor-custom input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+button.tagcolor-none {
+  grid-column: span 6;
+  padding: 4px 8px;
+  font-size: 12px;
+}
 .tagmodal-add {
   display: flex;
   gap: 8px;
@@ -9581,8 +10056,8 @@ body.dragging-files::after {
   border-radius: 7px;
 }
 .conn #btnScan svg {
-  width: 14px;
-  height: 14px;
+  width: 16px;
+  height: 16px;
 }
 /* #fDestination / #fNamed are Beeline-centric chips: default hidden, JS shows them
    (drops `.hidden`) only when the library has Beeline rides. */
@@ -9716,8 +10191,9 @@ body.dragging-files::after {
 .sidebar .navlink .mi,
 .bottomnav .navlink .mi,
 .more-card .navlink .mi {
-  width: 19px;
-  height: 19px;
+  width: 20px;
+  height: 20px;
+  stroke-width: 1.75;
   flex: 0 0 auto;
   display: block;
 }
@@ -9846,8 +10322,13 @@ body.sb-rail .sb-toggle .mi {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.tb-sub.hidden {
+.tb-sub.hidden,
+.tb-back.hidden {
   display: none;
+}
+/* The drill-in's way back sits tight against the title it returns to. */
+.tb-back {
+  margin-right: -6px;
 }
 .tb-logo,
 .tb-weather {
@@ -9906,9 +10387,6 @@ body.sb-rail .sb-toggle .mi {
 }
 
 @media (max-width: 768px) {
-  :root {
-    --chrome-h: 150px; /* top bar + main padding + bottom nav */
-  }
   .sidebar {
     display: none;
   }
@@ -9971,8 +10449,9 @@ body.sb-rail .sb-toggle .mi {
     min-height: 52px;
   }
   .bottomnav .navlink .mi {
-    width: 21px;
-    height: 21px;
+    width: 20px;
+    height: 20px;
+    stroke-width: 1.75;
   }
   .toast {
     top: auto;
@@ -10111,7 +10590,8 @@ body.sb-rail .sb-toggle .mi {
     grid-template-columns: var(--fc-split, clamp(380px, 32%, 560px)) 14px minmax(0, 1fr);
     grid-template-rows: auto minmax(0, 1fr) auto;
     column-gap: 2px;
-    height: calc(100vh - var(--chrome-h));
+    height: var(--view-h);
+    margin-bottom: var(--view-mb);
     min-height: 560px;
   }
   #forecastView:not(.hidden):not(:has(.fc-top.collapsed)) .fc-splitter {
@@ -10306,7 +10786,8 @@ body.sb-rail .sb-toggle .mi {
   display: grid;
   grid-template-columns: 1fr 380px;
   gap: 12px;
-  height: calc(100vh - var(--chrome-h));
+  height: var(--view-h);
+  margin-bottom: var(--view-mb);
   min-height: 460px;
 }
 .rt-main {
@@ -10490,15 +10971,9 @@ body.sb-rail .sb-toggle .mi {
   overflow-y: auto;
   min-width: 0;
 }
-.rt-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+.rt-name {
+  width: 100%;
   margin-bottom: 12px;
-}
-.rt-head .rt-name {
-  flex: 1 1 auto;
-  min-width: 0;
   font-weight: 600;
 }
 .rt-sec + .rt-sec {
@@ -10578,8 +11053,8 @@ body.sb-rail .sb-toggle .mi {
   opacity: 0.55;
 }
 .rt-grip .bi {
-  width: 14px;
-  height: 14px;
+  width: 16px;
+  height: 16px;
 }
 .rt-wp-row:hover .rt-grip,
 .rt-grip:focus-visible {
@@ -10830,8 +11305,8 @@ body.sb-rail .sb-toggle .mi {
 }
 .rt-place .bi {
   align-self: center;
-  width: 14px;
-  height: 14px;
+  width: 16px;
+  height: 16px;
   color: var(--accent);
 }
 .rt-profile .rp-lbl-hi {
@@ -10909,4 +11384,104 @@ body.sb-rail .sb-toggle .mi {
 }
 .pane-empty a {
   color: var(--accent);
+}
+
+/* === The app tooltip (src/tooltip.ts) =======================================
+   One lean card for every hint: the native `title` bubble is never shown. A step
+   above the panel in both themes, a hairline edge, a soft shadow and a small arrow
+   at its anchor; a quick fade (none with reduced motion). Plain hints are one line;
+   chart tips add a title, label · value rows and a muted note. */
+.app-tip {
+  position: fixed;
+  z-index: 3000;
+  max-width: min(300px, calc(100vw - 16px));
+  padding: 6px 9px;
+  border: 1px solid var(--tip-line);
+  border-radius: 8px;
+  background: var(--tip-bg);
+  box-shadow: var(--tip-shadow);
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.4;
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(2px);
+  transition:
+    opacity 0.12s ease,
+    transform 0.12s ease;
+}
+.app-tip[hidden] {
+  display: none;
+}
+.app-tip.on {
+  opacity: 1;
+  transform: none;
+}
+.app-tip[data-side="below"] {
+  transform: translateY(-2px);
+}
+.app-tip[data-side="below"].on {
+  transform: none;
+}
+.app-tip::after {
+  content: "";
+  position: absolute;
+  left: var(--tip-arrow-x, 50%);
+  top: 100%;
+  width: 8px;
+  height: 8px;
+  margin: -4px 0 0 -4px;
+  border: solid var(--tip-line);
+  border-width: 0 1px 1px 0;
+  background: var(--tip-bg);
+  transform: rotate(45deg);
+}
+.app-tip[data-side="below"]::after {
+  top: 0;
+  border-width: 1px 0 0 1px;
+}
+.app-tip.rich {
+  padding: 8px 11px 9px;
+}
+.app-tip-title {
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+.app-tip-title + .app-tip-text,
+.app-tip-title + .app-tip-rows {
+  margin-top: 4px;
+}
+.app-tip-text {
+  color: var(--text);
+}
+.app-tip-title ~ .app-tip-text {
+  color: var(--muted);
+}
+.app-tip-rows {
+  display: grid;
+  grid-template-columns: auto auto;
+  gap: 2px 14px;
+  margin: 0;
+}
+.app-tip-rows dt {
+  color: var(--muted);
+}
+.app-tip-rows dd {
+  margin: 0;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+.app-tip-note {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 11px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .app-tip {
+    transition: none;
+    transform: none;
+  }
 }

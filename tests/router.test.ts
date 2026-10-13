@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { formatRoute, parseRoute, writeRoute } from "../src/router";
+import { formatRoute, parseRoute, validRouteDay, writeRoute } from "../src/router";
 
 afterEach(() => {
   window.history.replaceState(null, "", "/");
@@ -29,6 +29,27 @@ describe("hash routes", () => {
       view: "forecast",
       point: { lat: -90, lon: 180 },
     });
+  });
+
+  it("carries a past forecast day as &at= and rejects it anywhere else", () => {
+    const route = {
+      view: "forecast" as const,
+      point: { lat: 52.3, lon: 4.85 },
+      at: "2024-10-12",
+    };
+    expect(formatRoute(route)).toBe("#/forecast?lat=52.300000&lon=4.850000&at=2024-10-12");
+    expect(parseRoute(formatRoute(route))).toEqual(route);
+    for (const hash of [
+      "#/forecast?lat=52&lon=4&at=2024-02-30",
+      "#/forecast?lat=52&lon=4&at=2024-1-2",
+      "#/forecast?lat=52&lon=4&at=",
+      "#/wind-rose?lat=52&lon=4&at=2024-10-12",
+      "#/forecast?lat=52&lon=4&at=2024-10-12&x=1",
+    ]) {
+      expect(parseRoute(hash), hash).toBeNull();
+    }
+    expect(validRouteDay("2024-02-29")).toBe(true);
+    expect(validRouteDay("2023-02-29")).toBe(false);
   });
 
   it("rejects missing, unknown and out-of-bounds coordinates", () => {

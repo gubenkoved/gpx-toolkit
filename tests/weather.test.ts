@@ -129,6 +129,22 @@ describe("grid sampling", () => {
     expect(capped.length).toBe(10);
   });
 
+  it("sampleGridCells covers the cells between two far-apart points (a straight leg)", () => {
+    // Two points 2° apart: every 0.25° ERA5 cell the line crosses is sampled, not just
+    // the two ends.
+    const cells = sampleGridCells(
+      [
+        [52, 4],
+        [54, 6],
+      ],
+      ERA5,
+      100,
+    );
+    expect(cells.length).toBeGreaterThanOrEqual(9);
+    expect(cells[0]).toMatchObject({ lat: 52, lon: 4 });
+    expect(cells.at(-1)).toMatchObject({ lat: 54, lon: 6 });
+  });
+
   it("sampleGridCells collapses a tight cluster to one cell", () => {
     const pts: LatLon[] = [
       [52.5, 13.4],
@@ -453,5 +469,39 @@ describe("forecast model consensus", () => {
     expect(c.hourly.wind_direction_10m[0]).toBe(90);
     const [none] = consensusCellDays([[day(0, 0, 0, 0, true)], [day(1, 0, 0, 0, true)]]);
     expect(none.noData).toBe(true);
+  });
+});
+
+describe("OpenMeteo request deadline", () => {
+  it("aborts a response that never finishes, tries once more, then reports it", async () => {
+    let calls = 0;
+    const stages: string[] = [];
+    // A server that sends nothing (or crawls): only the abort ends the request.
+    const fetchFn = (_url: string, init?: RequestInit): Promise<Response> => {
+      calls++;
+      return new Promise((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () =>
+          reject(new DOMException("aborted", "AbortError")),
+        );
+      });
+    };
+    const om = new OpenMeteo(
+      {
+        fetch: fetchFn as typeof fetch,
+        now: () => Date.now(),
+        sleep: () => Promise.resolve(),
+      },
+      { idleTimeoutMs: 20, totalTimeoutMs: 1000, minSpacingMs: 0 },
+    );
+    await expect(
+      om.fetchWindMulti(
+        ERA5,
+        [{ latIdx: 208, lonIdx: 52, lat: 52, lon: 13 }],
+        ["2026-06-13"],
+        (msg) => stages.push(msg),
+      ),
+    ).rejects.toThrow(/stopped answering/);
+    expect(calls).toBe(2);
+    expect(stages).toContain("The weather service stalled — trying again…");
   });
 });

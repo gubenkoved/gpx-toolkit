@@ -105,6 +105,11 @@ let analyticsArmed = false;
 // name the ride, ring all its sibling segments, and jump to it. Highlights paint on a
 // cheap overlay canvas so the base scatter is never redrawn for hover.
 let chartLayout: ChartLayout = { dots: [] };
+/** Repaint the last scatter at the canvas's current size (no re-analysis). Both
+ *  canvases size their bitmaps when they draw, so any resize — the settings panel
+ *  opening above, the window, the sidebar — must redraw both, or the base scatter is
+ *  stretched while the ring overlay draws at the new size: the rings miss their dots. */
+let redrawChart: (() => void) | null = null;
 let selectedSeg: WindSeg | null = null;
 let hoverSeg: WindSeg | null = null;
 let interactionWired = false;
@@ -486,6 +491,7 @@ function clearChart(): void {
   const ctx = canvas?.getContext("2d");
   if (canvas && ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
   chartLayout = { dots: [] };
+  redrawChart = null;
   clearSegSelection();
 }
 
@@ -788,12 +794,16 @@ async function runAnalyticsView(my: number, _opts: { fit?: boolean } = {}): Prom
   } else {
     showChartMessage(null);
     if (canvas) {
-      chartLayout = drawWindSpeedChart(canvas, shown, reg, {
-        dotColor,
-        xValue,
-        xSigned,
-        xCaption: xSigned ? "← headwind        tailwind →   (km/h)" : "crosswind →   (km/h)",
-      });
+      redrawChart = () => {
+        chartLayout = drawWindSpeedChart(canvas, shown, reg, {
+          dotColor,
+          xValue,
+          xSigned,
+          xCaption: xSigned ? "← headwind        tailwind →   (km/h)" : "crosswind →   (km/h)",
+        });
+        applyDotHighlights();
+      };
+      redrawChart();
       reconcileSegSelection(shown);
       applyDotHighlights();
     }
@@ -918,6 +928,15 @@ function wireChartInteraction(): void {
   const card = document.getElementById("analyticsSelected");
   if (!canvas || !card) return;
   interactionWired = true;
+  if (typeof ResizeObserver === "function") {
+    let last = "";
+    new ResizeObserver(() => {
+      const size = `${canvas.clientWidth}x${canvas.clientHeight}`;
+      if (size === last) return;
+      last = size;
+      if (canvas.clientWidth && canvas.clientHeight) redrawChart?.();
+    }).observe(canvas);
+  }
 
   const at = (
     e: PointerEvent | MouseEvent,
@@ -951,6 +970,12 @@ function wireChartInteraction(): void {
     if (hit) {
       selectedSeg = hit.seg;
       renderSelectedCard(hit.seg);
+      // On a phone the chart fills the screen and the card lands below it, unseen:
+      // bring it up (only when it isn't already in view, so a desktop never jumps).
+      const r = card.getBoundingClientRect();
+      const navH = document.querySelector<HTMLElement>(".bottomnav")?.offsetHeight ?? 0;
+      if (r.bottom > window.innerHeight - navH)
+        card.scrollIntoView({ block: "end", behavior: "smooth" });
     } else {
       clearSegSelection();
     }

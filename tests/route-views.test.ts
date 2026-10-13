@@ -82,6 +82,7 @@ describe("routed view points", () => {
       expect.any(Array),
       expect.any(Number),
       expect.any(AbortSignal),
+      undefined, // live: no archived range
     );
     setForecastRoutePoint({ lat: 51.5072, lon: -0.1276 });
     await vi.waitFor(() => expect(fetchForecast).toHaveBeenCalledTimes(2));

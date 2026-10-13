@@ -21,6 +21,7 @@
  * is by Open-Meteo.com (CC-BY 4.0).
  */
 
+import { deadline, readJson } from "./http";
 import type { LatLon } from "./track";
 
 // --------------------------------------------------------------------------- //
@@ -292,12 +293,26 @@ export function cellBounds(
 export function sampleGridCells(points: LatLon[], dataset: Dataset, cap: number): Cell[] {
   const seen = new Set<string>();
   const cells: Cell[] = [];
-  for (const [lat, lon] of points) {
+  const add = (lat: number, lon: number): void => {
     const c = quantizeCell(lat, lon, dataset);
     const k = `${c.latIdx}:${c.lonIdx}`;
-    if (seen.has(k)) continue;
+    if (seen.has(k)) return;
     seen.add(k);
     cells.push(c);
+  };
+  // Walk each segment at half a grid step, not just its ends: a straight planner leg
+  // is two points 100 km apart, and sampling only those left the cells between them
+  // out (its middle then took the weather from 50 km away).
+  const step = dataset.gridDeg / 2;
+  for (let i = 0; i < points.length; i++) {
+    const [lat, lon] = points[i];
+    if (i > 0) {
+      const [pLat, pLon] = points[i - 1];
+      const n = Math.ceil(Math.max(Math.abs(lat - pLat), Math.abs(lon - pLon)) / step);
+      for (let j = 1; j < n; j++)
+        add(pLat + ((lat - pLat) * j) / n, pLon + ((lon - pLon) * j) / n);
+    }
+    add(lat, lon);
   }
   if (cells.length <= cap) return cells;
   const out: Cell[] = [];
@@ -647,6 +662,12 @@ export interface OpenMeteoOptions {
   baseBackoffMs?: number;
   /** Backoff ceiling (ms). Default 30000. */
   maxBackoffMs?: number;
+  /** An attempt is aborted when no bytes arrive for this long (ms) — the wait for
+   *  the first byte included. Default 45000. Without it a stalled response left the
+   *  caller waiting forever. */
+  idleTimeoutMs?: number;
+  /** …or when it outlives this (ms), however slowly it still streams. Default 180000. */
+  totalTimeoutMs?: number;
 }
 
 /** Raised when Open-Meteo returns an error status we won't retry (e.g. 400). */
@@ -666,6 +687,8 @@ export class OpenMeteo {
   private readonly maxRetries: number;
   private readonly baseBackoffMs: number;
   private readonly maxBackoffMs: number;
+  private readonly idleTimeoutMs: number;
+  private readonly totalTimeoutMs: number;
 
   /** Serializes the rate-limit gate so spacing holds across concurrent callers. */
   private gateChain: Promise<void> = Promise.resolve();
@@ -681,6 +704,8 @@ export class OpenMeteo {
     this.maxRetries = opts.maxRetries ?? 4;
     this.baseBackoffMs = opts.baseBackoffMs ?? 1000;
     this.maxBackoffMs = opts.maxBackoffMs ?? 30_000;
+    this.idleTimeoutMs = opts.idleTimeoutMs ?? 45_000;
+    this.totalTimeoutMs = opts.totalTimeoutMs ?? 180_000;
   }
 
   /**
@@ -698,11 +723,7 @@ export class OpenMeteo {
   ): Promise<CellDayWind[]> {
     if (cells.length === 0 || days.length === 0) return [];
     const url = this.buildUrl(dataset, cells, days, !!opts.weather);
-    const resp = await this.request(url, onStage);
-    if (!resp.ok) {
-      throw new WeatherError(`Open-Meteo responded ${resp.status}`, resp.status);
-    }
-    const json = (await resp.json()) as unknown;
+    const json = await this.requestJson(url, onStage);
     return this.parse(dataset, cells, days, json, !!opts.weather);
   }
 
@@ -790,17 +811,43 @@ export class OpenMeteo {
 
   // -- rate limiting + retry ------------------------------------------------
 
-  private async request(url: string, onStage?: (msg: string) => void): Promise<Response> {
+  /**
+   * GET and parse JSON, retrying 429 / 5xx with backoff. An attempt that stalls (no
+   * bytes for `idleTimeoutMs`) or runs past `totalTimeoutMs` is aborted, tried once
+   * more, then reported — a slow but streaming answer is left to finish.
+   */
+  private async requestJson(url: string, onStage?: (msg: string) => void): Promise<unknown> {
     let attempt = 0;
+    let timeouts = 0;
     for (;;) {
       await this.gate();
-      const resp = await this.deps.fetch(url);
-      if (resp.status !== 429 && resp.status < 500) return resp;
-      attempt++;
-      if (attempt > this.maxRetries) return resp;
-      const wait = this.backoffMs(attempt, resp.headers.get("retry-after"));
-      onStage?.(`Weather API busy — retrying in ${Math.round(wait / 1000)}s…`);
-      await this.deps.sleep(wait);
+      const d = deadline(this.idleTimeoutMs, this.totalTimeoutMs);
+      try {
+        const resp = await this.deps.fetch(url, { signal: d.signal });
+        d.progress();
+        if (resp.status === 429 || resp.status >= 500) {
+          attempt++;
+          if (attempt > this.maxRetries)
+            throw new WeatherError(`Open-Meteo responded ${resp.status}`, resp.status);
+          const wait = this.backoffMs(attempt, resp.headers.get("retry-after"));
+          onStage?.(`Weather API busy — retrying in ${Math.round(wait / 1000)}s…`);
+          await this.deps.sleep(wait);
+          continue;
+        }
+        if (!resp.ok)
+          throw new WeatherError(`Open-Meteo responded ${resp.status}`, resp.status);
+        return await readJson(resp, d);
+      } catch (err) {
+        if (!d.timedOut()) throw err;
+        if (++timeouts > 1)
+          throw new WeatherError(
+            "The weather service stopped answering — it may be overloaded; try again shortly",
+            504,
+          );
+        onStage?.("The weather service stalled — trying again…");
+      } finally {
+        d.dispose();
+      }
     }
   }
 

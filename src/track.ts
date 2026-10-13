@@ -241,6 +241,67 @@ export function movingAverage(values: (number | null)[], radius: number): (numbe
  */
 export const DEFAULT_MOVING_THRESHOLD_KMH = 1;
 
+/**
+ * Elevation change below this (m) is sensor noise, not climbing. Recorded altitude
+ * (GPS or barometric, ~1 Hz) jitters by a metre or two every sample; summing raw
+ * deltas turns that into hundreds of metres of fake climb on a flat ride (Beeline's
+ * own figures read ~5× high). User-tunable (`Settings.elevationNoiseM`).
+ */
+export const DEFAULT_ELEVATION_NOISE_M = 4;
+
+/**
+ * Climb and descent (m) along a recorded elevation series, resilient to sensor noise:
+ *
+ *  1. a running median of 5 removes single-sample spikes (one bad fix would otherwise
+ *     count twice — up and back down);
+ *  2. a hysteresis band of `noiseM`: a rise or fall is counted only once the series has
+ *     moved `noiseM` from the last turning point, and then in full — so a real climb
+ *     keeps its height while jitter around it adds nothing.
+ *
+ * `noiseM` ≤ 0 is the raw sum of deltas (no filtering). Null with fewer than two
+ * known points.
+ */
+export function elevationChange(
+  eles: readonly (number | null)[],
+  noiseM: number = DEFAULT_ELEVATION_NOISE_M,
+): { gain: number; loss: number } | null {
+  const known = eles.filter((e): e is number => e != null && Number.isFinite(e));
+  if (known.length < 2) return null;
+  let gain = 0;
+  let loss = 0;
+  if (noiseM <= 0) {
+    for (let i = 1; i < known.length; i++) {
+      const d = known[i] - known[i - 1];
+      if (d > 0) gain += d;
+      else loss -= d;
+    }
+    return { gain, loss };
+  }
+  const n = known.length;
+  const smooth = new Array<number>(n);
+  const win: number[] = [];
+  for (let i = 0; i < n; i++) {
+    // Symmetric, shrinking at the ends: a one-sided window there would flatten a
+    // track's first and last climb into its neighbours' median.
+    const r = Math.min(2, i, n - 1 - i);
+    win.length = 0;
+    for (let j = i - r; j <= i + r; j++) win.push(known[j]);
+    win.sort((a, b) => a - b);
+    smooth[i] = win[r];
+  }
+  let ref = smooth[0];
+  for (const e of smooth) {
+    if (e - ref >= noiseM) {
+      gain += e - ref;
+      ref = e;
+    } else if (ref - e >= noiseM) {
+      loss += ref - e;
+      ref = e;
+    }
+  }
+  return { gain, loss };
+}
+
 /** Rich, full-track-only stats — what fetching the recorded trace unlocks beyond
  *  the downsampled polyline. Fields are null when the track lacks the inputs. */
 export interface FullTrackSummary {
@@ -276,27 +337,14 @@ export interface FullTrackSummary {
 export function fullTrackSummary(
   ft: FullTrack,
   movingThresholdKmh: number = DEFAULT_MOVING_THRESHOLD_KMH,
+  elevationNoiseM: number = DEFAULT_ELEVATION_NOISE_M,
 ): FullTrackSummary {
   const distanceKm = trackLengthKm(ft.points);
 
-  let gainM: number | null = null;
-  let lossM: number | null = null;
-  if (hasElevation(ft)) {
-    let gain = 0;
-    let loss = 0;
-    let prev: number | null = null;
-    for (const e of ft.eles) {
-      if (e == null) continue;
-      if (prev != null) {
-        const d = e - prev;
-        if (d > 0) gain += d;
-        else loss -= d;
-      }
-      prev = e;
-    }
-    gainM = gain;
-    lossM = loss;
-  }
+  // Noise-filtered (see `elevationChange`): raw deltas overstate climb several-fold.
+  const change = hasElevation(ft) ? elevationChange(ft.eles, elevationNoiseM) : null;
+  const gainM: number | null = change ? change.gain : null;
+  const lossM: number | null = change ? change.loss : null;
 
   let recordedSec: number | null = null;
   let maxKmh: number | null = null;

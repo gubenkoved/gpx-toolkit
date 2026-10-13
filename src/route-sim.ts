@@ -382,6 +382,9 @@ export interface SimResult {
   maxGustKmh: number | null;
   /** Share of riding time in rain (≥ 0.1 mm that hour); null when rain is unknown. */
   wetShare: number | null;
+  /** The rain you'd ride through (mm: each step's mm/h over its riding time); null
+   *  when rain is unknown. Tells a drizzle from a soaking where `wetShare` can't. */
+  rainMm: number | null;
   maxRainMmH: number | null;
   avgTempC: number | null;
   /** Share of the distance with known wind (1 = the whole route). */
@@ -407,6 +410,7 @@ export function simulate(
   let maxGust: number | null = null;
   let wetSec = 0;
   let rainSec = 0;
+  let rainMm = 0;
   let maxRain: number | null = null;
   let tempSum = 0;
   let tempSec = 0;
@@ -432,6 +436,7 @@ export function simulate(
       if (wx.rainMm != null) {
         rainSec += sec;
         if (wx.rainMm >= 0.1) wetSec += sec;
+        rainMm += (wx.rainMm * sec) / 3600;
         maxRain = Math.max(maxRain ?? 0, wx.rainMm);
       }
       if (wx.tempC != null) {
@@ -457,6 +462,7 @@ export function simulate(
     tailShare: dist > 0 ? tailKm / dist : 0,
     maxGustKmh: maxGust,
     wetShare: rainSec > 0 ? wetSec / rainSec : null,
+    rainMm: rainSec > 0 ? rainMm : null,
     maxRainMmH: maxRain,
     avgTempC: tempSec > 0 ? tempSum / tempSec : null,
     coverage: dist > 0 ? knownKm / dist : 0,
@@ -469,6 +475,7 @@ export interface Departure {
   durationSec: number;
   avgAlongKmh: number;
   wetShare: number | null;
+  rainMm: number | null;
   coverage: number;
 }
 
@@ -486,6 +493,7 @@ export function sweepDepartures(
       durationSec: r.durationSec,
       avgAlongKmh: r.avgAlongKmh,
       wetShare: r.wetShare,
+      rainMm: r.rainMm,
       coverage: r.coverage,
     };
   });

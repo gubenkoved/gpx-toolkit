@@ -27,7 +27,7 @@ import {
   type TriState,
 } from "./filter";
 import { rideDatetime } from "./parsing";
-import { collectTags, tagKey } from "./tags";
+import { collectTags, tagColorStyle, tagKey } from "./tags";
 import { cycleThrough, escHtml } from "./ui";
 
 const $ = <T extends HTMLElement = HTMLElement>(sel: string): T =>
@@ -38,6 +38,8 @@ const FILTERS_KEY = "beeline_uploader.filters";
 export interface FilterStateDeps {
   /** The live unified ride list (drives chip gating, tag cloud, date extents). */
   getRides: () => RideView[];
+  /** Tag colours by tag key (palette name or #rrggbb), for the tag options' dots. */
+  tagColors?: () => Readonly<Record<string, string>>;
   /** Re-render the app after a filter mutation (the app's `applyState`). */
   onChange: () => void;
 }
@@ -498,6 +500,8 @@ function renderTagsFilterPopover(allTags: string[], someUntagged: boolean): void
     return;
   }
   const selected = new Set(filters.tags);
+  const colors = deps.tagColors?.() ?? {};
+  const colorDot = (t: string): string => tagColorStyle(colors, t);
   // "Untagged" leads the cloud (italic, to read as a special option, not a real tag).
   const untagged = someUntagged
     ? `<button type="button" class="ftag-opt ftag-special${
@@ -509,7 +513,9 @@ function renderTagsFilterPopover(allTags: string[], someUntagged: boolean): void
       const on = selected.has(tagKey(t));
       return `<button type="button" class="ftag-opt${on ? " on" : ""}" data-ftag-key="${escHtml(
         tagKey(t),
-      )}"><span class="ftag-check"></span><span class="ftag-name">${escHtml(t)}</span></button>`;
+      )}"><span class="ftag-check"></span>${
+        colorDot(t) ? `<span class="tag-dot"${colorDot(t)}></span>` : ""
+      }<span class="ftag-name">${escHtml(t)}</span></button>`;
     })
     .join("");
   const clear =

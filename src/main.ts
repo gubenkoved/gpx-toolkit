@@ -114,6 +114,7 @@ import {
   closeTagModal,
   cycleTagChip,
   initTagModal,
+  openTagColorPicker,
   openTagModal,
   saveTagModal,
 } from "./tag-modal";
@@ -138,14 +139,17 @@ import {
   initConfirm,
   promptDialog,
 } from "./confirm";
+import { autoFold, refold } from "./fold";
 import { OpenMeteoForecastAdapter } from "./forecast";
 import { ForecastStore } from "./forecast-store";
 import {
+  forecastAt,
   forecastPoint,
   initForecastView,
   leaveForecastView,
   mountForecastView,
   resetForecastViewData,
+  setForecastRouteAt,
   setForecastRoutePoint,
 } from "./forecast-view";
 import { GpxRideSource } from "./gpx-source";
@@ -196,6 +200,7 @@ import { initSegSliding } from "./seg";
 import { initShell, lastWeatherView, setViewSubtitle, syncShell } from "./shell";
 import type { SourceFactory } from "./source";
 import { type RideSource, STORAGE_KEY, Store } from "./store";
+import { tagColorStyle } from "./tags";
 import { initTheme } from "./theme";
 import {
   closeTimelineHelp,
@@ -207,8 +212,9 @@ import {
   mountTimelineView,
   resetTimelineData,
 } from "./timeline-view";
+import { initTooltips } from "./tooltip";
 import { decodePolyline } from "./track";
-import { escHtml, initCollapse } from "./ui";
+import { escHtml, initCollapse, trackInputModality } from "./ui";
 import { WindCache } from "./windcache";
 import {
   initWindSpeedView,
@@ -527,12 +533,21 @@ async function goDemoBeeline(): Promise<void> {
   const gpxCache = GpxCache.memory();
   const gpxData = GpxCache.memory();
   const c = new Controller(factory, store, gpxCache, gpxData);
-  c.registerSource(new GpxRideSource(gpxData, () => store.settings.trackPointsPerKm));
+  c.registerSource(
+    new GpxRideSource(
+      gpxData,
+      () => store.settings.trackPointsPerKm,
+      () => store.settings.elevationNoiseM,
+    ),
+  );
   activate(c, true);
   trackEvent("demo");
   try {
     await c.connect();
     toast("Demo (Beeline) — a simulated cloud account. Open Sources to leave.");
+    // Like a real sign-in: pull the history so the demo lands on a populated app (it
+    // used to stop at "connected", on an empty library offering to connect again).
+    c.scan("all", null);
   } catch {
     /* demo connect never fails */
   }
@@ -597,9 +612,23 @@ async function goBeeline(email: string, password: string): Promise<boolean> {
  * the Beeline account (Pull from Beeline, upload) prompts for the password via
  * `withBeelineAccess`.
  */
+/** Set once the cached tracks' climb has been re-derived with the noise filter. */
+const ELEVATION_PASS_KEY = "gpx_toolkit.elevation_filtered_v1";
+
 async function openApp(): Promise<void> {
   const c = await getRealController();
   activate(c, false);
+  // Once, after the noise-filtered climb arrived: rides cached before it still carry
+  // a raw sum of deltas (GPX) or the source's own figure (Beeline, ~5× high). The
+  // GPX caches are loaded by now (getRealController), so "has a cached track" holds.
+  try {
+    if (localStorage.getItem(ELEVATION_PASS_KEY) !== "1") {
+      c.recomputeElevation();
+      localStorage.setItem(ELEVATION_PASS_KEY, "1");
+    }
+  } catch {
+    /* storage blocked: the setting's own recompute covers it later */
+  }
   // Load the location-history catalog in the background; refresh once ready so the
   // Timeline tab and the Data-menu storage breakdown reflect any imported data.
   void ensureLocStore().then(() => {
@@ -658,7 +687,13 @@ async function getRealController(): Promise<Controller> {
     gpxData,
     windCache,
   );
-  c.registerSource(new GpxRideSource(gpxData, () => store.settings.trackPointsPerKm));
+  c.registerSource(
+    new GpxRideSource(
+      gpxData,
+      () => store.settings.trackPointsPerKm,
+      () => store.settings.elevationNoiseM,
+    ),
+  );
   realController = c;
   return c;
 }
@@ -848,6 +883,8 @@ let STATE: AppState = {
     beelineUploadConcurrency: 4,
     movingThresholdKmh: 1,
     suggestTagsAfterImport: true,
+    elevationNoiseM: 4,
+    tagColors: {},
   },
   connected: false,
   device: "",
@@ -946,6 +983,17 @@ function scrollToGroup(selector: string): void {
   el.scrollIntoView({ behavior: far ? "auto" : "smooth", block: "start" });
   settleGroup(el);
 }
+/** The Explore chart head's figures changed: re-fit it (labels fold before it wraps). */
+function refoldChartHead(): void {
+  const head = document.querySelector<HTMLElement>(".sp-head-main");
+  if (head) refold(head);
+}
+
+/** The page's scroller: the document (the viewport scrolls; see style.css html/body). */
+function pageScroller(): HTMLElement {
+  return (document.scrollingElement as HTMLElement | null) ?? document.documentElement;
+}
+
 /** Where a group heading rests after a scroll-to (its scroll-margin-top). */
 const GROUP_LINE = 64;
 let settleTimer: ReturnType<typeof setTimeout> | null = null;
@@ -953,14 +1001,14 @@ function settleGroup(el: HTMLElement): void {
   if (settleTimer) clearTimeout(settleTimer);
   const check = (): void => {
     settleTimer = null;
-    document.body.removeEventListener("scrollend", check);
+    window.removeEventListener("scrollend", check);
     if (!el.isConnected) return;
     const d = el.getBoundingClientRect().top - GROUP_LINE;
-    const atEnd =
-      document.body.scrollTop + document.body.clientHeight >= document.body.scrollHeight - 2;
-    if (Math.abs(d) > 1 && !(atEnd && d < 0)) document.body.scrollTop += d;
+    const page = pageScroller();
+    const atEnd = page.scrollTop + page.clientHeight >= page.scrollHeight - 2;
+    if (Math.abs(d) > 1 && !(atEnd && d < 0)) page.scrollTop += d;
   };
-  document.body.addEventListener("scrollend", check, { once: true });
+  window.addEventListener("scrollend", check, { once: true });
   settleTimer = setTimeout(check, 700); // browsers without scrollend
 }
 
@@ -994,7 +1042,7 @@ function sectionKey(sec: HTMLElement): string | undefined {
 }
 function captureListAnchor(): void {
   if (!exploreVisible()) return;
-  if (document.body.scrollTop <= 0) {
+  if (pageScroller().scrollTop <= 0) {
     listAnchor = null;
     return;
   }
@@ -1012,7 +1060,7 @@ function restoreListAnchor(): void {
   const sec = anchorSections().find((s) => sectionKey(s) === listAnchor?.m);
   if (!sec) return;
   const delta = sec.getBoundingClientRect().top - listAnchor.top;
-  if (Math.abs(delta) >= 1) document.body.scrollTop += delta;
+  if (Math.abs(delta) >= 1) pageScroller().scrollTop += delta;
 }
 
 /** Mark the tree row of the month currently in view, and keep it visible in the
@@ -1035,7 +1083,7 @@ function exploreSpy(): void {
   // it changed, correct every placeholder still waiting.
   if (measureRowHeights()) applyPlaceholderHeights();
   // Scrolled to the very end: the last month can never reach the line, so it wins.
-  const scroller = document.body;
+  const scroller = pageScroller();
   if (scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - 2) {
     cur = secs[secs.length - 1];
   }
@@ -1057,8 +1105,7 @@ function exploreSpy(): void {
   else if (bottom > tree.scrollTop + tree.clientHeight - 8)
     tree.scrollTop = bottom - tree.clientHeight + 8;
 }
-// `<body>` is the page's scroll container (full-height body, hidden horizontal
-// overflow), so its scroll events never reach `window` — listen on both.
+// The page (the viewport) scrolls, so its scroll events reach `window`.
 const onPageScroll = (): void => {
   if (spyRaf) return;
   spyRaf = requestAnimationFrame(() => {
@@ -1067,7 +1114,6 @@ const onPageScroll = (): void => {
   });
 };
 window.addEventListener("scroll", onPageScroll, { passive: true });
-document.body.addEventListener("scroll", onPageScroll, { passive: true });
 const openStats = new Set<string>();
 
 // Which menu is open, if any: a ride key for a per-ride overflow button, or "state"
@@ -1188,8 +1234,11 @@ function rowEl(key: string): HTMLElement | null {
 let lastWeatherSig = "";
 
 const yearOf = (mkey: string): string => (mkey || "").slice(0, 4);
+/** A group checkbox's tri-state: `true` checked, `false` clear, `null` indeterminate. */
 function setChecked(el: HTMLInputElement | null, on: boolean | null): void {
-  if (el) el.indeterminate = on === null;
+  if (!el) return;
+  el.checked = on === true;
+  el.indeterminate = on === null;
 }
 function esc(s: string): string {
   return (s || "").replace(/[^a-zA-Z0-9]/g, "_");
@@ -1255,7 +1304,10 @@ function detailsBlock(r: RideView): string {
 /** The ride's tag pills for its meta line (empty string when untagged). */
 function rideTagsHtml(r: RideView): string {
   if (!r.tags.length) return "";
-  const pills = r.tags.map((t) => `<span class="rtag">${escHtml(t)}</span>`).join("");
+  const colors = STATE.settings.tagColors;
+  const pills = r.tags
+    .map((t) => `<span class="rtag"${tagColorStyle(colors, t)}>${escHtml(t)}</span>`)
+    .join("");
   return `<div class="rtags">${pills}</div>`;
 }
 
@@ -1624,7 +1676,9 @@ function applyView(): void {
 function routeForView(view: ViewName): Route {
   if (view === "forecast") {
     const point = forecastPoint();
-    return { view, point: point && validRoutePoint(point) ? point : undefined };
+    if (!point || !validRoutePoint(point)) return { view };
+    const at = forecastAt();
+    return at ? { view, point, at } : { view, point };
   }
   if (view === "climate") {
     const point = climatePoint();
@@ -1634,14 +1688,19 @@ function routeForView(view: ViewName): Route {
 }
 
 function onRoutedPointChange(view: "forecast" | "climate", point: RoutePoint): void {
-  if (activeView() === view && validRoutePoint(point)) writeRoute({ view, point }, "replace");
+  if (activeView() !== view || !validRoutePoint(point)) return;
+  const at = view === "forecast" ? forecastAt() : null;
+  writeRoute(at ? { view, point, at } : { view, point }, "replace");
 }
 
 /** Apply Back/Forward, pasted links and manual edits to the hash. */
 function applyHashRoute(): void {
   const route = parseRoute(window.location.hash);
   const target = route ?? routeForView(activeView());
-  if (target.view === "forecast") setForecastRoutePoint(target.point ?? null);
+  if (target.view === "forecast") {
+    setForecastRouteAt(target.at ?? null);
+    setForecastRoutePoint(target.point ?? null);
+  }
   if (target.view === "climate") setClimateRoutePoint(target.point ?? null);
   writeRoute(target, "replace"); // normalize invalid routes and coordinate precision
   captureListAnchor(); // where the Explore list was, to land there on return
@@ -1811,8 +1870,11 @@ function fmtStats(r: RideView): string {
   add("Max speed", r.max_speed_kmh, fmtSpeed);
   add("Moving time", r.moving_sec, fmtDurationExact);
   add("Elapsed time", r.elapsed_sec, fmtDurationExact);
-  add("Elevation gain", r.elevation_gain_m, fmtElevation);
-  add("Elevation loss", r.elevation_loss_m, fmtElevation);
+  // A Beeline figure not yet re-derived from the track overstates climb (sensor noise
+  // summed raw): name its origin so it isn't mistaken for the filtered one.
+  const raw = r.source === "beeline" && !r.elevation_from_track ? " (Beeline)" : "";
+  add(`Elevation gain${raw}`, r.elevation_gain_m, fmtElevation);
+  add(`Elevation loss${raw}`, r.elevation_loss_m, fmtElevation);
   return rows
     .map(
       ([k, v]) =>
@@ -1989,6 +2051,7 @@ function renderDistance(
     `<div class="kpi"><b>${fmtKm(totalKm / buckets)}</b><span>avg / ${gran}</span></div>`,
     `<div class="kpi"><b>${(totalKm / rideCount).toFixed(1)} km</b><span>avg / ride</span></div>`,
   ].join("");
+  refoldChartHead();
 
   setChartDensity(items.length);
   $("#chart").innerHTML = items
@@ -2065,6 +2128,7 @@ function renderSpeed(
     `<div class="kpi"><b>${fmtSpeed(fastest)}</b><span>fastest ${gran}</span></div>`,
     `<div class="kpi"><b>${fmtSpeed(slowest)}</b><span>slowest ${gran}</span></div>`,
   ].join("");
+  refoldChartHead();
 
   setChartDensity(items.length);
   $("#chart").innerHTML = items
@@ -2243,7 +2307,24 @@ function render(): void {
 
   // Empty state: distinguish "no rides at all" from "filters hid everything".
   const emptyEl = $("#empty") as HTMLElement;
-  if (allRides.length === 0) {
+  if (allRides.length === 0 && (isDemo || STATE.connected)) {
+    // Connected but nothing downloaded yet: say so, and offer the pull — never
+    // "Connect Beeline" to someone who just did.
+    emptyEl.style.display = "";
+    const who = isDemo ? "the demo account" : STATE.device || "your Beeline account";
+    emptyEl.innerHTML = jobs.current
+      ? `<div class="onb">` +
+        `<h2 class="onb-title">Downloading your rides…</h2>` +
+        `<p class="onb-lede">The history from ${escHtml(who)} is on its way — rides appear here as they arrive.</p>` +
+        `</div>`
+      : `<div class="onb">` +
+        `<h2 class="onb-title">No rides downloaded yet</h2>` +
+        `<p class="onb-lede">Connected to ${escHtml(who)}. Pull its ride history to fill the library.</p>` +
+        `<div class="onb-cta">` +
+        `<button class="primary small" id="emptyPull">${icon("cloudDown")}Pull from Beeline</button>` +
+        `<button class="ghost small" id="emptyAddGpx">${icon("folder")}Add GPX files…</button>` +
+        `</div></div>`;
+  } else if (allRides.length === 0) {
     emptyEl.style.display = ""; // the stylesheet's centred .pane-empty
     // Light onboarding: one line on the model (a library fed by sources), then the
     // two ways in as plain buttons + a demo link. Kept minimal on purpose.
@@ -2428,7 +2509,7 @@ function render(): void {
     ybox.innerHTML = `
       <div class="yhead" data-y="${year}">
         <span class="caret${yOpen ? " open" : ""}" aria-hidden="true"></span>
-        <input type="checkbox" class="selall" data-selyear="${year}" ${ySel === true ? "checked" : ""}>
+        <input type="checkbox" class="selall" data-selyear="${year}">
         <span class="ytitle">${year}</span>
         ${volumeBar(ykm, maxYearKm)}
         <span class="ymeta">${yRides.length} rides · ${fmtKm(ykm)}</span>
@@ -2462,7 +2543,7 @@ function render(): void {
       box.innerHTML = `
         <div class="mhead" data-m="${mkey}">
           <span class="caret${isOpen ? " open" : ""}" aria-hidden="true"></span>
-          <input type="checkbox" class="selall" data-selmonth="${mkey}" ${mSel === true ? "checked" : ""}>
+          <input type="checkbox" class="selall" data-selmonth="${mkey}">
           <span class="mtitle">${m.label}</span>
           ${volumeBar(mkm, maxMonthKm)}
           <span class="mmeta">${m.rides.length} rides · ${fmtKm(mkm)}</span>
@@ -2506,7 +2587,7 @@ function render(): void {
             sec.style.minHeight = "";
             if (above) {
               const d = sec.offsetHeight - h0;
-              if (d) document.body.scrollTop += d;
+              if (d) pageScroller().scrollTop += d;
             }
           });
         }
@@ -2647,16 +2728,20 @@ let lastRowSigs = new Map<string, string>();
 /** Patch the rows whose own fields changed (title, status, cached-GPX badge, meta)
  *  without rebuilding the list. A changed ride whose details block is open falls back
  *  to a full render (the block is bespoke). */
-function applyRowUpdates(): void {
+/** Patch the rows whose own fields changed; true when any ride's fields changed
+ *  (listed or not), so views built from those fields can refresh too. */
+function applyRowUpdates(): boolean {
   const next = rowSigs();
   const multiSource = new Set(STATE.rides.map((r) => r.source)).size > 1;
   let touched = 0;
+  let changed = false;
   for (const r of STATE.rides) {
     if (lastRowSigs.get(r.key) === next.get(r.key)) continue;
+    changed = true;
     if (openStats.has(r.key)) {
       lastRowSigs = next;
       render();
-      return;
+      return true;
     }
     const row = rowEl(r.key);
     if (!row) continue; // not built yet / off the list
@@ -2678,6 +2763,7 @@ function applyRowUpdates(): void {
     if (selected.size) renderSelectionBar(STATE.rides);
     syncFilterBar(STATE.rides);
   }
+  return changed;
 }
 
 /** Signature of just the per-ride wind-resolved state, so a weather-only change can
@@ -2689,7 +2775,8 @@ function weatherSig(): string {
 /** Re-read controller state and re-render if anything visible changed. */
 // A burst of store notifications (a sync upserting hundreds of rides, a job
 // reporting per item) must not render the 2,000-row list once per notification:
-// the state snapshot is taken immediately, the paint is coalesced to one per frame.
+// the snapshot (STATE) and the paint are coalesced to one per frame — so STATE lags a
+// change by a frame: code that must read its own write reads the controller instead.
 let applyRaf = 0;
 function applyState(): void {
   if (applyRaf) return;
@@ -2723,7 +2810,7 @@ function paintState(): void {
     return;
   }
   // A ride's own fields changed (a fetch landed, a status came back) — patch its row.
-  timed("ui:rows", applyRowUpdates);
+  const rowsChanged = timed("ui:rows", applyRowUpdates);
   // Which rides a job touches changes on every item — patch the rings in place.
   const js = jobsSig();
   if (js !== lastJobsSig) {
@@ -2733,10 +2820,16 @@ function paintState(): void {
   // Structure unchanged — apply any weather-only change (a ride resolved its wind) in
   // place, without rebuilding the list (which would remount + flicker the maps).
   const wsig = timed("ui:wsig", weatherSig);
-  if (wsig !== lastWeatherSig) {
+  const weatherChanged = wsig !== lastWeatherSig;
+  if (weatherChanged) {
     lastWeatherSig = wsig;
     timed("ui:weather", applyWeatherUpdate);
   }
+  // Wind vs speed is built from those very fields (wind resolved, full GPX): refresh it
+  // as they land — it used to keep saying "resolve wind" after the job had done so.
+  // Its mount coalesces re-entrant calls, so a job ticking never restarts a sweep.
+  if ((rowsChanged || weatherChanged) && activeView() === "analytics")
+    void mountWindSpeedView();
 }
 
 /** Apply a queued / running change in place: the ring in each affected title and
@@ -2834,6 +2927,7 @@ function applySelectionNow(): void {
   for (const cb of document.querySelectorAll<HTMLInputElement>(".selall[data-selyear]"))
     setChecked(cb, state(byYear.get(cb.dataset.selyear!) ?? []));
   renderSelectionBar(STATE.rides);
+  renderRangePreview();
   lastSig = stateSig(); // the selection is part of the signature — keep it current
 }
 
@@ -3487,6 +3581,10 @@ document.addEventListener("click", (e) => {
     showSources();
     return;
   }
+  if (t.id === "emptyPull") {
+    e.preventDefault();
+    return void pullFromBeeline();
+  }
   if (t.id === "emptyDemo") {
     e.preventDefault();
     hideSources();
@@ -3777,6 +3875,75 @@ document.addEventListener("mousedown", (e) => {
   if (e.shiftKey && (e.target as HTMLElement).closest?.(".rrow")) e.preventDefault();
 });
 
+// -- Shift-range preview -------------------------------------------------------------
+// While Shift is held over a ride, the rows a click would change are marked before the
+// click: tinted with a dashed check where they'd be selected, faded where a click on a
+// selected ride's checkbox would clear them, and the hovered row names the count.
+let rangeHover: { key: string; onChk: boolean } | null = null;
+let rangeShift = false;
+let rangeSig = "";
+function clearRangePreview(): void {
+  rangeSig = "";
+  for (const row of document.querySelectorAll<HTMLElement>(
+    ".rrow.range-add, .rrow.range-remove, .rrow.range-end",
+  )) {
+    row.classList.remove("range-add", "range-remove", "range-end");
+    row.removeAttribute("data-range");
+  }
+}
+function renderRangePreview(): void {
+  const h = rangeHover;
+  if (!rangeShift || !h || !selAnchor || selAnchor === h.key) {
+    if (rangeSig) clearRangePreview();
+    return;
+  }
+  // A checkbox click flips the ride, then spreads its new state: off when it was on.
+  const on = !(h.onChk && selected.has(h.key));
+  const sig = `${selAnchor}|${h.key}|${on}|${selected.size}`;
+  // Same range and still drawn (a full re-render rebuilds the rows): nothing to do.
+  if (sig === rangeSig && document.querySelector(".rrow.range-end")) return;
+  clearRangePreview();
+  const order = listOrderKeys();
+  const i = order.indexOf(selAnchor);
+  const j = order.indexOf(h.key);
+  if (i < 0 || j < 0) return;
+  rangeSig = sig;
+  const keys = new Set(order.slice(Math.min(i, j), Math.max(i, j) + 1));
+  for (const row of document.querySelectorAll<HTMLElement>(".rrow[data-key]")) {
+    if (keys.has(row.dataset.key!)) row.classList.add(on ? "range-add" : "range-remove");
+  }
+  const end = document.querySelector<HTMLElement>(`.rrow[data-key="${CSS.escape(h.key)}"]`);
+  if (end) {
+    end.classList.add("range-end");
+    end.dataset.range = `${on ? "Select" : "Clear"} ${keys.size} ride${keys.size === 1 ? "" : "s"}`;
+  }
+}
+document.addEventListener(
+  "pointermove",
+  (e) => {
+    if (e.pointerType === "touch") return;
+    const target = e.target as HTMLElement;
+    const row = target.closest?.<HTMLElement>(".rrow[data-key]");
+    rangeShift = e.shiftKey;
+    rangeHover = row
+      ? { key: row.dataset.key!, onChk: target.classList.contains("chk") }
+      : null;
+    renderRangePreview();
+  },
+  { passive: true },
+);
+for (const type of ["keydown", "keyup"] as const) {
+  document.addEventListener(type, (e) => {
+    if (e.key !== "Shift") return;
+    rangeShift = type === "keydown";
+    renderRangePreview();
+  });
+}
+window.addEventListener("blur", () => {
+  rangeShift = false;
+  renderRangePreview();
+});
+
 // Explore re-renders when a resize crosses the split breakpoint or moves the chart's
 // Auto granularity (both are part of the render signature, so this is cheap when
 // nothing changed).
@@ -3887,6 +4054,11 @@ document.getElementById("tagModalAdd")?.addEventListener("submit", (e) => {
   addTagModalTag();
 });
 document.getElementById("tagModalChips")?.addEventListener("click", (e) => {
+  const dot = (e.target as HTMLElement).closest<HTMLElement>(".tagmodal-dot");
+  if (dot?.dataset.tagcolor !== undefined) {
+    openTagColorPicker(Number(dot.dataset.tagcolor), dot);
+    return;
+  }
   const chip = (e.target as HTMLElement).closest<HTMLElement>(".tagmodal-chip");
   if (chip?.dataset.tagidx !== undefined) cycleTagChip(Number(chip.dataset.tagidx));
 });
@@ -4030,6 +4202,12 @@ document.addEventListener("input", (e) => {
     renderSegmentDemo();
     return;
   }
+  if (el.id === "setElevNoise") {
+    // Live label only; the recompute (a pass over every cached track) runs on release.
+    const v = Number(el.value);
+    ($("#setElevNoiseOut") as HTMLOutputElement).value = v ? `${v} m` : "off";
+    return;
+  }
   if (el.id === "setMovingThresh") {
     // Cheap live label only — persisting (whole-blob save) + re-rendering on every
     // drag tick made the slider crawl. The actual setting is committed once on
@@ -4071,6 +4249,11 @@ document.addEventListener("change", (e) => {
   }
   if (el.id === "setSuggestTags") {
     run(() => controller.setSuggestTagsAfterImport(el.checked));
+    return;
+  }
+  if (el.id === "setElevNoise") {
+    const v = Number(el.value);
+    run(() => controller.setElevationNoise(Number.isFinite(v) ? v : 4));
     return;
   }
   if (el.id !== "setMovingThresh") return;
@@ -4135,11 +4318,19 @@ initRangeView({
 });
 
 initJobsView({ getJobs: () => STATE.jobs, toast });
-initFilterState({ getRides: () => STATE.rides, onChange: applyState });
+initFilterState({
+  getRides: () => STATE.rides,
+  onChange: applyState,
+  tagColors: () => STATE.settings.tagColors,
+});
 initExploreView({ getRides: () => STATE.rides });
 initTagModal({
   getRides: () => STATE.rides,
   setRideTags: (uids, tagsFor) => controller.setRideTags(uids, tagsFor),
+  // Live from the controller, not the STATE snapshot: that is refreshed on the next
+  // frame, so the dialog re-rendering right after a pick read the old colour.
+  tagColors: () => controller.tagColors(),
+  setTagColor: (key, color) => controller.setTagColor(key, color),
 });
 initSourcesView({
   getState: () => STATE,
@@ -4327,7 +4518,10 @@ showVersion();
 const initialRoute = parseRoute(window.location.hash);
 if (initialRoute) {
   setActiveView(initialRoute.view);
-  if (initialRoute.view === "forecast") setForecastRoutePoint(initialRoute.point ?? null);
+  if (initialRoute.view === "forecast") {
+    setForecastRouteAt(initialRoute.at ?? null);
+    setForecastRoutePoint(initialRoute.point ?? null);
+  }
   if (initialRoute.view === "climate") setClimateRoutePoint(initialRoute.point ?? null);
   writeRoute(initialRoute, "replace");
 } else {
@@ -4335,6 +4529,11 @@ if (initialRoute) {
 }
 window.addEventListener("hashchange", applyHashRoute);
 decorateIcons();
+initTooltips();
+trackInputModality();
+// Explore's chart head: Distance / Speed fold to their icons, then the secondary
+// figures go, before the row breaks in two (style.css `.sp-head-main.fold-*`).
+autoFold(document.querySelector<HTMLElement>(".sp-head-main"), 2);
 initTheme();
 initShell();
 initSegSliding();

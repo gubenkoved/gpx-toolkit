@@ -42,10 +42,12 @@ import {
 } from "./store";
 import {
   decodePolyline,
+  elevationChange,
   encodedTrackToGpx,
   extractFullTrack,
   type FullTrack,
   gpxToRoughTrack,
+  hasElevation,
   hasTimes,
   type LatLon,
 } from "./track";
@@ -149,6 +151,9 @@ function fillTimes(times: (number | null)[]): number[] {
 
 export interface RideView extends RideMetrics {
   key: string;
+  /** Elevation gain/loss were derived (noise-filtered) from the recorded track, not
+   *  taken from the source's own figure. */
+  elevation_from_track?: boolean;
   /** The bare datetime portion of `key` (for date/month labels). `key` is the
    *  cross-source uid `${source}::${datetime}`; this is the parseable datetime. */
   date_key: string;
@@ -457,6 +462,7 @@ export class Controller {
     if (rough.polyline) {
       this.store.upsert(uid, {
         ...this.deviceFieldsFor(kind as SourceKind),
+        ...this.elevationFields(track),
         track: rough.polyline,
         track_src_points: rough.srcPoints,
         track_points: rough.keptPoints,
@@ -1242,6 +1248,7 @@ export class Controller {
         max_speed_kmh: r.max_speed_kmh,
         elevation_gain_m: r.elevation_gain_m,
         elevation_loss_m: r.elevation_loss_m,
+        elevation_from_track: r.elevation_src === "track",
         device_model: r.device_model,
         source: r.source,
         can_upload: this.canUpload(r.source),
@@ -1283,6 +1290,8 @@ export class Controller {
     else if (task.kind === "rename") await this.doRename(task, report);
     else if (task.kind === "delete") await this.doDelete(task, report);
     else if (task.kind === "fetch-weather") await this.doFetchWeather(task, report);
+    else if (task.kind === "recompute-elevation")
+      await this.doRecomputeElevation(task, report);
   }
 
   private async doScan(task: Task, report: Report): Promise<void> {
@@ -1578,12 +1587,11 @@ export class Controller {
             // Keep only a rough, compressed sketch of the route in the cache — never the
             // full GPX. In full mode we ALSO parse the real track into the in-memory
             // session cache so the ride's map can use its real time + elevation at once.
+            let parsed: FullTrack | null = null;
             if (mode === "full") {
               try {
-                this.fullTracks.set(
-                  uid,
-                  extractFullTrack(new TextDecoder().decode(file.bytes)),
-                );
+                parsed = extractFullTrack(new TextDecoder().decode(file.bytes));
+                this.fullTracks.set(uid, parsed);
               } catch {
                 // A malformed GPX shouldn't sink the download; the rough sketch below
                 // still drives the display map.
@@ -1603,6 +1611,7 @@ export class Controller {
             if (rough.polyline) {
               this.store.upsert(uid, {
                 ...this.deviceFieldsFor(kind),
+                ...(parsed ? this.elevationFields(parsed) : {}),
                 track: rough.polyline,
                 track_src_points: rough.srcPoints,
                 track_points: rough.keptPoints,
@@ -1927,6 +1936,83 @@ export class Controller {
       title: place ? `${base}, ${place}` : base,
     });
     this.store.save();
+    this.notify();
+  }
+
+  /** Noise-filtered climb from a recorded track, marked as the ride's own figure (it
+   *  then outranks a source's): none when the track carries no elevation. */
+  private elevationFields(ft: FullTrack): UpsertFields {
+    if (!hasElevation(ft)) return {};
+    const c = elevationChange(ft.eles, this.store.settings.elevationNoiseM);
+    return c
+      ? { elevation_gain_m: c.gain, elevation_loss_m: c.loss, elevation_src: "track" }
+      : {};
+  }
+
+  /**
+   * Set the elevation noise band (m) and re-derive every cached track's climb with it,
+   * as a queued pass. Returns the clamped value.
+   */
+  setElevationNoise(m: number): number {
+    const v = this.store.setElevationNoise(m);
+    this.recomputeElevation();
+    this.notify();
+    return v;
+  }
+
+  /** Re-derive climb (gain/loss) for every ride whose full track is cached locally. */
+  recomputeElevation(): TaskSnapshotResult | null {
+    // By uid (the store's and caches' key) — a record's own `key` is its datetime.
+    const uids = [...this.store.rides.entries()]
+      .filter(([uid, r]) => !r.deleted && this.blobFor(uid).has(uid))
+      .map(([uid]) => uid);
+    if (!uids.length) return null;
+    return this.jobs.submit("recompute-elevation", {
+      label: `${uids.length} ride${uids.length === 1 ? "" : "s"}`,
+      keys: uids,
+    });
+  }
+
+  private async doRecomputeElevation(task: Task, report: Report): Promise<void> {
+    task.progress = { done: 0, total: task.keys.length };
+    let since = 0;
+    for (const uid of task.keys) {
+      if (report(`Recomputing elevation for ${this.uidLabel(uid)}…`)) break;
+      try {
+        // Parse straight from the cache, not via the session map: a pass over the
+        // whole library must not keep two thousand parsed tracks in memory.
+        const ft =
+          this.fullTracks.get(uid) ??
+          (await this.blobFor(uid)
+            .get(uid)
+            .then((b) => (b ? extractFullTrack(new TextDecoder().decode(b)) : null)));
+        if (ft && this.store.rides.has(uid)) {
+          const fields = this.elevationFields(ft);
+          if (fields.elevation_src) this.store.upsert(uid, fields);
+        }
+      } catch {
+        /* a corrupt cached GPX keeps its figure */
+      }
+      if (task.progress) task.progress.done++;
+      if (++since >= 25) {
+        since = 0;
+        this.store.save();
+        this.notify();
+        await new Promise((r) => setTimeout(r, 0)); // keep the page responsive
+      }
+    }
+    this.store.save();
+    this.notify();
+  }
+
+  /** The tag colours as stored right now (the UI's `STATE` snapshot lags a frame). */
+  tagColors(): Readonly<Record<string, string>> {
+    return this.store.settings.tagColors;
+  }
+
+  /** Set (or with null, clear) a tag's colour (a palette name or #rrggbb). */
+  setTagColor(tagKey: string, color: string | null): void {
+    this.store.setTagColor(tagKey, color);
     this.notify();
   }
 

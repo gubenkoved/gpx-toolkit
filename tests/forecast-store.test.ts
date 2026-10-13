@@ -182,6 +182,33 @@ describe("ForecastStore", () => {
     expect((await restored.getForecast(entry().point, "ecmwf_ifs"))?.noData).toBe(true);
   });
 
+  it("keeps a past day's runs apart from the live entry and past their end", async () => {
+    const backend = memoryBlobBackend();
+    const store = await ForecastStore.load(backend);
+    const live = entry(Date.now());
+    const day = Date.UTC(2024, 9, 12);
+    const archived = {
+      ...entry(Date.now()),
+      times: [day, day + 3_600_000],
+      windSpeedKmh: [3, 4],
+      freshUntil: Number.MAX_SAFE_INTEGER,
+    };
+    await store.putForecast(live);
+    await store.putForecast(archived, "2024-10-12");
+    expect(forecastCacheKey(live.point, live.modelId, "2024-10-12")).toBe(
+      `${forecastCacheKey(live.point, live.modelId)}@2024-10-12`,
+    );
+
+    // Startup pruning drops entries that ended over an hour ago — never a past day's.
+    const restored = await ForecastStore.load(backend);
+    expect((await restored.getForecast(live.point, live.modelId))?.windSpeedKmh).toEqual([
+      10, 11,
+    ]);
+    expect(
+      (await restored.getForecast(live.point, live.modelId, "2024-10-12"))?.windSpeedKmh,
+    ).toEqual([3, 4]);
+  });
+
   it("discards corrupt cached payloads and their catalog entries", async () => {
     const backend = memoryBlobBackend();
     const store = await ForecastStore.load(backend);

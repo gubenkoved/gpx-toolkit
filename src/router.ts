@@ -8,6 +8,15 @@ export interface RoutePoint {
 export interface Route {
   view: ViewName;
   point?: RoutePoint;
+  /** Forecast only: a past day (`YYYY-MM-DD`) whose archived runs replace "now". */
+  at?: string;
+}
+
+/** A real calendar day as `YYYY-MM-DD` (no time, no zone). */
+export function validRouteDay(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const d = new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === value;
 }
 
 const pathToView: Record<string, ViewName> = {
@@ -62,19 +71,24 @@ export function parseRoute(hash: string): Route | null {
   if (query === undefined || query === "") return { view };
   if (view !== "forecast" && view !== "climate") return null;
   const params = new URLSearchParams(query);
-  if (params.size !== 2 || !params.has("lat") || !params.has("lon")) return null;
+  const at = params.get("at");
+  if (at != null && (view !== "forecast" || !validRouteDay(at))) return null;
+  if (params.size !== (at == null ? 2 : 3) || !params.has("lat") || !params.has("lon"))
+    return null;
   const latText = params.get("lat")!;
   const lonText = params.get("lon")!;
   if (!latText.trim() || !lonText.trim()) return null;
   const point = { lat: Number(latText), lon: Number(lonText) };
-  return validRoutePoint(point) ? { view, point } : null;
+  if (!validRoutePoint(point)) return null;
+  return at == null ? { view, point } : { view, point, at };
 }
 
 export function formatRoute(route: Route): string {
   const hash = `#/${viewToPath[route.view]}`;
   if (!route.point || (route.view !== "forecast" && route.view !== "climate")) return hash;
   if (!validRoutePoint(route.point)) throw new RangeError("Invalid route point");
-  return `${hash}?lat=${route.point.lat.toFixed(6)}&lon=${route.point.lon.toFixed(6)}`;
+  const at = route.view === "forecast" && route.at ? `&at=${route.at}` : "";
+  return `${hash}?lat=${route.point.lat.toFixed(6)}&lon=${route.point.lon.toFixed(6)}${at}`;
 }
 
 export function writeRoute(route: Route, mode: "push" | "replace"): void {

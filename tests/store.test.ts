@@ -406,3 +406,37 @@ describe("Store", () => {
     expect(s.remove(rideUid("beeline", "missing"))).toBe(false);
   });
 });
+
+describe("elevation from the track, and tag colours", () => {
+  it("keeps the track's noise-filtered climb over a source's figure on re-sync", async () => {
+    const s = await Store.load(memoryBackend(new Map()));
+    const uid = rideUid("beeline", "2026-10-12T19:08");
+    s.upsert(uid, { elevation_gain_m: 350, elevation_loss_m: 340 }); // Beeline's figure
+    s.upsert(uid, { elevation_gain_m: 70, elevation_loss_m: 68, elevation_src: "track" });
+    s.upsert(uid, { elevation_gain_m: 352, elevation_loss_m: 341 }); // a later re-sync
+    const rec = s.rides.get(uid)!;
+    expect(rec.elevation_gain_m).toBe(70);
+    expect(rec.elevation_loss_m).toBe(68);
+    expect(rec.elevation_src).toBe("track");
+    // A re-derivation with another noise band still updates it.
+    s.upsert(uid, { elevation_gain_m: 62, elevation_loss_m: 60, elevation_src: "track" });
+    expect(s.rides.get(uid)!.elevation_gain_m).toBe(62);
+  });
+
+  it("clamps the noise band and keeps only well-formed tag colours", async () => {
+    const backend = memoryBackend(new Map());
+    const s = await Store.load(backend);
+    expect(s.settings.elevationNoiseM).toBe(4);
+    expect(s.setElevationNoise(99)).toBe(15);
+    expect(s.setElevationNoise(2.3)).toBe(2.5);
+    s.setTagColor("commute", "blue");
+    s.setTagColor("race", "#FF00AA");
+    s.setTagColor("bad", "javascript:alert(1)");
+    expect(s.settings.tagColors).toEqual({ commute: "blue", race: "#ff00aa" });
+    s.setTagColor("commute", null);
+    await s.flush?.();
+    const reloaded = await Store.load(backend);
+    expect(reloaded.settings.tagColors).toEqual({ race: "#ff00aa" });
+    expect(reloaded.settings.elevationNoiseM).toBe(2.5);
+  });
+});

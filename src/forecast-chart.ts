@@ -30,6 +30,14 @@ export interface ForecastChartOptions {
   modelLabels?: ReadonlyMap<string, string>;
   showModelTracks?: boolean;
   cursorDetails?: "inline" | "external";
+  /** Dashed time markers; defaults to one "now" at the current moment. A past date
+   *  anchors its own marker (labelled with the date) instead. */
+  markers?: readonly ForecastChartMarker[];
+}
+
+export interface ForecastChartMarker {
+  ms: number;
+  label: string;
 }
 
 export type ForecastChartLane = "wind" | "direction" | "rain" | "temp" | "pressure";
@@ -50,6 +58,9 @@ const HOUR_MS = 3_600_000;
 const PLOT_LEFT = 70;
 const GUTTER = 12;
 const PLOT_RIGHT = 12;
+/** The y-axis gutter (units + ticks) and the time header band, for sticky copies. */
+export const FORECAST_PLOT_LEFT = PLOT_LEFT;
+export const FORECAST_AXIS_HEADER = 20;
 
 export function speedUnitLabel(unit: ForecastSpeedUnit): string {
   if (unit === "ms") return "m/s";
@@ -610,6 +621,7 @@ function drawNowLine(
   top: number,
   bottom: number,
   color: string,
+  label = "now",
 ): void {
   const xs = Math.round(x);
   ctx.save();
@@ -622,7 +634,6 @@ function drawNowLine(
   ctx.stroke();
   ctx.setLineDash([]);
   ctx.font = "600 10px system-ui, -apple-system, 'Segoe UI', sans-serif";
-  const label = "now";
   const tw = ctx.measureText(label).width;
   const w = tw + 10;
   const h = 15;
@@ -632,11 +643,28 @@ function drawNowLine(
   ctx.beginPath();
   ctx.roundRect(rx, ry, w, h, 4);
   ctx.fill();
-  ctx.fillStyle = "#fff";
+  // Dark ink on the bright dark-theme tag, white on the deeper light-theme one.
+  ctx.fillStyle = css("--fc-now-ink", "#1a0e06");
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   ctx.fillText(label, xs, ry + h / 2 + 0.5);
   ctx.restore();
+}
+
+/** Every marker inside the timeline (see `ForecastChartOptions.markers`). */
+function drawMarkers(
+  ctx: CanvasRenderingContext2D,
+  markers: readonly ForecastChartMarker[] | undefined,
+  timeline: { startMs: number; endMs: number },
+  xAtTime: (ms: number) => number,
+  top: number,
+  bottom: number,
+  color: string,
+): void {
+  for (const marker of markers ?? [{ ms: Date.now(), label: "now" }]) {
+    if (marker.ms < timeline.startMs || marker.ms > timeline.endMs) continue;
+    drawNowLine(ctx, xAtTime(marker.ms), top, bottom, color, marker.label);
+  }
 }
 
 /** Lane caption drawn inside the plot's top-left corner ("WIND", "RAIN"…), so a
@@ -941,9 +969,8 @@ export function drawForecastRow(
     ctx.stroke();
   }
 
-  const now = Date.now();
-  if (n > 1 && now >= timeline.startMs && now <= timeline.endMs) {
-    drawNowLine(ctx, xAtTime(now), layout.top, layout.bottom, th.now);
+  if (n > 1) {
+    drawMarkers(ctx, options.markers, timeline, xAtTime, layout.top, layout.bottom, th.now);
   }
 
   if (selectedTimeMs != null) {
@@ -1706,10 +1733,7 @@ export function drawForecastComparison(
     }
   }
 
-  const now = Date.now();
-  if (now >= timeline.startMs && now <= timeline.endMs) {
-    drawNowLine(ctx, xAtTime(now), layout.top, layout.bottom, th.now);
-  }
+  drawMarkers(ctx, options.markers, timeline, xAtTime, layout.top, layout.bottom, th.now);
 
   if (selectedTimeMs == null) return;
   const selectedX = xAtTime(selectedTimeMs);

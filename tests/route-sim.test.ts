@@ -47,6 +47,18 @@ describe("route simulation", () => {
     const tail = simulate(c, T0, MODEL, steady(180, 10));
     expect(tail.avgSpeedKmh).toBeCloseTo(22, 6);
     expect(tail.wetShare).toBe(0);
+    expect(tail.rainMm).toBe(0);
+    expect(calm.rainMm).toBeNull();
+    // 2 mm/h all the way: the rain ridden through is 2 mm per hour in the saddle.
+    const wet = simulate(c, T0, MODEL, () => ({
+      fromDeg: 0,
+      speedKmh: 0,
+      gustKmh: 0,
+      rainMm: 2,
+      tempC: 12,
+    }));
+    expect(wet.wetShare).toBe(1);
+    expect(wet.rainMm).toBeCloseTo((2 * wet.durationSec) / 3600, 6);
     expect(tail.avgTempC).toBeCloseTo(12, 6);
     expect(tail.endMs).toBeCloseTo(T0 + tail.durationSec * 1000, 0);
   });

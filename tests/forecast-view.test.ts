@@ -7,6 +7,8 @@ import {
   leaveForecastView,
   mountForecastView,
   resetForecastViewData,
+  setForecastRouteAt,
+  forecastAt as viewAt,
 } from "../src/forecast-view";
 import { memoryBlobBackend } from "../src/kv";
 
@@ -18,6 +20,7 @@ vi.mock("../src/tz", () => ({
   browserZone: () => "UTC",
   loadTz: async () => {},
   zoneForPoint: () => "UTC",
+  zonedMidnight: (day: string) => Date.parse(`${day}T00:00:00Z`),
 }));
 vi.mock("../src/forecast-chart", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/forecast-chart")>();
@@ -322,6 +325,75 @@ describe("forecast presentation view", () => {
     await vi.waitFor(() => expect(fetchForecast).toHaveBeenCalledTimes(1));
     expect(fetchForecast.mock.calls[0][1]).toEqual([model.id]);
     expect(document.getElementById("forecastFetchedAt")?.textContent).toBe("Updated just now");
+  });
+
+  it("shows a settled past day from the archive once, with no refresh or age", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(NOW);
+    vi.spyOn(window.navigator, "onLine", "get").mockReturnValue(true);
+    forecastTimerMarkup();
+
+    const store = await ForecastStore.load(memoryBlobBackend());
+    const point = { lat: 52.37, lon: 4.9, label: "Amsterdam" };
+    await store.setPrefs({ lastPoint: point });
+    // A live entry exists — the past day must neither read nor overwrite it.
+    await store.putForecast(forecastAt(model, point, NOW - 5 * 60_000));
+    const day = Date.parse("2024-10-12T00:00:00Z");
+    const fetchForecast = vi.fn(
+      async (
+        requestedPoint: typeof point,
+        ids: string[],
+        requestedHours: number,
+        _signal?: AbortSignal,
+        range?: { startMs: number; endMs: number },
+      ) => ({
+        point: requestedPoint,
+        forecasts: ids.map(() => ({
+          ...forecastAt(model, point, Date.now(), requestedHours),
+          times: Array.from({ length: 96 }, (_, i) => (range?.startMs ?? 0) + i * HOUR),
+          freshUntil: Number.MAX_SAFE_INTEGER,
+        })),
+      }),
+    );
+    const onPointChange = vi.fn();
+    initForecastView({
+      provider: {
+        id: "test",
+        models: [model],
+        searchLocations: async () => [],
+        fetchForecast,
+      },
+      ensureStore: async () => store,
+      toast: vi.fn(),
+      esc: (value) => value,
+      onPointChange,
+    });
+    setForecastRouteAt("2024-10-12");
+    await mountForecastView();
+
+    await vi.waitFor(() => expect(fetchForecast).toHaveBeenCalledTimes(1));
+    expect(fetchForecast.mock.calls[0][4]).toEqual({
+      startMs: day - 24 * HOUR,
+      endMs: day + 72 * HOUR,
+    });
+    expect(viewAt()).toBe("2024-10-12");
+    expect(document.getElementById("forecastFetchedAt")?.hidden).toBe(true);
+    expect(document.getElementById("forecastRefresh")?.hidden).toBe(true);
+    expect(document.getElementById("forecastStatus")?.textContent).toBe("Past runs · 1 model");
+    // Cached under its own key: the live entry is untouched.
+    expect((await store.getForecast(point, model.id))?.fetchedAt).toBe(NOW - 5 * 60_000);
+    expect(await store.getForecast(point, model.id, "2024-10-12")).not.toBeNull();
+
+    // Hours pass: a settled day is final — nothing is re-fetched.
+    await vi.advanceTimersByTimeAsync(3 * HOUR);
+    expect(fetchForecast).toHaveBeenCalledTimes(1);
+
+    // Back to now: the live forecast and its age return.
+    setForecastRouteAt(null);
+    expect(viewAt()).toBeNull();
+    await vi.waitFor(() => expect(fetchForecast).toHaveBeenCalledTimes(2));
+    expect(fetchForecast.mock.calls[1][4]).toBeUndefined();
+    expect(document.getElementById("forecastRefresh")?.hidden).toBe(false);
   });
 
   it("refreshes only stale models and keeps the oldest remaining age visible", async () => {

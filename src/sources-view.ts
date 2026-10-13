@@ -80,6 +80,14 @@ export function showSettings(): void {
   if (slider) setSliderFill(slider);
   const out = document.getElementById("setMovingThreshOut") as HTMLOutputElement | null;
   if (out) out.value = `${thresh} km/h`;
+  const noise = deps.getState().settings.elevationNoiseM;
+  const noiseSlider = document.getElementById("setElevNoise") as HTMLInputElement | null;
+  if (noiseSlider) {
+    noiseSlider.value = String(noise);
+    setSliderFill(noiseSlider);
+  }
+  const noiseOut = document.getElementById("setElevNoiseOut") as HTMLOutputElement | null;
+  if (noiseOut) noiseOut.value = noise ? `${noise} m` : "off";
   const suggestTags = document.getElementById("setSuggestTags") as HTMLInputElement | null;
   if (suggestTags) suggestTags.checked = deps.getState().settings.suggestTagsAfterImport;
   modal.classList.remove("hidden");

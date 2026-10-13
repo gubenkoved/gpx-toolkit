@@ -7,6 +7,7 @@ import {
   localTime,
   offsetMinutes,
   zoneCity,
+  zonedMidnight,
   zoneForPoint,
 } from "../src/tz";
 
@@ -40,6 +41,18 @@ describe("tz — local wall-clock from an instant + zone", () => {
 
   it("falls back to the browser zone for an empty IANA name", () => {
     expect(localTime(SUMMER, "").key).toBe(localTime(SUMMER, browserZone()).key);
+  });
+});
+
+describe("tz — a calendar day's start in a zone", () => {
+  it("lands on local midnight, DST switches included", () => {
+    expect(zonedMidnight("2024-10-12", "Europe/Amsterdam")).toBe(Date.UTC(2024, 9, 11, 22));
+    expect(zonedMidnight("2024-01-15", "Europe/Amsterdam")).toBe(Date.UTC(2024, 0, 14, 23));
+    // The day clocks go back (27 Oct 2024) and forward (31 Mar 2024) still starts at 00:00.
+    expect(zonedMidnight("2024-10-27", "Europe/Amsterdam")).toBe(Date.UTC(2024, 9, 26, 22));
+    expect(zonedMidnight("2024-03-31", "Europe/Amsterdam")).toBe(Date.UTC(2024, 2, 30, 23));
+    expect(zonedMidnight("2024-10-12", "America/New_York")).toBe(Date.UTC(2024, 9, 12, 4));
+    expect(zonedMidnight("2024-10-12", "UTC")).toBe(Date.UTC(2024, 9, 12));
   });
 });
 

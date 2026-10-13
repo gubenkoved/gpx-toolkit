@@ -1,6 +1,8 @@
 /** Map/search-driven live forecast comparison view. */
 
 import L from "leaflet";
+import { closeDatePicker, openDatePicker } from "./datepicker";
+import { autoFold, refold } from "./fold";
 import {
   DEFAULT_FORECAST_METRICS,
   FORECAST_HISTORY_HOURS,
@@ -12,6 +14,7 @@ import {
   type ForecastPresentation,
   type ForecastProviderAdapter,
   type ForecastSpeedUnit,
+  forecastWindow,
   type HourlyForecast,
   type LocationResult,
   mergeForecastHistory,
@@ -25,6 +28,8 @@ import {
   convertWindSpeed,
   drawForecastComparison,
   drawForecastRow,
+  FORECAST_AXIS_HEADER,
+  FORECAST_PLOT_LEFT,
   type ForecastChartLane,
   type ForecastChartOptions,
   type ForecastComparisonDetails,
@@ -45,8 +50,8 @@ import { WeatherFx, type WeatherSnapshot } from "./forecast-fx";
 import type { ForecastStore } from "./forecast-store";
 import { icon } from "./icons";
 import { createInteractiveMap, createLocationPointIcon } from "./map-core";
-import { type RoutePoint, sameRoutePoint } from "./router";
-import { browserZone, loadTz, zoneForPoint } from "./tz";
+import { type RoutePoint, sameRoutePoint, validRouteDay } from "./router";
+import { browserZone, loadTz, zonedMidnight, zoneForPoint } from "./tz";
 
 export interface ForecastViewDeps {
   provider: ForecastProviderAdapter;
@@ -62,6 +67,9 @@ let map: L.Map | null = null;
 let marker: L.Marker | null = null;
 let point: ForecastPoint | null = null;
 let days: 1 | 3 | 7 | 10 | 15 = 3;
+/** A past day (`YYYY-MM-DD`, the point's calendar) whose archived runs replace "now";
+ *  null is live. Session state carried in the URL (`&at=`), never saved in prefs. */
+let atDay: string | null = null;
 let selectedModels: string[] | null = null;
 let hiddenCompareModels = new Set<string>();
 let compareStyle: ForecastCompareStyle = "consensus";
@@ -120,6 +128,19 @@ const SPLIT_MIN = 320;
 const SPLIT_STEP = 24;
 /** The chart pane never drops below this, whatever the saved split says. */
 const CHART_PANE_MIN = 640;
+/** The model legend's list unfolded (persisted once toggled). Until then it follows
+ *  the width: open on a desktop, folded on a phone where it would push the chart down. */
+const MODELS_OPEN_KEY = "gpx_toolkit.forecast_models_open";
+
+function readModelsOpen(): boolean {
+  try {
+    const saved = localStorage.getItem(MODELS_OPEN_KEY);
+    if (saved != null) return saved === "1";
+  } catch {
+    /* storage blocked: fall back to the width default */
+  }
+  return !window.matchMedia?.("(max-width: 560px)").matches;
+}
 
 function readMapCollapsed(): boolean {
   try {
@@ -174,6 +195,9 @@ function rawPoint(lat: number, lon: number, label?: string): ForecastPoint {
 }
 
 export function initForecastView(d: ForecastViewDeps): void {
+  // Labels fold before the toolbar wraps: "Updated …", then Presentation → icons,
+  // then "Past day" → its calendar (style.css `.fc-option-row.fold-*`).
+  autoFold(document.querySelector<HTMLElement>(".fc-option-row"), 3);
   deps = d;
   if (wired) return;
   wired = true;
@@ -224,6 +248,7 @@ export function initForecastView(d: ForecastViewDeps): void {
     renderReadout();
   });
   $("forecastCharts")?.addEventListener("keydown", onChartKeydown);
+  $("forecastCharts")?.addEventListener("scroll", updateAxisDays, { passive: true });
   const detailSheet = $("forecastCompareDetail");
   detailSheet?.addEventListener("pointerdown", onDetailResizeStart);
   detailSheet?.addEventListener("pointermove", onDetailResizeMove);
@@ -293,6 +318,7 @@ export async function mountForecastView(): Promise<void> {
 
 export function leaveForecastView(): void {
   fx.set(null);
+  closeDatePicker();
   mounted = false;
   ready = false;
   stopForecastTimers();
@@ -337,6 +363,21 @@ export function setForecastRoutePoint(next: RoutePoint | null): void {
 
 export function forecastPoint(): RoutePoint | null {
   return point;
+}
+
+/** The past day being shown (`YYYY-MM-DD`), or null when live. */
+export function forecastAt(): string | null {
+  return atDay;
+}
+
+/** A route's `&at=` wins like its point does; a malformed or future day means live. */
+export function setForecastRouteAt(next: string | null): void {
+  const day = next && validRouteDay(next) && next < todayInZone() ? next : null;
+  if (!ready) {
+    atDay = day;
+    return;
+  }
+  setAtDay(day);
 }
 
 function setForecastSettingsOpen(open: boolean, restoreFocus = true): void {
@@ -385,6 +426,7 @@ export function resetForecastViewData(fullReset = false): void {
   searching = false;
   if (fullReset) {
     routePoint = null;
+    atDay = null;
     selectionToken += 1;
     loadToken += 1;
     loadAbort?.abort();
@@ -489,6 +531,68 @@ function recommendedModelIds(): string[] {
   const empty = new Set([...forecasts.values()].filter((f) => f.noData).map((f) => f.modelId));
   return recommendForecastModels(deps.provider.models, at, { exclude: empty });
 }
+/** Where the shown window starts its "day 0": the picked day's midnight in the point's
+ *  zone, or null for live (anchored on the current hour). */
+function anchorMs(): number | null {
+  return atDay ? zonedMidnight(atDay, zone) : null;
+}
+
+function viewWindow(now = Date.now()): ReturnType<typeof forecastWindow> {
+  return forecastWindow(anchorMs(), days, now);
+}
+
+/** The hour the table marks "current" and the keyboard starts from: the picked day's
+ *  start in a past window, else the current hour. */
+function markerHour(now = Date.now()): number {
+  return viewWindow(now).markerMs;
+}
+
+/** A settled past window: final data, so no refresh, no age, no "stale". */
+function viewSettled(): boolean {
+  return viewWindow().settled;
+}
+
+/** Today in the point's calendar — the latest day the "When" picker offers. */
+function todayInZone(): string {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: zone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date());
+  const get = (type: string): string => parts.find((part) => part.type === type)?.value ?? "";
+  return `${get("year")}-${get("month")}-${get("day")}`;
+}
+
+/** "12 Oct 2024" (or "12 Oct" with `short`) for a `YYYY-MM-DD` day. */
+function dayLabel(day: string, short = false): string {
+  return new Intl.DateTimeFormat(undefined, {
+    day: "numeric",
+    month: "short",
+    ...(short ? {} : { year: "numeric" }),
+    timeZone: "UTC",
+  }).format(new Date(`${day}T00:00:00Z`));
+}
+
+/** Switch between live and a past day: the other mode's data is a different window
+ *  (and cache entry), so drop what is shown and load afresh. */
+function setAtDay(next: string | null): void {
+  if (next === atDay) return;
+  atDay = next;
+  loadToken += 1;
+  loadAbort?.abort();
+  clearForecastRefreshTimer();
+  forecasts.clear();
+  displayForecastCache.clear();
+  autoFillRounds = 0;
+  clearChartSelection();
+  if (point) deps.onPointChange?.(point);
+  if (!ready) return;
+  status = point ? "Loading forecast…" : status;
+  renderAll();
+  void refreshForecast(false);
+}
+
 /** Rounds of "a model came back empty → fetch its replacement" per point (bounded). */
 let autoFillRounds = 0;
 
@@ -514,6 +618,8 @@ function oldestSelectedForecastFetchedAt(): number | null {
 }
 
 function forecastIsStale(item: HourlyForecast, now = Date.now()): boolean {
+  // A settled past window was stored as fresh for good.
+  if (item.freshUntil >= Number.MAX_SAFE_INTEGER) return false;
   return (
     !Number.isFinite(item.fetchedAt) || item.fetchedAt + FORECAST_REFRESH_INTERVAL_MS <= now
   );
@@ -526,7 +632,7 @@ function clearForecastRefreshTimer(): void {
 
 function scheduleForecastRefresh(): void {
   clearForecastRefreshTimer();
-  if (!mounted || !point) return;
+  if (!mounted || !point || viewSettled()) return;
   const fetchedAt = oldestSelectedForecastFetchedAt();
   if (fetchedAt == null) return;
   const delay = Math.max(0, fetchedAt + FORECAST_REFRESH_INTERVAL_MS - Date.now());
@@ -582,7 +688,9 @@ async function refreshForecast(force: boolean): Promise<void> {
     renderAll();
     return;
   }
-  const cached = await Promise.all(ids.map((id) => store!.getForecast(point!, id)));
+  const at = atDay ?? undefined;
+  const window = viewWindow(now);
+  const cached = await Promise.all(ids.map((id) => store!.getForecast(point!, id, at)));
   if (token !== loadToken || !mounted) return;
   const need: string[] = [];
   for (let i = 0; i < ids.length; i++) {
@@ -596,7 +704,7 @@ async function refreshForecast(force: boolean): Promise<void> {
   }
   renderAll();
   if (!need.length) {
-    status = cachedStatus("Up to date");
+    status = cachedStatus(at ? "Past runs" : "Up to date");
     renderToolbar();
     scheduleForecastRefresh();
     return;
@@ -611,17 +719,21 @@ async function refreshForecast(force: boolean): Promise<void> {
   status = `Updating ${need.length} model${need.length === 1 ? "" : "s"}…${cachedCount ? ` · showing ${cachedCount} cached` : ""}`;
   renderToolbar();
   try {
-    const result = await deps.provider.fetchForecast(point, need, hours, loadAbort.signal);
+    const result = await deps.provider.fetchForecast(
+      point,
+      need,
+      hours,
+      loadAbort.signal,
+      at ? { startMs: window.startMs, endMs: window.endMs } : undefined,
+    );
     if (token !== loadToken) return;
     for (const item of result.forecasts) {
-      const merged = mergeForecastHistory(
-        item,
-        forecasts.get(item.modelId),
-        now,
-        FORECAST_HISTORY_HOURS,
-      );
+      // A past window is the archive's own stitched series — nothing to merge.
+      const merged = at
+        ? item
+        : mergeForecastHistory(item, forecasts.get(item.modelId), now, FORECAST_HISTORY_HOURS);
       forecasts.set(item.modelId, merged);
-      await store.putForecast(merged);
+      await store.putForecast(merged, at);
     }
     // Auto mode: a model that came back empty for this point has dropped out of the
     // recommended set and a replacement moved in — fetch it (at most twice).
@@ -637,8 +749,10 @@ async function refreshForecast(force: boolean): Promise<void> {
     }
     const available = visibleForecasts();
     status = available.length
-      ? cachedStatus("Updated")
-      : "No forecast models returned wind data for this point.";
+      ? cachedStatus(at ? "Past runs" : "Updated")
+      : at
+        ? "No archived model runs for this point and day."
+        : "No forecast models returned wind data for this point.";
     const shouldRetry = need.some((id) => {
       const item = forecasts.get(id);
       return !item || forecastIsStale(item) || item.requestedHours < hours;
@@ -665,10 +779,7 @@ async function refreshForecast(force: boolean): Promise<void> {
 
 function visibleForecasts(): HourlyForecast[] {
   const ids = candidateIds();
-  const hourMs = 3_600_000;
-  const currentHour = Math.floor(Date.now() / hourMs) * hourMs;
-  const startMs = currentHour - FORECAST_HISTORY_HOURS * hourMs;
-  const endMs = currentHour + days * 24 * hourMs;
+  const { startMs, endMs } = viewWindow();
   return ids.flatMap((id) => {
     const item = forecasts.get(id);
     if (!item || item.noData) return [];
@@ -704,6 +815,16 @@ function chartOptions(): ForecastChartOptions {
     modelLabels: new Map(
       deps.provider.models.map((model) => [model.id, `${model.provider} · ${model.label}`]),
     ),
+    // A past day is marked where it starts (and "now" too, when the window reaches
+    // it — where the archive hands over to the latest run).
+    ...(atDay
+      ? {
+          markers: [
+            { ms: markerHour(), label: dayLabel(atDay, true) },
+            { ms: Date.now(), label: "now" },
+          ],
+        }
+      : {}),
   };
 }
 
@@ -718,7 +839,8 @@ function renderAll(): void {
 function renderFetchedAt(): void {
   const time = $("forecastFetchedAt") as HTMLTimeElement | null;
   if (!time) return;
-  const fetchedAt = oldestSelectedForecastFetchedAt();
+  // A settled past day never changes: its age says nothing, so it isn't shown.
+  const fetchedAt = viewSettled() ? null : oldestSelectedForecastFetchedAt();
   time.toggleAttribute("hidden", fetchedAt == null);
   if (fetchedAt == null) {
     time.removeAttribute("datetime");
@@ -754,6 +876,7 @@ function renderToolbar(): void {
   if (stat) stat.textContent = status;
   renderFetchedAt();
   const refresh = $("forecastRefresh");
+  refresh?.toggleAttribute("hidden", viewSettled());
   refresh?.toggleAttribute("disabled", !point || loading);
   refresh?.classList.toggle("loading", loading);
   refresh?.setAttribute("aria-label", loading ? "Refreshing forecast" : "Refresh forecast");
@@ -794,6 +917,46 @@ function renderToolbar(): void {
   $("forecastRename")?.toggleAttribute("hidden", !favorite || !!renameMode);
   document.querySelectorAll<HTMLButtonElement>("#forecastRange button").forEach((button) => {
     button.classList.toggle("active", Number(button.dataset.days) === days);
+  });
+  renderWhen();
+}
+
+/** The "When" switch: Now, or the picked past day (its button opens the calendar). */
+function renderWhen(): void {
+  const now = document.querySelector<HTMLButtonElement>('#forecastWhen [data-when="now"]');
+  const date = document.querySelector<HTMLButtonElement>('#forecastWhen [data-when="date"]');
+  if (!now || !date) return;
+  now.classList.toggle("active", !atDay);
+  now.setAttribute("aria-pressed", String(!atDay));
+  date.classList.toggle("active", !!atDay);
+  date.setAttribute("aria-pressed", String(!!atDay));
+  const text = date.querySelector<HTMLElement>(".fc-when-day");
+  const short = date.querySelector<HTMLElement>(".fc-when-short");
+  // The year only when it isn't this one — the row stays on one line.
+  const thisYear = atDay?.slice(0, 4) === todayInZone().slice(0, 4);
+  if (text) text.textContent = atDay ? dayLabel(atDay, thisYear) : "Past day";
+  if (short) short.textContent = atDay ? dayLabel(atDay, true) : "Past";
+  date.title = atDay
+    ? `Showing the models' archived runs for ${dayLabel(atDay)} — pick another day`
+    : "Look back: show what the models ran for a past day";
+  $("forecastView")?.classList.toggle("fc-past", !!atDay);
+  // Live text in the row changed (a date label, "Updated …"): re-fit it.
+  const row = document.querySelector<HTMLElement>(".fc-option-row");
+  if (row) refold(row);
+}
+
+function openWhenPicker(anchor: HTMLElement): void {
+  const today = todayInZone();
+  openDatePicker({
+    anchor,
+    parent: document.body,
+    value: atDay,
+    min: "2016-01-01",
+    max: today,
+    esc: deps.esc,
+    icons: { chevLeft: icon("chevLeft"), chevRight: icon("chevRight"), clear: icon("x") },
+    onPick: (day) => setAtDay(day === today ? null : day),
+    ...(atDay ? { onClear: () => setAtDay(null) } : {}),
   });
 }
 
@@ -896,16 +1059,25 @@ function renderDisplayOptions(): void {
     if (!seg) {
       comparisonLegend.innerHTML =
         `<span class="seg fc-compare-style" role="group" aria-label="Comparison detail"><button type="button" data-compare-style="consensus" aria-label="Consensus — model minimum–maximum range with bold median" title="Model minimum–maximum range with a bold median">${icon("band")}Consensus</button><button type="button" data-compare-style="models">${icon("lines")}All lines</button></span>` +
-        // Phones: the model list folds behind this button (dots in each model's colour).
-        `<button type="button" class="fc-models-peek" aria-expanded="false" aria-controls="forecastCompareLegend"></button>` +
-        `<span class="fc-model-list"></span>`;
+        // The model list folds behind this button (dots in each model's colour).
+        `<button type="button" class="fc-models-peek" aria-controls="forecastCompareModels"></button>` +
+        `<span class="fc-model-list" id="forecastCompareModels"></span>`;
       seg = comparisonLegend.querySelector<HTMLElement>(":scope > .fc-compare-style")!;
-      comparisonLegend.querySelector(".fc-models-peek")?.addEventListener("click", () => {
-        const open = !comparisonLegend.classList.contains("open");
+      const peekBtn = comparisonLegend.querySelector<HTMLElement>(".fc-models-peek")!;
+      const setOpen = (open: boolean): void => {
         comparisonLegend.classList.toggle("open", open);
-        comparisonLegend
-          .querySelector(".fc-models-peek")
-          ?.setAttribute("aria-expanded", String(open));
+        peekBtn.setAttribute("aria-expanded", String(open));
+        peekBtn.title = open ? "Fold the model list" : "Show the model list";
+      };
+      setOpen(readModelsOpen());
+      peekBtn.addEventListener("click", () => {
+        const open = !comparisonLegend.classList.contains("open");
+        setOpen(open);
+        try {
+          localStorage.setItem(MODELS_OPEN_KEY, open ? "1" : "0");
+        } catch {
+          /* storage blocked: the fold still works for this visit */
+        }
       });
     }
     const peek = comparisonLegend.querySelector<HTMLElement>(":scope > .fc-models-peek");
@@ -951,7 +1123,7 @@ const FORECAST_HOUR_MS = 3_600_000;
 function updateTableNowMarker(now = Date.now()): void {
   const host = $("forecastCharts");
   if (!host || presentation !== "textual") return;
-  const currentHour = Math.floor(now / FORECAST_HOUR_MS) * FORECAST_HOUR_MS;
+  const currentHour = markerHour(now);
   host.querySelectorAll<HTMLElement>("[data-time]").forEach((row) => {
     const t = Number(row.dataset.time);
     row.classList.toggle("current", t === currentHour);
@@ -1208,7 +1380,7 @@ function timetableHtml(
     hour12: false,
   });
   const indexes = shown.map((item) => new Map(item.times.map((time, index) => [time, index])));
-  const currentHour = Math.floor(Date.now() / FORECAST_HOUR_MS) * FORECAST_HOUR_MS;
+  const currentHour = markerHour();
   const consensus = shown.length > 1;
   const head =
     `<div class="fc-tt-head" role="row"><div class="fc-tt-corner" role="columnheader">Local time</div>` +
@@ -1362,7 +1534,10 @@ function renderCharts(): void {
         modelHeader(model, stale) +
         (isTable
           ? ""
-          : `<canvas style="width:${width}px;height:${height}px" aria-label="Hourly forecast from ${deps.esc(model.provider)} ${deps.esc(model.label)}"></canvas>`) +
+          : stickyWrap(
+              `<canvas style="width:${width}px;height:${height}px" aria-label="Hourly forecast from ${deps.esc(model.provider)} ${deps.esc(model.label)}"></canvas>`,
+              false,
+            )) +
         `</article>`
       );
     })
@@ -1371,7 +1546,10 @@ function renderCharts(): void {
     ? timetableHtml(shown, timeline, selectedTableMetric!)
     : isCompare
       ? compared.length
-        ? `<canvas class="fc-compare-canvas" style="width:${width}px;height:${height}px" aria-label="Combined hourly forecast from ${compared.length} enabled models"></canvas>`
+        ? stickyWrap(
+            `<canvas class="fc-compare-canvas" style="width:${width}px;height:${height}px" aria-label="Combined hourly forecast from ${compared.length} enabled models"></canvas>`,
+            true,
+          )
         : `<div class="fc-compare-empty" style="height:${height}px">All model tracks are hidden. Enable one in the legend above.</div>`
       : rows;
   host.scrollLeft = presentationChanged ? 0 : oldScroll;
@@ -1408,6 +1586,7 @@ function renderCharts(): void {
         options,
       );
       canvas.dataset.drawn = "1";
+      syncStickyAxes(canvas);
     }
     renderReadout();
     return;
@@ -1419,6 +1598,7 @@ function renderCharts(): void {
     if (!item || !canvas) return;
     drawForecastRow(canvas, item, scales, timeline, selectedTime, zone, options);
     canvas.dataset.drawn = "1";
+    syncStickyAxes(canvas);
   };
   if (typeof IntersectionObserver === "function") {
     rowObserver = new IntersectionObserver(
@@ -1436,6 +1616,86 @@ function renderCharts(): void {
   renderReadout();
 }
 
+/**
+ * A chart canvas inside a wrapper with sticky copies of its axes, so a scrolled chart
+ * keeps them in view: the y gutter (units + ticks) pinned left, the combined chart's
+ * time header pinned top, and a corner naming the day at the left edge once the chart
+ * is scrolled sideways. The copies are pointer-transparent: hover still hits the chart.
+ */
+function stickyWrap(canvas: string, header: boolean): string {
+  return (
+    `<div class="fc-canvas-wrap${header ? " has-header" : ""}">${canvas}` +
+    `<canvas class="fc-axis-y" aria-hidden="true"></canvas>` +
+    (header ? `<canvas class="fc-axis-x" aria-hidden="true"></canvas>` : "") +
+    `<span class="fc-axis-day" aria-hidden="true"></span></div>`
+  );
+}
+
+/** Repaint a chart's sticky axis copies from its own pixels (after every draw). */
+function syncStickyAxes(canvas: HTMLCanvasElement): void {
+  const wrap = canvas.parentElement;
+  if (!wrap?.classList.contains("fc-canvas-wrap")) return;
+  const w = canvas.clientWidth;
+  const h = canvas.clientHeight;
+  if (!w || !h) return;
+  const dpr = canvas.width / w;
+  const bg = getComputedStyle($("forecastCharts") ?? canvas).backgroundColor;
+  const copy = (target: HTMLCanvasElement | null, cw: number, ch: number): void => {
+    if (!target) return;
+    target.style.width = `${cw}px`;
+    target.style.height = `${ch}px`;
+    target.width = Math.round(cw * dpr);
+    target.height = Math.round(ch * dpr);
+    const ctx = target.getContext("2d");
+    if (!ctx) return;
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, target.width, target.height);
+    ctx.drawImage(
+      canvas,
+      0,
+      0,
+      target.width,
+      target.height,
+      0,
+      0,
+      target.width,
+      target.height,
+    );
+  };
+  copy(wrap.querySelector<HTMLCanvasElement>(".fc-axis-y"), FORECAST_PLOT_LEFT, h);
+  copy(wrap.querySelector<HTMLCanvasElement>(".fc-axis-x"), w, FORECAST_AXIS_HEADER);
+  // A per-model row's gutter pins just right of its sticky model name.
+  const rowHead = wrap.parentElement?.querySelector<HTMLElement>(":scope > header");
+  if (rowHead) wrap.style.setProperty("--fc-axis-left", `${rowHead.offsetWidth}px`);
+  updateAxisDays();
+}
+
+/** The corner label: which day sits at the chart's left edge (once scrolled sideways). */
+function updateAxisDays(): void {
+  const host = $("forecastCharts");
+  if (!host) return;
+  const timeline = sharedForecastTimeline(visibleForecasts());
+  const hostLeft = host.getBoundingClientRect().left + host.clientLeft;
+  // Built like the chart's own day labels ("Tue 13") — a combined format reorders
+  // them in some locales.
+  const weekday = new Intl.DateTimeFormat(undefined, { timeZone: zone, weekday: "short" });
+  const dayNum = new Intl.DateTimeFormat(undefined, { timeZone: zone, day: "numeric" });
+  const fmt = { format: (ms: number) => `${weekday.format(ms)} ${dayNum.format(ms)}` };
+  for (const wrap of host.querySelectorAll<HTMLElement>(".fc-canvas-wrap")) {
+    const label = wrap.querySelector<HTMLElement>(".fc-axis-day");
+    const canvas = wrap.querySelector<HTMLCanvasElement>("canvas");
+    if (!label || !canvas) continue;
+    const offset = Number.parseFloat(wrap.style.getPropertyValue("--fc-axis-left")) || 0;
+    const x = hostLeft + offset + FORECAST_PLOT_LEFT - canvas.getBoundingClientRect().left;
+    const text =
+      x > FORECAST_PLOT_LEFT + 4 && timeline.hours > 1
+        ? fmt.format(hourTimeAtX(x, canvas.clientWidth, timeline))
+        : "";
+    if (label.textContent !== text) label.textContent = text;
+    label.classList.toggle("on", !!text);
+  }
+}
+
 /** Redraw only rows that have been painted; the observer paints newly visible rows. */
 function redrawCharts(): void {
   const host = $("forecastCharts");
@@ -1451,7 +1711,7 @@ function redrawCharts(): void {
   if (presentation === "compare") {
     const compared = visibleCompareForecasts();
     const canvas = host.querySelector<HTMLCanvasElement>('.fc-compare-canvas[data-drawn="1"]');
-    if (canvas && compared.length)
+    if (canvas && compared.length) {
       drawForecastComparison(
         canvas,
         compared,
@@ -1461,13 +1721,18 @@ function redrawCharts(): void {
         zone,
         options,
       );
+      syncStickyAxes(canvas);
+    }
     return;
   }
   for (const item of shown) {
     const canvas = host.querySelector<HTMLCanvasElement>(
       `[data-model-row="${item.modelId}"] canvas[data-drawn="1"]`,
     );
-    if (canvas) drawForecastRow(canvas, item, scales, timeline, selectedTime, zone, options);
+    if (canvas) {
+      drawForecastRow(canvas, item, scales, timeline, selectedTime, zone, options);
+      syncStickyAxes(canvas);
+    }
   }
 }
 
@@ -1818,6 +2083,8 @@ function weatherReadoutHtml(snap: WeatherSnapshot): string {
       : new Intl.DateTimeFormat(undefined, {
           timeZone: zone,
           weekday: "short",
+          // A weekday alone is ambiguous once the window is a past day.
+          ...(atDay ? { day: "numeric", month: "short" } : {}),
           hour: "2-digit",
           minute: "2-digit",
           hour12: false,
@@ -2091,13 +2358,7 @@ function onChartKeydown(event: KeyboardEvent): void {
   const step = event.key === "ArrowRight" ? 3_600_000 : -3_600_000;
   const initial =
     presentation === "textual" || presentation === "compare"
-      ? Math.max(
-          timeline.startMs,
-          Math.min(
-            timeline.endMs,
-            Math.floor(Date.now() / FORECAST_HOUR_MS) * FORECAST_HOUR_MS,
-          ),
-        )
+      ? Math.max(timeline.startMs, Math.min(timeline.endMs, markerHour()))
       : timeline.startMs;
   selectedTableModel = null;
   selectedTime = Math.max(
@@ -2371,6 +2632,15 @@ function onClick(event: MouseEvent): void {
   }
   if (button.id === "forecastSettingsClose") {
     setForecastSettingsOpen(false);
+    return;
+  }
+  if (button.dataset.when === "now") {
+    closeDatePicker();
+    setAtDay(null);
+    return;
+  }
+  if (button.dataset.when === "date") {
+    openWhenPicker(button);
     return;
   }
   if (button.dataset.days) {

@@ -31,6 +31,8 @@ interface CacheMeta {
   endMs: number;
   requestedHours: number;
   accessedAt: number;
+  /** A past date's runs (keyed `…@YYYY-MM-DD`): kept past its end, LRU only. */
+  archived?: boolean;
 }
 
 interface GeoMeta {
@@ -87,8 +89,10 @@ function pointKey(point: ForecastPoint): string {
   return `${point.lat.toFixed(3)},${point.lon.toFixed(3)}`;
 }
 
-export function forecastCacheKey(point: ForecastPoint, modelId: string): string {
-  return `${pointKey(point)}::${modelId}`;
+/** One entry per point and model — plus, for a past date (`at`, YYYY-MM-DD), a
+ *  separate one, so looking back never overwrites the live forecast. */
+export function forecastCacheKey(point: ForecastPoint, modelId: string, at?: string): string {
+  return `${pointKey(point)}::${modelId}${at ? `@${at}` : ""}`;
 }
 
 function payloadKey(key: string): string {
@@ -243,8 +247,12 @@ export class ForecastStore {
     return renamed;
   }
 
-  async getForecast(point: ForecastPoint, modelId: string): Promise<HourlyForecast | null> {
-    const key = forecastCacheKey(point, modelId);
+  async getForecast(
+    point: ForecastPoint,
+    modelId: string,
+    at?: string,
+  ): Promise<HourlyForecast | null> {
+    const key = forecastCacheKey(point, modelId, at);
     const meta = this.catalog.entries[key];
     if (!meta) return null;
     try {
@@ -268,8 +276,8 @@ export class ForecastStore {
     }
   }
 
-  async putForecast(entry: HourlyForecast): Promise<void> {
-    const key = forecastCacheKey(entry.point, entry.modelId);
+  async putForecast(entry: HourlyForecast, at?: string): Promise<void> {
+    const key = forecastCacheKey(entry.point, entry.modelId, at);
     try {
       const bytes = await gzip(encoder.encode(JSON.stringify({ ...entry, v: VERSION })));
       await this.blob.set(payloadKey(key), bytes);
@@ -282,6 +290,7 @@ export class ForecastStore {
         endMs: entry.times.at(-1) ?? entry.freshUntil,
         requestedHours: entry.requestedHours,
         accessedAt: Date.now(),
+        ...(at ? { archived: true } : {}),
       };
       await this.enforceLimit();
       await this.persistCatalog();
@@ -424,7 +433,7 @@ export class ForecastStore {
   private async pruneExpired(now: number): Promise<void> {
     let changed = false;
     for (const [key, meta] of Object.entries(this.catalog.entries)) {
-      if (meta.endMs >= now - 3_600_000) continue;
+      if (meta.archived || meta.endMs >= now - 3_600_000) continue;
       delete this.catalog.entries[key];
       await this.blob.del(payloadKey(key));
       changed = true;

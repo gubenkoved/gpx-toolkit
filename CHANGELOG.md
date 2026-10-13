@@ -17,6 +17,149 @@ humans and the assistant can read this file as a compressed history of decisions
 
 ---
 
+## labels fold before rows wrap; rain under the ride profile
+- **What:** fold.ts measures a toolbar and applies the mildest fold level that keeps it
+  on one line: Forecast drops "Updated …", then shows Presentation as icons, then
+  "Past day" as its calendar; Explore's chart head shows Distance / Speed as icons,
+  then keeps only total and rides. With "Rain & wind" on, the ride map's profile gets a
+  rain lane on the same axis (bars by mm/h on a fixed 4 mm/h scale, the peak labelled
+  beside its bar, "dry the whole way" otherwise).
+- **Why:** A toolbar broke onto a second line for a few missing pixels when its words
+  could have become icons. The ride map showed rain only at the hovered point — there
+  was no way to see where along the ride it rained and how hard.
+
+## the page scrolls as a page (PageUp / PageDown work again)
+- **What:** `html, body { overflow-x: clip }` instead of `hidden`; scroll code reads the
+  document scroller (`pageScroller()`) instead of `<body>`.
+- **Why:** `overflow-x: hidden` on both html and body made `<body>` its own scroll box,
+  so the viewport never scrolled: with nothing focused, PageUp/PageDown, Home/End and
+  Space did nothing in Explore until a click landed inside the list.
+
+## coloured tags, honest climb, quiet checkboxes
+- **What:** A tag can have a colour (ten palette hues tuned per theme, any custom
+  colour, or none), picked from a dot beside each chip in the Tags dialog; ride pills
+  tint, the tag filter shows the dot. Climb is computed from a recorded track with a
+  5-point median + a hysteresis band (`elevationChange`, Settings → "Elevation noise
+  filter", 4 m by default); a ride's track-derived figure outranks the source's
+  (`elevation_src: "track"`, a re-sync can't put it back), a one-time pass re-derives
+  every cached track, and an unfiltered Beeline figure is labelled "(Beeline)".
+  Checkboxes are a quiet outline until checked. The Tags dialog reads tag colours live from
+  the controller: from the per-frame `STATE` snapshot, a pick re-rendered with the old
+  colour and the dot only caught up when the dialog reopened.
+- **Why:** Summing raw altitude deltas turned ±1–2 m of 1 Hz sensor jitter into
+  hundreds of metres of fake climbing — Beeline's figures read ~5× high. Tags needed
+  to be told apart at a glance. The native unchecked box was a filled grey square on
+  every row.
+
+## phone polish; Wind vs speed keeps its rings on the dots
+- **What:** The Wind vs speed scatter redraws whenever its canvas changes size (opening
+  Settings shrank it: the stretched bitmap and the re-sized ring overlay disagreed), and
+  the view refreshes as wind / full GPX land in place (it kept asking to "resolve wind"
+  after the job had). Phones (Pixel 10 reference, 360 px too): the Forecast toolbar is
+  two rows (When + actions, Range + Presentation) and wraps instead of scrolling the
+  page sideways at any width; route clock and rain labels space by the strip's width;
+  profile labels get a backing; the More tab lights for the views it holds; a tapped
+  segment's card scrolls into view.
+- **Why:** A user saw the same-ride rings drift off their dots after expanding
+  Settings. A full sweep at phone and tablet widths then found the rest: Forecast 114 px
+  wider than a phone (a desktop id rule beat the phone one), overlapping "10:00 AM12:00
+  PM…" labels, a bottom nav with no place lit on Routes, a card nobody saw below the
+  chart.
+
+## the route weather can't hang on "Fetching…"
+- **What:** Every Open-Meteo request has a deadline (http.ts): aborted after 45 s
+  without a byte or 3 min in all, tried once more, then reported — a slow but
+  streaming answer is left to finish. The Routes banner has one owner (`syncBanner`:
+  routing, else the weather fetch, else nothing), a dropped fetch clears its busy state
+  (`cancelWeather`), a slow fetch shows its age, and a failed one offers Try again.
+  Route weather samples the cells along each segment, not just its ends. Vite no longer
+  watches `.tmp/`.
+- **Why:** With Open-Meteo slow (a 24-spot answer took 77 s to stream) or stalled, the
+  request had no timeout and the banner said "Fetching…" forever; and removing a point
+  mid-fetch stranded the banner for good (its early return skipped the reset). A
+  straight leg is two points far apart, so its middle borrowed weather from 50 km away.
+  A scratch `node_modules` in `.tmp/` exhausted the file watchers and killed the dev
+  server.
+
+## the demo arrives with its rides
+- **What:** Entering the demo pulls its ride history straight away, like a real
+  sign-in. A connected account with an empty library now says so ("Downloading your
+  rides…" while the pull runs, else "No rides downloaded yet" with Pull from Beeline)
+  instead of offering to connect again.
+- **Why:** The demo stopped at "connected": with the header's pull step gone from view
+  since the UX revamp, it landed on an empty library whose only offer was "Connect
+  Beeline" — it looked broken.
+
+## see the Shift range before the click; no white ring after it
+- **What:** With Shift held over a ride, the rows the click would change are marked
+  (tint + dashed box where they'd be selected, faded where they'd be cleared) and the
+  hovered row names the count ("Select 5 rides"). Focus rings follow the input: the
+  app's accent ring for the keyboard, none after a pointer (`data-input`,
+  `trackInputModality`); hover hints stay quiet while a modifier is held. A hint on a box-less
+  element (a `display: contents` form row) anchors to its contents, or the pointer —
+  it had landed in the page's top-left corner.
+- **Why:** A Shift-click's reach was a guess until it landed. And Chrome treats a
+  Shift/Ctrl-click as keyboard use, so every range pick left its white default focus
+  ring on the clicked checkbox.
+
+## readable chrome: app tooltips, visible ghost buttons, sticky chart axes, no stray scroll
+- **What:** One themed tooltip (tooltip.ts) replaces every native `title` bubble; the
+  Routes departure strip explains each bar (leave → arrive, ride time vs the fastest,
+  wind, rain) and its result cards say what each figure means. Ghost buttons get a faint
+  text-colour wash and a firmer edge. A scrolled Forecast chart keeps its y gutter, time
+  header and the day at its left edge. Viewport-tall views size from the live header /
+  nav / padding (`--view-h`, `--view-mb`). The departure strip responds to the pointer
+  again (its listeners were wired before its canvas existed). The chart's "now" / day
+  tag (and the table's) takes dark ink on the bright dark-theme orange (`--fc-now-ink`;
+  white was 2.6:1) and white on a deeper light-theme orange. The Explore selection bar fits
+  the top bar's 33px content box (it was 38.84px: picking a ride grew the bar ~6px and
+  shifted the page).
+- **Why:** The green strip and several figures had no explanation; a transparent ghost
+  button sank into the page; a chart scrolled sideways lost its units and day; and a
+  hard-coded `--chrome-h` (96px against 54 + 16 + 40) scrolled Map, Forecast and Routes
+  by 14px.
+
+## look back: the Forecast view shows a past day's model runs
+- **What:** A When switch (Now · a past day) beside the range: picking a day re-anchors the
+  window on its midnight (the point's zone) and fetches the same models from Open-Meteo's
+  historical-forecast archive; the chart marks the day (and "now" if the window reaches
+  it), the link carries `&at=YYYY-MM-DD`, and a settled day (ended >48h ago) is cached
+  for good with no refresh or age stamp.
+- **Why:** The same multi-model UX answers "what was the weather that day" — a ride's
+  conditions, a forecast's track record. The archive, not the live API's past hours, is
+  the source: those are sparse for regional models and stop ~3 months back.
+
+## crisp glyphs: four icon sizes instead of nine
+- **What:** Every glyph renders at 12, 16, 18 or 20px (20px with a 1.75 stroke in
+  icon-only buttons) instead of 14/15/17/19/21px; the Forecast fold chevron takes its
+  neighbours' square chrome.
+- **Why:** The settings and refresh icons looked soft. A 24-unit glyph at 17px puts its
+  1.8–2 unit strokes at 1.27–1.42px between pixels; measured, Chrome snaps the box to whole
+  pixels, so the off-grid sizes were the cause, app-wide.
+
+## fold the Forecast model list
+- **What:** The "● ● ● N models" button folds the model legend at every width (before:
+  phones only); remembered, open by default on a desktop, folded on a phone.
+- **Why:** The list takes ~150px above the chart that a reader who knows the models
+  doesn't need every time.
+
+## lean pane chrome, remembered ride-map choices, graded rain by departure
+- **What:** The Explore tree's year / month checkboxes follow every selection change
+  (`setChecked` only ever set the indeterminate dash, never `checked`). The ride map's
+  Close is a bare "×" beside the fold chevron. A drill-in's way back (an open route, a
+  replayed Timeline day) is one lean arrow before the view title in the top bar
+  (`setViewBack`, shell.ts), replacing the in-pane "← Routes" and both "← Overview"
+  buttons. The ride map remembers its toolbar (colour by, Rain & wind, profile metric /
+  axis / skip stops) across rides and reloads. The departure strip's rain dots became a
+  rain lane whose bars rise with the rain you'd ride through (`rainMm`, new on the
+  simulation), the summary names the wettest total and the driest start, and the rain
+  card adds the mm.
+- **Why:** The tree showed months as unselected while their rides were, a "Close" label
+  and in-pane back buttons spent words on what an icon in the header already says, and
+  resetting the map's choices on every open made the user redo them. A yes/no dot put a
+  drizzle level with a soaking, which is the one thing a rider picking a start time needs
+  to tell apart.
+
 ## reorder a route's points by dragging the list
 - **What:** Each waypoint row in Routes has a grip: drag it (or, with a mouse, the
   row itself) and the row lifts and follows the pointer while the others slide aside and
@@ -62,7 +205,7 @@ humans and the assistant can read this file as a compressed history of decisions
   one distance axis: a clock ruler (when you'd pass each point), the elevation with
   climbs tinted from 4% and 8%, and a **rain lane**: bars on a fixed scale (full height
   at 4 mm/h, deeper blue the harder it rains) with each wet stretch's peak mm/h
-  labelled under it; the map gets a blue halo on wet stretches, and the departure strip dots the start times that get you wet. Hovering the
+  labelled under it; the map gets a blue halo on wet stretches, and the departure strip carries a rain lane graded by the rain each start time rides through. Hovering the
   profile or the map shows the same point on both. **Forecast source**: a disclosure on
   "Ride it" switches from Open-Meteo's best match to the hour-by-hour median of chosen
   models (the recommended set for the start by default, the same catalogue as the

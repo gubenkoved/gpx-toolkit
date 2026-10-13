@@ -21,7 +21,8 @@ export type TaskKind =
   | "download-gpx"
   | "rename"
   | "delete"
-  | "fetch-weather";
+  | "fetch-weather"
+  | "recompute-elevation";
 export type TaskStatus = "queued" | "running" | "done" | "error" | "cancelled";
 
 export interface TaskSnapshot {

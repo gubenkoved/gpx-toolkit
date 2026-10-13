@@ -41,7 +41,12 @@ import type {
   RideSource,
 } from "./source";
 import { gpxDownloadName, gpxFilename } from "./source";
-import { extractFullTrack, fullTrackSummary, gpxToRoughTrack } from "./track";
+import {
+  DEFAULT_ELEVATION_NOISE_M,
+  extractFullTrack,
+  fullTrackSummary,
+  gpxToRoughTrack,
+} from "./track";
 import { loadTz, localTime, zoneForPoint } from "./tz";
 import { crc32, unzip } from "./zip";
 
@@ -73,6 +78,8 @@ export class GpxRideSource implements RideSource {
   constructor(
     private readonly gpxData: GpxCache,
     private readonly pointsPerKm: () => number,
+    /** The elevation noise band (m) for the climb figures (see `elevationChange`). */
+    private readonly elevationNoiseM: () => number = () => DEFAULT_ELEVATION_NOISE_M,
   ) {}
 
   label(): string {
@@ -148,7 +155,7 @@ export class GpxRideSource implements RideSource {
     const xml = decoder.decode(g.bytes);
     const ft = extractFullTrack(xml);
     if (ft.points.length === 0) return null;
-    const summary = fullTrackSummary(ft);
+    const summary = fullTrackSummary(ft, undefined, this.elevationNoiseM());
 
     // Reference date: first recorded <time> → filename date → upload instant. This
     // is the ride's display datetime, not its identity (that's the content hash), so
@@ -219,6 +226,7 @@ export class GpxRideSource implements RideSource {
         max_speed_kmh: summary.maxKmh,
         elevation_gain_m: summary.gainM,
         elevation_loss_m: summary.lossM,
+        ...(summary.gainM != null ? { elevation_src: "track" as const } : {}),
         track: rough.polyline,
         track_src_points: rough.srcPoints,
         track_points: rough.keptPoints,

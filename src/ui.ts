@@ -146,3 +146,26 @@ export function initCollapse(
   });
   return collapsed;
 }
+
+/**
+ * Record how the user is driving the page on `<html data-input>`: "pointer" after a
+ * press, "keyboard" after a real key (modifiers alone don't count). Chrome treats a
+ * Shift/Ctrl-click as keyboard use and rings the clicked control with its default
+ * (white) focus outline; the stylesheet hides focus rings while the input is a
+ * pointer, so a range pick stays clean and Tab still shows the themed ring.
+ */
+export function trackInputModality(): void {
+  const root = document.documentElement;
+  const set = (mode: "pointer" | "keyboard"): void => {
+    if (root.dataset.input !== mode) root.dataset.input = mode;
+  };
+  document.addEventListener("pointerdown", () => set("pointer"), true);
+  document.addEventListener(
+    "keydown",
+    (event) => {
+      if (["Shift", "Control", "Alt", "Meta", "CapsLock"].includes(event.key)) return;
+      set("keyboard");
+    },
+    true,
+  );
+}

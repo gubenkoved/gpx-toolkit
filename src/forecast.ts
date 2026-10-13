@@ -1,5 +1,7 @@
 /** Provider-neutral live forecast domain plus the first Open-Meteo adapter. */
 
+import { deadline, readJson } from "./http";
+
 export interface ForecastPoint {
   lat: number;
   lon: number;
@@ -15,6 +17,43 @@ export type ForecastCompareStyle = "consensus" | "models";
 /** Rolling history shown before the current hour when a provider or cache can supply it. */
 export const FORECAST_HISTORY_HOURS = 24;
 export const FORECAST_REFRESH_INTERVAL_MS = 3_600_000;
+
+const HOUR_MS = 3_600_000;
+/** A request attempt is aborted after this long without a byte, or this long in all. */
+const REQUEST_IDLE_MS = 45_000;
+const REQUEST_TOTAL_MS = 180_000;
+/** The historical-forecast archive serves end hours up to ~15 days ahead; stay inside. */
+const ARCHIVE_MAX_AHEAD_MS = 14 * 86_400_000;
+/** A past window whose end is this far behind now has had every run it ever will:
+ *  it is final, so it is never refreshed and its cache entry never expires. */
+const ARCHIVE_SETTLED_MS = 48 * HOUR_MS;
+
+/** An explicit hour interval [startMs, endMs) to fetch instead of "now onward". */
+export interface ForecastRange {
+  startMs: number;
+  endMs: number;
+}
+
+/**
+ * The hours the view shows: a day of lead-in, then `days` days. Live it is anchored
+ * on the current hour; given a past day's start (`anchorMs`) it is anchored there and
+ * `settled` says whether every run that covers it has already been archived.
+ */
+export function forecastWindow(
+  anchorMs: number | null,
+  days: number,
+  now: number,
+): { startMs: number; endMs: number; markerMs: number; settled: boolean } {
+  const markerMs = anchorMs ?? Math.floor(now / HOUR_MS) * HOUR_MS;
+  const startMs = markerMs - FORECAST_HISTORY_HOURS * HOUR_MS;
+  const endMs = markerMs + days * 24 * HOUR_MS;
+  return {
+    startMs,
+    endMs,
+    markerMs,
+    settled: anchorMs != null && endMs < now - ARCHIVE_SETTLED_MS,
+  };
+}
 
 export type ForecastMetric =
   | "windSpeed"
@@ -89,11 +128,14 @@ export interface ForecastProviderAdapter {
   readonly id: string;
   readonly models: readonly ForecastModel[];
   searchLocations(query: string, signal?: AbortSignal): Promise<LocationResult[]>;
+  /** `hours` ahead of now — or, given `range`, exactly those past (or mixed) hours
+   *  from the provider's archive of earlier runs. */
   fetchForecast(
     point: ForecastPoint,
     modelIds: string[],
     hours: number,
     signal?: AbortSignal,
+    range?: ForecastRange,
   ): Promise<ForecastBatch>;
 }
 
@@ -486,6 +528,11 @@ const defaultDeps = (): ForecastFetchDeps => ({
   sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
 });
 
+/** `YYYY-MM-DDTHH:00` in UTC (the API is asked for GMT). */
+function isoHour(ms: number): string {
+  return `${new Date(ms).toISOString().slice(0, 13)}:00`;
+}
+
 function numericArray(value: unknown, n: number): Array<number | null> {
   const src = Array.isArray(value) ? value : [];
   return Array.from({ length: n }, (_, i) => {
@@ -505,6 +552,7 @@ export function parseOpenMeteoForecast(
   models: ForecastModel[],
   hours: number,
   now: number,
+  freshUntil = now + FORECAST_REFRESH_INTERVAL_MS,
 ): ForecastBatch {
   if (!json || typeof json !== "object")
     throw new Error("Forecast API returned invalid JSON.");
@@ -540,7 +588,7 @@ export function parseOpenMeteoForecast(
       pressureHpa: numericArray(modelValues(hourly, VARS[5], model.id), n),
       cloudCoverPct: numericArray(modelValues(hourly, VARS[6], model.id), n),
       fetchedAt: now,
-      freshUntil: now + FORECAST_REFRESH_INTERVAL_MS,
+      freshUntil,
       requestedHours: hours,
       ...(noData ? { noData: true } : {}),
     } satisfies HourlyForecast;
@@ -557,12 +605,12 @@ export class OpenMeteoForecastAdapter implements ForecastProviderAdapter {
 
   async searchLocations(query: string, signal?: AbortSignal): Promise<LocationResult[]> {
     const p = new URLSearchParams({ name: query.trim(), count: "8", language: "en" });
-    const response = await this.request(
+    const { status, json: body } = await this.requestJson(
       `https://geocoding-api.open-meteo.com/v1/search?${p}`,
       signal,
     );
-    if (!response.ok) throw new Error(`Location search responded ${response.status}.`);
-    const json = (await response.json()) as { results?: Array<Record<string, unknown>> };
+    if (status < 200 || status >= 300) throw new Error(`Location search responded ${status}.`);
+    const json = body as { results?: Array<Record<string, unknown>> };
     return (json.results ?? []).flatMap((r) => {
       if (typeof r.latitude !== "number" || typeof r.longitude !== "number") return [];
       const name = String(r.name ?? "Location");
@@ -587,13 +635,15 @@ export class OpenMeteoForecastAdapter implements ForecastProviderAdapter {
     modelIds: string[],
     hours: number,
     signal?: AbortSignal,
+    range?: ForecastRange,
   ): Promise<ForecastBatch> {
     const ids = [...new Set(modelIds)].filter((id) => this.models.some((m) => m.id === id));
     if (ids.length === 0) return Promise.resolve({ point, forecasts: [] });
-    const key = `${point.lat.toFixed(4)},${point.lon.toFixed(4)}:${hours}:${ids.sort().join(",")}`;
+    const span = range ? `${range.startMs}-${range.endMs}` : "live";
+    const key = `${point.lat.toFixed(4)},${point.lon.toFixed(4)}:${hours}:${span}:${ids.sort().join(",")}`;
     const existing = this.inFlight.get(key);
     if (existing) return existing;
-    const promise = this.fetchWithFallback(point, ids, hours, signal).finally(() => {
+    const promise = this.fetchWithFallback(point, ids, hours, signal, range).finally(() => {
       this.inFlight.delete(key);
     });
     this.inFlight.set(key, promise);
@@ -605,9 +655,10 @@ export class OpenMeteoForecastAdapter implements ForecastProviderAdapter {
     ids: string[],
     hours: number,
     signal?: AbortSignal,
+    range?: ForecastRange,
   ): Promise<ForecastBatch> {
     try {
-      return await this.fetchBatch(point, ids, hours, signal);
+      return await this.fetchBatch(point, ids, hours, signal, range);
     } catch (error) {
       if (signal?.aborted || !(error instanceof ForecastHttpError) || error.status !== 400) {
         throw error;
@@ -624,8 +675,8 @@ export class OpenMeteoForecastAdapter implements ForecastProviderAdapter {
       }
       const mid = Math.ceil(ids.length / 2);
       const [a, b] = await Promise.all([
-        this.fetchWithFallback(point, ids.slice(0, mid), hours, signal),
-        this.fetchWithFallback(point, ids.slice(mid), hours, signal),
+        this.fetchWithFallback(point, ids.slice(0, mid), hours, signal, range),
+        this.fetchWithFallback(point, ids.slice(mid), hours, signal, range),
       ]);
       return { point, forecasts: [...a.forecasts, ...b.forecasts] };
     }
@@ -636,46 +687,85 @@ export class OpenMeteoForecastAdapter implements ForecastProviderAdapter {
     ids: string[],
     hours: number,
     signal?: AbortSignal,
+    range?: ForecastRange,
   ): Promise<ForecastBatch> {
+    const now = this.deps.now();
     const p = new URLSearchParams({
       latitude: point.lat.toFixed(5),
       longitude: point.lon.toFixed(5),
       hourly: VARS.join(","),
       models: ids.join(","),
-      forecast_hours: String(hours),
-      past_hours: String(FORECAST_HISTORY_HOURS),
       timezone: "GMT",
       timeformat: "unixtime",
       wind_speed_unit: "kmh",
     });
-    const response = await this.request(`https://api.open-meteo.com/v1/forecast?${p}`, signal);
-    if (!response.ok) {
-      throw new ForecastHttpError(
-        `Forecast API responded ${response.status}.`,
-        response.status,
-      );
+    let url = "https://api.open-meteo.com/v1/forecast";
+    if (range) {
+      // The archive of earlier runs: each run's first hours stitched into one series
+      // (the live API's own past hours are sparse for regional models and stop ~3
+      // months back). A recent window's future tail comes from the latest run.
+      url = "https://historical-forecast-api.open-meteo.com/v1/forecast";
+      const end = Math.min(range.endMs, now + ARCHIVE_MAX_AHEAD_MS);
+      p.set("start_hour", isoHour(range.startMs));
+      p.set("end_hour", isoHour(Math.max(range.startMs, end - HOUR_MS)));
+    } else {
+      p.set("forecast_hours", String(hours));
+      p.set("past_hours", String(FORECAST_HISTORY_HOURS));
+    }
+    const { status, json } = await this.requestJson(`${url}?${p}`, signal);
+    if (status < 200 || status >= 300) {
+      throw new ForecastHttpError(`Forecast API responded ${status}.`, status);
     }
     const models = ids.map((id) => this.models.find((model) => model.id === id)!);
+    // A settled past window never changes again: fresh for good (a finite stand-in
+    // for "forever" — the cache stores it as JSON).
+    const settled = !!range && range.endMs < now - ARCHIVE_SETTLED_MS;
     return parseOpenMeteoForecast(
-      await response.json(),
+      json,
       point,
       models,
       hours,
-      this.deps.now(),
+      now,
+      settled ? Number.MAX_SAFE_INTEGER : undefined,
     );
   }
 
-  private async request(url: string, signal?: AbortSignal): Promise<Response> {
+  /**
+   * GET and parse JSON (null for a non-2xx body), retrying 429 / 5xx with backoff. An
+   * attempt that stalls (no bytes for `REQUEST_IDLE_MS`) or outlives `REQUEST_TOTAL_MS`
+   * is aborted, tried once more, then reported — instead of "Updating…" forever; a slow
+   * but streaming answer is left to finish. The caller's `signal` cancels at any point.
+   */
+  private async requestJson(
+    url: string,
+    signal?: AbortSignal,
+  ): Promise<{ status: number; json: unknown }> {
     let attempt = 0;
+    let timeouts = 0;
     for (;;) {
-      const response = await this.deps.fetch(url, { signal });
-      if (response.status !== 429 && response.status < 500) return response;
-      if (++attempt > 4) return response;
-      const retry = Number(response.headers.get("retry-after"));
-      const wait = Number.isFinite(retry)
-        ? retry * 1000
-        : Math.min(1000 * 2 ** (attempt - 1), 30_000);
-      await this.deps.sleep(wait);
+      const d = deadline(REQUEST_IDLE_MS, REQUEST_TOTAL_MS, signal);
+      try {
+        const response = await this.deps.fetch(url, { signal: d.signal });
+        d.progress();
+        if ((response.status === 429 || response.status >= 500) && ++attempt <= 4) {
+          const retry = Number(response.headers.get("retry-after"));
+          const wait = Number.isFinite(retry)
+            ? retry * 1000
+            : Math.min(1000 * 2 ** (attempt - 1), 30_000);
+          await this.deps.sleep(wait);
+          continue;
+        }
+        const json = response.ok ? await readJson(response, d) : null;
+        return { status: response.status, json };
+      } catch (error) {
+        if (!d.timedOut() || signal?.aborted) throw error;
+        if (++timeouts > 1)
+          throw new Error(
+            "The forecast service stopped answering — it may be overloaded; try again shortly.",
+          );
+      } finally {
+        d.dispose();
+      }
     }
   }
 }

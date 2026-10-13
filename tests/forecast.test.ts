@@ -3,6 +3,7 @@ import {
   DEFAULT_FORECAST_METRICS,
   FORECAST_HISTORY_HOURS,
   type ForecastModel,
+  forecastWindow,
   type HourlyForecast,
   mergeForecastHistory,
   OpenMeteoForecastAdapter,
@@ -125,6 +126,143 @@ describe("Open-Meteo forecast parsing", () => {
     const url = new URL(String(fetchMock.mock.calls[0][0]));
     expect(url.searchParams.get("forecast_hours")).toBe("24");
     expect(url.searchParams.get("past_hours")).toBe(String(FORECAST_HISTORY_HOURS));
+  });
+
+  it("asks the archive of earlier runs for an explicit past window", async () => {
+    const hour = 3_600_000;
+    const now = Date.UTC(2026, 9, 13, 12);
+    const fetchMock = vi.fn(
+      async (_input: string | URL | Request) =>
+        new Response(
+          JSON.stringify({
+            latitude: 1,
+            longitude: 2,
+            hourly: { time: [1_700_000_000], wind_speed_10m: [10], wind_direction_10m: [90] },
+          }),
+          { status: 200 },
+        ),
+    );
+    const adapter = new OpenMeteoForecastAdapter({
+      fetch: fetchMock as typeof fetch,
+      now: () => now,
+      sleep: () => Promise.resolve(),
+    });
+    const point = { lat: 1, lon: 2, label: "Point" };
+    const startMs = Date.UTC(2024, 9, 11);
+    const batch = await adapter.fetchForecast(point, ["ecmwf_ifs"], 72, undefined, {
+      startMs,
+      endMs: startMs + 96 * hour,
+    });
+    const url = new URL(String(fetchMock.mock.calls[0][0]));
+    expect(url.host).toBe("historical-forecast-api.open-meteo.com");
+    expect(url.searchParams.get("start_hour")).toBe("2024-10-11T00:00");
+    expect(url.searchParams.get("end_hour")).toBe("2024-10-14T23:00");
+    expect(url.searchParams.has("forecast_hours")).toBe(false);
+    expect(url.searchParams.has("past_hours")).toBe(false);
+    // A settled past window is final: fresh for good.
+    expect(batch.forecasts[0].freshUntil).toBe(Number.MAX_SAFE_INTEGER);
+
+    // A recent window reaching past the archive's ~15-day horizon is clamped to it,
+    // and is not settled (later runs still replace its last hours).
+    const recent = await adapter.fetchForecast(point, ["ecmwf_ifs"], 360, undefined, {
+      startMs: now - 24 * hour,
+      endMs: now + 30 * 24 * hour,
+    });
+    const recentUrl = new URL(String(fetchMock.mock.calls[1][0]));
+    expect(recentUrl.searchParams.get("end_hour")).toBe("2026-10-27T11:00");
+    expect(recent.forecasts[0].freshUntil).toBe(now + 3_600_000);
+  });
+
+  it("gives up on a forecast request that never answers (and still honours cancel)", async () => {
+    vi.useFakeTimers();
+    try {
+      let calls = 0;
+      const hang = (_url: string | URL | Request, init?: RequestInit): Promise<Response> => {
+        calls++;
+        return new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () =>
+            reject(new DOMException("aborted", "AbortError")),
+          );
+        });
+      };
+      const adapter = new OpenMeteoForecastAdapter({
+        fetch: hang as typeof fetch,
+        now: () => 0,
+        sleep: () => Promise.resolve(),
+      });
+      const point = { lat: 1, lon: 2, label: "Point" };
+      const pending = adapter.fetchForecast(point, ["ecmwf_ifs"], 24);
+      const failed = expect(pending).rejects.toThrow(/stopped answering/);
+      await vi.advanceTimersByTimeAsync(100_000);
+      await failed;
+      expect(calls).toBe(2);
+
+      // The caller's own cancel is an abort, not a timeout: no retry, no timeout message.
+      const ctl = new AbortController();
+      const cancelled = adapter.fetchForecast(point, ["icon_global"], 24, ctl.signal);
+      ctl.abort();
+      await expect(cancelled).rejects.toThrow(/aborted/);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("lets a slow but streaming answer finish (only a stall is cut off)", async () => {
+    vi.useFakeTimers();
+    try {
+      const body = JSON.stringify({
+        latitude: 1,
+        longitude: 2,
+        hourly: { time: [1_700_000_000], wind_speed_10m: [10], wind_direction_10m: [90] },
+      });
+      // Four chunks 30 s apart: 90 s in all, but never 45 s without a byte.
+      const parts = [
+        body.slice(0, 20),
+        body.slice(20, 40),
+        body.slice(40, 60),
+        body.slice(60),
+      ];
+      const slow = (): Promise<Response> =>
+        Promise.resolve(
+          new Response(
+            new ReadableStream<Uint8Array>({
+              async pull(controller) {
+                const next = parts.shift();
+                if (next === undefined) return controller.close();
+                await new Promise((r) => setTimeout(r, 30_000));
+                controller.enqueue(new TextEncoder().encode(next));
+              },
+            }),
+            { status: 200 },
+          ),
+        );
+      const adapter = new OpenMeteoForecastAdapter({
+        fetch: slow as typeof fetch,
+        now: () => 0,
+        sleep: () => Promise.resolve(),
+      });
+      const pending = adapter.fetchForecast({ lat: 1, lon: 2, label: "P" }, ["ecmwf_ifs"], 24);
+      await vi.advanceTimersByTimeAsync(125_000);
+      const batch = await pending;
+      expect(batch.forecasts[0].windSpeedKmh).toEqual([10]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("anchors the shown window on a past day or the current hour", () => {
+    const hour = 3_600_000;
+    const now = Date.UTC(2026, 9, 13, 12, 30);
+    const live = forecastWindow(null, 3, now);
+    expect(live.markerMs).toBe(Date.UTC(2026, 9, 13, 12));
+    expect(live.startMs).toBe(live.markerMs - FORECAST_HISTORY_HOURS * hour);
+    expect(live.endMs).toBe(live.markerMs + 72 * hour);
+    expect(live.settled).toBe(false);
+    const past = forecastWindow(Date.UTC(2024, 9, 12), 3, now);
+    expect(past.markerMs).toBe(Date.UTC(2024, 9, 12));
+    expect(past.settled).toBe(true);
+    // Yesterday + 3 days reaches past now: still open.
+    expect(forecastWindow(now - 24 * hour, 3, now).settled).toBe(false);
   });
 
   it("fills missing past hours from cache without extending the future", () => {

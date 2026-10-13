@@ -68,6 +68,7 @@ const TASK_VERB: Record<string, string> = {
   upload: "Uploading",
   "download-gpx": "Downloading GPX",
   "fetch-weather": "Resolving wind",
+  "recompute-elevation": "Recomputing elevation",
 };
 
 type JobTask = NonNullable<AppState["jobs"]["current"]>;

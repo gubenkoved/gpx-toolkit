@@ -26,7 +26,8 @@ import {
   type StravaStatus,
   splitUid,
 } from "./parsing";
-import { DEFAULT_MOVING_THRESHOLD_KMH } from "./track";
+import { TAG_COLOR_NAMES } from "./tags";
+import { DEFAULT_ELEVATION_NOISE_M, DEFAULT_MOVING_THRESHOLD_KMH } from "./track";
 
 /** Key under which the single serialized state blob is stored in the backend. */
 export const STORAGE_KEY = "gpx-toolkit-state";
@@ -104,6 +105,27 @@ export const MOVING_THRESHOLD_MAX_KMH = 5;
 
 /** Clamp the moving/stopped speed threshold into [0, MOVING_THRESHOLD_MAX_KMH] km/h
  *  (fractional allowed, rounded to one decimal). */
+const ELEVATION_NOISE_MAX_M = 15;
+function clampElevationNoise(n: number): number {
+  if (!Number.isFinite(n)) return DEFAULT_ELEVATION_NOISE_M;
+  return Math.round(Math.max(0, Math.min(ELEVATION_NOISE_MAX_M, n)) * 2) / 2;
+}
+
+/** Keep only well-formed tag colours (palette names or #rrggbb), keyed by tag key. */
+function cleanTagColors(v: unknown): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (!v || typeof v !== "object" || Array.isArray(v)) return out;
+  for (const [k, c] of Object.entries(v as Record<string, unknown>)) {
+    if (
+      typeof c === "string" &&
+      k &&
+      (TAG_COLOR_NAMES.includes(c) || /^#[0-9a-f]{6}$/i.test(c))
+    )
+      out[k] = c.toLowerCase();
+  }
+  return out;
+}
+
 function clampMovingThreshold(n: number): number {
   if (!Number.isFinite(n)) return DEFAULT_MOVING_THRESHOLD_KMH;
   const clamped = Math.max(0, Math.min(MOVING_THRESHOLD_MAX_KMH, n));
@@ -149,6 +171,16 @@ const SETTINGS_SPEC = {
   },
   /** Offer to tag the just-imported rides after a successful GPX import. */
   suggestTagsAfterImport: { default: true, clamp: (v: unknown) => v === true },
+  /** Elevation change (m) treated as sensor noise when summing climb from a track. */
+  elevationNoiseM: {
+    default: DEFAULT_ELEVATION_NOISE_M,
+    clamp: (v: unknown) => clampElevationNoise(Number(v)),
+  },
+  /** A colour per tag (by tag key): a palette name ("blue") or "#rrggbb". */
+  tagColors: {
+    default: {} as Record<string, string>,
+    clamp: (v: unknown) => cleanTagColors(v),
+  },
 } satisfies Record<string, SettingSpec<unknown>>;
 
 /** The user-settings shape, derived from `SETTINGS_SPEC` (each field's type is its
@@ -245,6 +277,10 @@ export interface RideRecord extends RideMetrics {
    *  stored strings keep their first-seen display casing; comparison is by lowercase
    *  key. Optional so legacy records (written before tags existed) load as []. */
   tags?: string[];
+  /** "track" once elevation gain/loss were computed (noise-filtered) from the ride's
+   *  own recorded track — then a source's figure (Beeline's, ~5× high) never replaces
+   *  them. Absent: the source's figure, as reported. */
+  elevation_src?: "track";
 }
 
 /**
@@ -408,6 +444,8 @@ function mergeDuplicateRecords(a: RideRecord, b: RideRecord): RideRecord {
 }
 
 export interface UpsertFields extends Partial<RideMetrics> {
+  /** "track": the elevation fields were computed from the recorded track. */
+  elevation_src?: "track";
   /** The ride's reference datetime (`record.key`) — its display/sort date, NOT its
    *  identity. Set on first import for content-addressed uids (GPX), whose uid
    *  suffix is a content hash; stamped once and preserved across idempotent
@@ -639,8 +677,16 @@ export class Store {
     if (fields.elapsed_sec != null) rec.elapsed_sec = fields.elapsed_sec;
     if (fields.avg_speed_kmh != null) rec.avg_speed_kmh = fields.avg_speed_kmh;
     if (fields.max_speed_kmh != null) rec.max_speed_kmh = fields.max_speed_kmh;
-    if (fields.elevation_gain_m != null) rec.elevation_gain_m = fields.elevation_gain_m;
-    if (fields.elevation_loss_m != null) rec.elevation_loss_m = fields.elevation_loss_m;
+    // Elevation from the ride's own track wins over a source's figure for good: a
+    // re-sync must not put Beeline's noisy total back. (A flat ride can filter to 0.)
+    if (fields.elevation_src === "track") {
+      rec.elevation_gain_m = fields.elevation_gain_m ?? null;
+      rec.elevation_loss_m = fields.elevation_loss_m ?? null;
+      rec.elevation_src = "track";
+    } else if (rec.elevation_src !== "track") {
+      if (fields.elevation_gain_m != null) rec.elevation_gain_m = fields.elevation_gain_m;
+      if (fields.elevation_loss_m != null) rec.elevation_loss_m = fields.elevation_loss_m;
+    }
     if (fields.track) rec.track = fields.track;
     if (fields.track_src_points != null) rec.track_src_points = fields.track_src_points;
     if (fields.track_points != null) rec.track_points = fields.track_points;
@@ -764,6 +810,22 @@ export class Store {
     this.settings.movingThresholdKmh = clampMovingThreshold(n);
     this.save();
     return this.settings.movingThresholdKmh;
+  }
+
+  /** Update the elevation noise band (m) and persist. Returns the clamped value. */
+  setElevationNoise(n: number): number {
+    this.settings.elevationNoiseM = clampElevationNoise(n);
+    this.save();
+    return this.settings.elevationNoiseM;
+  }
+
+  /** Set (or with null, clear) a tag's colour and persist. */
+  setTagColor(key: string, color: string | null): void {
+    const next = { ...this.settings.tagColors };
+    if (color) next[key] = color;
+    else delete next[key];
+    this.settings.tagColors = cleanTagColors(next);
+    this.save();
   }
 
   /** Toggle the "offer to tag after GPX import" suggestion and persist. Returns the new value. */

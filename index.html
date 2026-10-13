@@ -89,6 +89,7 @@
   <div class="row">
     <div class="tb-title">
       <img class="tb-logo" src="/logo.svg" alt="" width="22" height="22" />
+      <button type="button" class="small ghost tb-back hidden" id="viewBack" data-icon="back"></button>
       <h2 id="viewTitle">Explore</h2>
       <span class="tb-sub hidden" id="viewSub"></span>
       <!-- biome-ignore lint/a11y/useSemanticElements: matches the app's compact segmented controls -->
@@ -189,8 +190,8 @@
       <div class="sp-head-main">
         <span class="sp-title">Distance per month</span>
         <div class="seg sp-metric" id="statMetric">
-          <button data-metric="distance" class="active" data-icon="ruler">Distance</button>
-          <button data-metric="speed" data-icon="gauge">Speed</button>
+          <button data-metric="distance" class="active" data-icon="ruler" aria-label="Distance" title="Distance">Distance</button>
+          <button data-metric="speed" data-icon="gauge" aria-label="Speed" title="Speed">Speed</button>
         </div>
         <div class="seg sp-gran" id="statGran">
           <button data-gran="auto" class="active">Auto</button>
@@ -473,7 +474,14 @@
     <section class="panel fc-options" aria-label="Forecast display options">
       <div class="fc-option-row">
         <div class="fc-option-group">
-          <b>Forecast range</b>
+          <b>When</b>
+          <!-- biome-ignore lint/a11y/useSemanticElements: matches the app's compact segmented controls -->
+          <span class="seg" id="forecastWhen" role="group" aria-label="Forecast time">
+            <button type="button" data-when="now" class="active" aria-pressed="true" title="The latest forecast, from now on">Now</button><button type="button" data-when="date" class="fc-when-date" aria-pressed="false" aria-haspopup="dialog" data-icon="calendar"><span class="fc-when-day">Past day</span><span class="fc-when-short">Past</span></button>
+          </span>
+        </div>
+        <div class="fc-option-group">
+          <b>Range</b>
           <!-- biome-ignore lint/a11y/useSemanticElements: compact segmented-control styling uses this labelled group consistently across the app -->
           <span class="seg" id="forecastRange" role="group" aria-label="Forecast range">
             <button type="button" data-days="1">1d</button><button type="button" data-days="3" class="active">3d</button><button type="button" data-days="7">7d</button><button type="button" data-days="10">10d</button><button type="button" data-days="15">15d</button>
@@ -647,7 +655,7 @@
     <span class="ridemap-hover" id="rideMapHover"></span>
     <span class="ridemap-est" id="rideMapEst" title="Beeline's route polyline has no per-point timestamps, so the time/clock shown on hover is estimated — interpolated from the ride's start/end (total elapsed) time assuming an even pace, not measured. Fetch the full track for the real recorded time.">~ time is estimated</span>
     <button type="button" class="small ghost collapse-btn ridemap-collapse" id="btnRideMapCollapse" aria-expanded="true" aria-controls="rideMapModal"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m6 15 6-6 6 6"/></svg></button>
-    <button class="small ghost rmb ridemap-close" id="btnRideMapClose" type="button" title="Close (Esc)" aria-label="Close"><svg class="rmb-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg><span class="lbl">Close</span></button>
+    <button class="small ghost ridemap-close" id="btnRideMapClose" type="button" data-icon="x" title="Close (Esc)" aria-label="Close"></button>
   </div>
   <div class="ridemap-tools" role="toolbar" aria-label="Ride map controls">
     <div class="rmt-group">
@@ -761,6 +769,14 @@
         <output id="setMovingThreshOut">1 km/h</output>
       </div>
       <p class="settings-hint">Speed under which a moment counts as not moving — its time is excluded from the <b>moving avg</b> speed shown on a ride's map. Lower it toward 0 to only drop a true standstill.</p>
+    </div>
+    <div class="settings-row">
+      <label class="settings-label" for="setElevNoise">Elevation noise filter</label>
+      <div class="settings-control">
+        <input type="range" class="uslider" id="setElevNoise" min="0" max="15" step="0.5" value="4" />
+        <output id="setElevNoiseOut">4 m</output>
+      </div>
+      <p class="settings-hint">Recorded altitude jitters by a metre or two every second; summed as-is it reads as hundreds of metres of fake climbing. A rise or fall counts only once it exceeds this — raise it if flat rides still show climb, lower it toward 0 for the raw sum. Applies to every ride with its full GPX on this device; other Beeline rides show Beeline's own figure.</p>
     </div>
     <div class="settings-row">
       <label class="settings-check">

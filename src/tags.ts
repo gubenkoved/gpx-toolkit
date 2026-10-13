@@ -61,3 +61,32 @@ export function hasTag(list: readonly string[], tag: string): boolean {
   const key = tagKey(tag);
   return list.some((t) => tagKey(t) === key);
 }
+
+/** The tag colour palette (names → `--tag-<name>` tokens, tuned per theme). */
+export const TAG_COLOR_NAMES: readonly string[] = [
+  "red",
+  "orange",
+  "amber",
+  "green",
+  "teal",
+  "sky",
+  "blue",
+  "violet",
+  "pink",
+  "slate",
+];
+
+/** A stored tag colour as a CSS colour (a palette token or the hex itself); null
+ *  for none. */
+export function tagColorCss(color: string | undefined | null): string | null {
+  if (!color) return null;
+  if (TAG_COLOR_NAMES.includes(color)) return `var(--tag-${color})`;
+  return /^#[0-9a-f]{6}$/i.test(color) ? color : null;
+}
+
+/** ` style="--tc:…"` for a tagged element when its tag has a colour, else "" — the
+ *  stylesheet tints any `[style*="--tc"]` tag pill / dot from it. */
+export function tagColorStyle(colors: Readonly<Record<string, string>>, tag: string): string {
+  const css = tagColorCss(colors[tagKey(tag)]);
+  return css ? ` style="--tc:${css}"` : "";
+}

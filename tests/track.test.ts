@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   decodePolyline,
+  elevationChange,
   encodePolyline,
   extractFullTrack,
   extractTrack,
@@ -482,5 +483,42 @@ describe("gpxToRoughTrack", () => {
     expect(rough.polyline).toBe("");
     expect(rough.keptPoints).toBe(0);
     expect(rough.km).toBe(0);
+  });
+});
+
+describe("elevationChange — climb resilient to sensor noise", () => {
+  // A deterministic ±1.5 m jitter, like 1 Hz recorded altitude.
+  const jitter = (i: number): number => Math.sin(i * 1.7) * 1.5 + Math.sin(i * 0.37) * 0.6;
+
+  it("adds (almost) nothing on a flat ride, where the raw sum invents hundreds of metres", () => {
+    const eles = Array.from({ length: 3600 }, (_, i) => 5 + jitter(i));
+    const raw = elevationChange(eles, 0)!;
+    const filtered = elevationChange(eles)!;
+    expect(raw.gain).toBeGreaterThan(1000);
+    expect(filtered.gain).toBeLessThan(8);
+    expect(filtered.loss).toBeLessThan(8);
+  });
+
+  it("keeps a real climb and descent at their true size under the same noise", () => {
+    // 0 → 100 m over 1000 samples, then back down to 20 m.
+    const eles = Array.from(
+      { length: 2000 },
+      (_, i) => (i < 1000 ? i / 10 : 100 - (i - 1000) * 0.08) + jitter(i),
+    );
+    const c = elevationChange(eles)!;
+    expect(c.gain).toBeGreaterThan(92);
+    expect(c.gain).toBeLessThan(108);
+    expect(c.loss).toBeGreaterThan(72);
+    expect(c.loss).toBeLessThan(88);
+  });
+
+  it("ignores a single bad sample (a spike would otherwise count up and back down)", () => {
+    const eles = [10, 10, 10, 60, 10, 10, 10];
+    expect(elevationChange(eles)).toEqual({ gain: 0, loss: 0 });
+  });
+
+  it("is the raw sum at 0 and null without two known points", () => {
+    expect(elevationChange([10, 11, 10, 12], 0)).toEqual({ gain: 3, loss: 1 });
+    expect(elevationChange([null, 5, null])).toBeNull();
   });
 });

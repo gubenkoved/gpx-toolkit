@@ -27,6 +27,10 @@ export const VIEW_TITLES: Record<ViewName, string> = {
   routes: "Routes",
 };
 
+/** Views reached through the phone's More sheet: while one is open, More is the lit
+ *  tab (otherwise the bottom nav showed no place at all on Routes or Timeline). */
+const MORE_VIEWS: readonly ViewName[] = ["routes", "analytics", "timeline"];
+
 /** The two Weather views share one bottom-nav slot on phones. */
 const WEATHER_VIEWS: readonly ViewName[] = ["forecast", "climate"];
 const WEATHER_KEY = "gpx_toolkit.weather_view";
@@ -72,6 +76,19 @@ export function syncShell(): void {
   setMoreSheet(false);
 }
 
+/** A view's drill-in (an open route, a replayed day) puts its way back in the top
+ *  bar, as a lean arrow before the view title; `null` hides it. The view owns it:
+ *  it sets it as it renders and clears it when it's left. */
+let viewBack: (() => void) | null = null;
+export function setViewBack(back: { title: string; run: () => void } | null): void {
+  viewBack = back?.run ?? null;
+  const btn = document.getElementById("viewBack");
+  if (!btn) return;
+  btn.classList.toggle("hidden", !back);
+  btn.title = back?.title ?? "";
+  btn.setAttribute("aria-label", back?.title ?? "Back");
+}
+
 /** Set a contextual subtitle next to the view title ("" hides it). */
 export function setViewSubtitle(text: string): void {
   const el = document.getElementById("viewSub");
@@ -86,7 +103,7 @@ export function setMoreSheet(open: boolean): void {
   if (!sheet) return;
   sheet.classList.toggle("hidden", !open);
   btn?.setAttribute("aria-expanded", String(open));
-  btn?.classList.toggle("active", open);
+  btn?.classList.toggle("active", open || MORE_VIEWS.includes(activeView()));
 }
 
 export function isMoreSheetOpen(): boolean {
@@ -171,6 +188,7 @@ export function initShell(): void {
     setMoreSheet(!isMoreSheetOpen());
   });
   document.getElementById("moreClose")?.addEventListener("click", () => setMoreSheet(false));
+  document.getElementById("viewBack")?.addEventListener("click", () => viewBack?.());
   document.getElementById("moreSheet")?.addEventListener("click", (e) => {
     // Tap the scrim to dismiss; choosing anything inside also closes the sheet —
     // the destination (a view, the Sources or Settings dialog) takes over.
