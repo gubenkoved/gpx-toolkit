@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { memoryBackend } from "../src/kv";
 import {
   climbM,
+  copyRoute,
   newRoute,
   parseRoutes,
   RouteStore,
@@ -56,6 +57,25 @@ describe("routes", () => {
     expect(climbM([0, 10, 20, 5])).toEqual({ ascent: 20, descent: 15 });
     expect(climbM([null, 5])).toBeNull();
     expect(routeStats(planned()).ascentM).toBe(20);
+  });
+
+  it("copies a route to change without touching the original", () => {
+    const r = planned();
+    r.imported = true;
+    const c = copyRoute(r, Date.UTC(2026, 9, 14));
+    expect(c.id).not.toBe(r.id);
+    expect(c.name).toBe("Coast loop (copy)");
+    expect(c.created).toBe(Date.UTC(2026, 9, 14));
+    expect(c.updated).toBe(Date.UTC(2026, 9, 14));
+    expect(c.profile).toBe("trekking");
+    expect(c.imported).toBe(true);
+    expect(c.waypoints).toEqual(r.waypoints);
+    expect(c.legs).toEqual(r.legs);
+    // Editing the copy in place (as the view does) leaves the original's line alone.
+    c.waypoints.splice(1, 1);
+    c.legs[0].points[0] = [0, 0];
+    expect(r.waypoints).toHaveLength(3);
+    expect(r.legs[0].points[0]).toEqual([52.0, 4.0]);
   });
 
   it("round-trips through GPX as a fixed, imported route", () => {

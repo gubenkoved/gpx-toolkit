@@ -17,6 +17,20 @@ humans and the assistant can read this file as a compressed history of decisions
 
 ---
 
+## duplicate a route
+- **What:** the open route's action row gets "Duplicate": it saves a deep copy named
+  "… (copy)" (own id and dates, same line, waypoints and routing) and opens it.
+- **Why:** trying a variation of a route meant editing the only copy; now the original
+  stays as it was while the copy is reshaped.
+
+## route weather: wait for the same forecast instead of re-asking
+- **What:** `ensureWeather` no longer starts a new fetch when one for the same cell-days
+  and line is already in flight; it lets that answer land and rides the departure picked
+  by then.
+- **Why:** stepping the day (or toggling a model and back) during a slow Open-Meteo fetch
+  (60–80 s for 24 spots) dropped the first answer as superseded and waited a full second
+  identical fetch, so the "Fetching the forecast…" banner outlived the finished request.
+
 ## labels fold before rows wrap; rain under the ride profile
 - **What:** fold.ts measures a toolbar and applies the mildest fold level that keeps it
   on one line: Forecast drops "Updated …", then shows Presentation as icons, then

@@ -130,6 +130,19 @@ export function routeLabel(route: PlannedRoute): string {
   return `Route ${d.toLocaleDateString(undefined, { month: "short", day: "numeric" })}`;
 }
 
+/** A copy to reshape while the original stays as it is: its own id and dates, the name
+ *  marked "(copy)", the line and waypoints deep-copied (editing mutates them in place). */
+export function copyRoute(route: PlannedRoute, now = Date.now()): PlannedRoute {
+  const { id, created, updated } = newRoute(route.profile, now);
+  return {
+    ...structuredClone(route),
+    id,
+    created,
+    updated,
+    name: `${routeLabel(route)} (copy)`,
+  };
+}
+
 // --------------------------------------------------------------------------- //
 // GPX in / out
 // --------------------------------------------------------------------------- //

@@ -52,6 +52,7 @@ import {
   weatherFromCells,
 } from "./route-sim";
 import {
+  copyRoute,
   newRoute,
   type PlannedRoute,
   type RouteStore,
@@ -135,6 +136,8 @@ let weather: { key: string; dataset: Dataset; at: WeatherAt; models: string[] } 
 let modelsOpen = false;
 let weatherSeq = 0;
 let weatherBusy = false;
+/** What the fetch in flight answers, so asking the same again waits for it. */
+let weatherAsk: { key: string; course: Course } | null = null;
 let weatherError = "";
 /** What the map banner says for each job; `syncBanner` shows the one running now. */
 let routingMsg = "";
@@ -461,6 +464,15 @@ async function saveRoute(): Promise<void> {
   }
 }
 
+/** Save a copy of the open route and switch to it, so edits leave the original alone. */
+async function duplicateRoute(): Promise<void> {
+  if (!route || route.waypoints.length < 2 || !store) return;
+  const copy = copyRoute(route);
+  await store.put(copy);
+  deps.toast(`Opened a copy, "${routeLabel(copy)}" — the original stays as it was.`);
+  openRoute(copy);
+}
+
 async function deleteRoute(): Promise<void> {
   if (!route) return;
   const r = route;
@@ -735,8 +747,13 @@ async function ensureWeather(): Promise<void> {
     runSim();
     return;
   }
+  // The same question is already on its way (a day stepped within the forecast window,
+  // a model toggled and back): let that answer land — it rides whatever departure is
+  // picked by then. Asking again would drop it and wait the whole slow fetch anew.
+  if (weatherBusy && weatherAsk?.key === key && weatherAsk.course === course) return;
   const my = ++weatherSeq;
   const c = course;
+  weatherAsk = { key, course: c };
   weatherBusy = true;
   weatherSince = Date.now();
   weatherTick ??= setInterval(syncBanner, 1000);
@@ -852,7 +869,7 @@ function renderSide(): void {
           ? "Now <b>click where it ends</b> — the route follows the paths."
           : "Click the map to extend · drag a point to move it · drag the line to add a point · right-click a point to drop it · drag a row to reorder.";
   }
-  for (const id of ["rtReverse", "rtExport", "rtDelete"]) {
+  for (const id of ["rtReverse", "rtCopy", "rtExport", "rtDelete"]) {
     const b = $(id) as HTMLButtonElement | null;
     if (b) b.disabled = r.waypoints.length < 2;
   }
@@ -878,6 +895,7 @@ function sideSkeleton(): string {
     `<p class="cl-hint rt-hint" id="rtHint"></p>` +
     `<div class="rt-acts">` +
     `<button type="button" class="small ghost" id="rtReverse" data-rt="reverse">${icon("swap")}Reverse</button>` +
+    `<button type="button" class="small ghost" id="rtCopy" data-rt="copy" title="Save a copy to change, keeping this route as it is">${icon("copy")}Duplicate</button>` +
     `<button type="button" class="small ghost" id="rtExport" data-rt="export">${icon("download")}GPX</button>` +
     `<button type="button" class="small ghost danger" id="rtDelete" data-rt="delete">${icon("trash")}Delete</button>` +
     `</div></section>` +
@@ -2300,6 +2318,9 @@ function onClick(e: MouseEvent): void {
       break;
     case "reverse":
       reverseRoute();
+      break;
+    case "copy":
+      void duplicateRoute();
       break;
     case "export":
       exportGpx();
