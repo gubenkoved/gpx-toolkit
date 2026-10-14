@@ -73,6 +73,13 @@ import {
 } from "./routing";
 import { setViewBack } from "./shell";
 import { setSliderFill } from "./slider";
+import {
+  CIVIL_TWILIGHT_DEG,
+  darkSeconds,
+  SUN_HORIZON_DEG,
+  sunAltitude,
+  sunEvents,
+} from "./sun";
 import { hideTip, showTip } from "./tooltip";
 import type { LatLon } from "./track";
 import { browserZone, loadTz, offsetMinutes, zoneForPoint } from "./tz";
@@ -675,6 +682,20 @@ function fmtClock(ms: number): string {
   }
 }
 
+/** "18:44" — a 24-hour clock at the route's start, like the strip's hour labels. */
+function fmtHm(ms: number): string {
+  try {
+    return new Intl.DateTimeFormat("en-GB", {
+      hour: "2-digit",
+      minute: "2-digit",
+      hourCycle: "h23",
+      timeZone: zone || undefined,
+    }).format(new Date(ms));
+  } catch {
+    return new Date(ms).toISOString().slice(11, 16);
+  }
+}
+
 function fmtDayLabel(day: string): string {
   const today = dayInZone(Date.now(), zone);
   if (day === today) return "Today";
@@ -1253,14 +1274,41 @@ function drawSweep(): void {
   ctx.moveTo(0, base + 0.5);
   ctx.lineTo(w, base + 0.5);
   ctx.stroke();
-  ctx.fillStyle = muted;
+  // Daylight lights up the horizon: the baseline turns amber while the sun is up at the
+  // start and fades out through civil twilight, leaving the plain line for the night.
+  const amber = css.getPropertyValue("--amber").trim() || "#d6a015";
+  const sun = sweepSun();
+  if (sun) {
+    const cols = (24 * 60) / 5;
+    ctx.fillStyle = amber;
+    for (let i = 0; i < cols; i++) {
+      const alt = sunAltitude(sun.lat, sun.lon, sun.fromMs + (i + 0.5) * 5 * 60_000);
+      const lit = (alt - CIVIL_TWILIGHT_DEG) / (SUN_HORIZON_DEG - CIVIL_TWILIGHT_DEG);
+      if (lit <= 0) continue;
+      ctx.globalAlpha = Math.min(1, lit);
+      ctx.fillRect((i / cols) * w, base, w / cols + 0.5, 2);
+    }
+    ctx.globalAlpha = 1;
+  }
   ctx.font = "10px Ubuntu, sans-serif";
   ctx.textBaseline = "bottom";
+  // Sunrise and sunset label the ends of the lit line; an hour label they'd crowd steps aside.
+  const sunXs = sun
+    ? [...sun.events.rises, ...sun.events.sets].map((t) => ({
+        t,
+        x: ((t - sun.fromMs) / (24 * 3_600_000)) * w,
+      }))
+    : [];
+  ctx.fillStyle = muted;
   for (const hr of [0, 6, 12, 18]) {
     const x = (hr / 24) * w;
+    if (sunXs.some((s) => Math.abs(s.x - x) < 34)) continue;
     ctx.textAlign = hr === 0 ? "left" : "center";
     ctx.fillText(`${String(hr).padStart(2, "0")}:00`, x + (hr === 0 ? 1 : 0), h);
   }
+  ctx.fillStyle = amber;
+  ctx.textAlign = "center";
+  for (const s of sunXs) ctx.fillText(fmtHm(s.t), Math.min(w - 14, Math.max(14, s.x)), h);
   const known = sweep.filter((d) => d.coverage > 0.5);
   if (known.length) {
     let lo = Math.min(...known.map((d) => d.durationSec));
@@ -1305,6 +1353,20 @@ function drawSweep(): void {
     ctx.lineTo(x, base);
     ctx.stroke();
   }
+}
+
+/** The sun over the departure day at the route's start: where the strip's day begins
+ *  and its sunrises / sunsets (none under a polar day or night). */
+function sweepSun(): {
+  lat: number;
+  lon: number;
+  fromMs: number;
+  events: { rises: number[]; sets: number[] };
+} | null {
+  if (!route || route.waypoints.length < 2 || !departDay) return null;
+  const [lat, lon] = route.waypoints[0];
+  const fromMs = departureMs(departDay, 0);
+  return { lat, lon, fromMs, events: sunEvents(lat, lon, fromMs, fromMs + DAY_MS) };
 }
 
 /** The departure strip's pointer handling — wired once its canvas exists (the side
@@ -1362,6 +1424,12 @@ function showSweepTip(e: PointerEvent): void {
   const startMin = (i * 24 * 60) / sweep.length;
   const nextDays = Math.floor((startMin + d.durationSec / 60) / (24 * 60));
   const later = nextDays === 1 ? " (+1 day)" : nextDays > 1 ? ` (+${nextDays} days)` : "";
+  // Lights-on time: the ride's minutes with the sun down at the start (a long east–west
+  // route's far end sees sunset some minutes earlier or later).
+  const [sLat, sLon] = route?.waypoints[0] ?? [0, 0];
+  const dark = route
+    ? darkSeconds(sLat, sLon, d.startMs, d.startMs + d.durationSec * 1000)
+    : 0;
   showTip(
     x,
     rect.top,
@@ -1382,8 +1450,9 @@ function showSweepTip(e: PointerEvent): void {
           "Rain on the way",
           d.rainMm == null ? "—" : mm < RAIN_MIN_MM ? "dry" : `${fmtMm(mm)} mm`,
         ],
+        ["In the dark", dark >= 60 ? fmtDuration(dark) : "none"],
       ],
-      note: "Bar height: ride time · colour: green tailwind, red headwind, grey calm · blue above: rain. Click to pick.",
+      note: "Bar height: ride time · colour: green tailwind, red headwind, grey calm · blue above: rain · amber baseline: daylight. Click to pick.",
     },
     cv,
   );

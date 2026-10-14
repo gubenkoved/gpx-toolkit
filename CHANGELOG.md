@@ -17,6 +17,16 @@ humans and the assistant can read this file as a compressed history of decisions
 
 ---
 
+## daylight on the departure strip
+- **What:** the ride-time-by-departure strip's baseline lights up amber while the sun is
+  up at the route's start (fading through civil twilight), with the sunrise and sunset
+  times at its ends (crowded hour labels step aside); each bar's tooltip adds "In the
+  dark". New `sun.ts` computes it, no dependency.
+- **Why:** picking a departure is also picking how much of the ride needs lights. A
+  first cut shaded night behind the bars and drew half-suns over them: it muddied the
+  data, so daylight moved onto the axis line. The tooltip covers what the axis can't —
+  a long ride leaving in daylight can still finish after dark.
+
 ## duplicate a route
 - **What:** the open route's action row gets "Duplicate": it saves a deep copy named
   "… (copy)" (own id and dates, same line, waypoints and routing) and opens it.
