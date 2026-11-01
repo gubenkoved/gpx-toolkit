@@ -1232,9 +1232,7 @@ function heatmapHtml(monthly: WindRose[]): string {
       const y = topH + m * cell;
       rects += `<rect x="${x}" y="${y}" width="${cell}" height="${cell}" fill="${ACCENT}" fill-opacity="${a.toFixed(
         3,
-      )}"><title>${MONTH_ABBR[m]} · ${COMPASS_16[d]} · ${Math.round(
-        fr[m][d] * 100,
-      )}%</title></rect>`;
+      )}" data-tip="${MONTH_ABBR[m]} · ${COMPASS_16[d]} · ${Math.round(fr[m][d] * 100)}%"/>`;
     }
   }
   let colLbl = "";

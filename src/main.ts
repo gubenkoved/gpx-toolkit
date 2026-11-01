@@ -175,10 +175,9 @@ import {
   openRideMap,
   refreshOpenRideMapWind,
   setRideMapColor,
+  setRideMapProfile,
   setRideMapProfileAxis,
-  setRideMapProfileMetric,
   toggleRideMapChrome,
-  toggleRideMapProfile,
   toggleRideMapProfileStops,
   toggleRideMapWeather,
 } from "./ridemap";
@@ -980,7 +979,8 @@ function scrollToGroup(selector: string): void {
   if (m) buildMonthNow(m);
   const top = el.getBoundingClientRect().top;
   const far = Math.abs(top - GROUP_LINE) > window.innerHeight * 2;
-  el.scrollIntoView({ behavior: far ? "auto" : "smooth", block: "start" });
+  const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+  el.scrollIntoView({ behavior: far || reduced ? "auto" : "smooth", block: "start" });
   settleGroup(el);
 }
 /** The Explore chart head's figures changed: re-fit it (labels fold before it wraps). */
@@ -2212,15 +2212,39 @@ function renderConn(): void {
   renderSources();
 }
 
-/** The top-bar selection toolbar: shown while anything is selected; every batch
- *  action states the subset it will act on and hides when that subset is empty. */
-/** The Actions menu (below 1700px the batch actions fold into it). */
-function setSelMenu(open: boolean): void {
+/** The compact Actions menu: anchored on desktop, a bottom sheet on phones. */
+function setSelMenu(open: boolean, restoreFocus = false): void {
   const bar = document.getElementById("selBar");
-  if (!bar) return;
+  const menu = document.getElementById("selActs");
+  const trigger = document.getElementById("selMore");
+  if (!bar || !menu || !trigger) return;
+  const phone = window.matchMedia("(max-width: 560px)").matches;
   bar.classList.toggle("menu-open", open);
-  document.getElementById("selMore")?.setAttribute("aria-expanded", String(open));
+  menu.classList.toggle("open", open);
+  trigger.setAttribute("aria-expanded", String(open));
+  document.getElementById("selScrim")?.classList.toggle("hidden", !open || !phone);
+  menu.style.removeProperty("left");
+  menu.style.removeProperty("top");
+  if (open && !phone) {
+    const anchor = bar.getBoundingClientRect();
+    const gap = 6;
+    menu.style.left = `${Math.max(gap, Math.min(anchor.right - menu.offsetWidth, window.innerWidth - menu.offsetWidth - gap))}px`;
+    menu.style.top = `${Math.max(gap, Math.min(anchor.bottom + gap, window.innerHeight - menu.offsetHeight - gap))}px`;
+  }
+  if (restoreFocus) trigger.focus({ preventScroll: true });
 }
+// Fixed overlays belong on body: the header's blur creates a containing block.
+const selActs = document.getElementById("selActs");
+if (selActs) document.body.append(selActs);
+const selScrim = document.createElement("div");
+selScrim.id = "selScrim";
+selScrim.className = "selmenu-scrim hidden";
+selScrim.setAttribute("aria-hidden", "true");
+document.body.append(selScrim);
+const selMenuItems = (): HTMLButtonElement[] =>
+  Array.from(
+    document.querySelectorAll<HTMLButtonElement>('#selActs > button[role="menuitem"]'),
+  ).filter((button) => !button.disabled && button.getClientRects().length > 0);
 // Capture phase: the menu closes on any click — after the action's own handler has
 // the click (closing only hides the menu; the target is still the action button).
 document.addEventListener(
@@ -2228,15 +2252,44 @@ document.addEventListener(
   (e) => {
     const t = e.target as HTMLElement;
     if (t.closest?.("#selMore")) {
-      setSelMenu(!document.getElementById("selBar")?.classList.contains("menu-open"));
+      const open = !document.getElementById("selBar")?.classList.contains("menu-open");
+      setSelMenu(open);
+      if (open) selMenuItems()[0]?.focus({ preventScroll: true });
       return;
     }
+    if (t.closest?.("#selMenuClose") || t.id === "selScrim") {
+      setSelMenu(false, true);
+      return;
+    }
+    if (t.closest?.("#selActs") && !t.closest("button")) return;
     if (document.getElementById("selBar")?.classList.contains("menu-open")) {
       setTimeout(() => setSelMenu(false), 0);
     }
   },
   true,
 );
+document.addEventListener("keydown", (e) => {
+  const target = e.target as HTMLElement;
+  if (!target.closest?.("#selMore, #selActs")) return;
+  if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(e.key)) return;
+  e.preventDefault();
+  const wasOpen = document.getElementById("selBar")?.classList.contains("menu-open");
+  if (!wasOpen) setSelMenu(true);
+  const items = selMenuItems();
+  const index = items.indexOf(document.activeElement as HTMLButtonElement);
+  const next =
+    e.key === "Home" || (!wasOpen && e.key === "ArrowDown")
+      ? 0
+      : e.key === "End" || (!wasOpen && e.key === "ArrowUp")
+        ? items.length - 1
+        : (index + (e.key === "ArrowUp" ? -1 : 1) + items.length) % items.length;
+  items[next]?.focus({ preventScroll: true });
+  items[next]?.scrollIntoView({ block: "nearest" });
+});
+document.addEventListener("focusin", (e) => {
+  if (!(e.target as HTMLElement).closest?.("#selBar, #selActs")) setSelMenu(false);
+});
+window.addEventListener("resize", () => setSelMenu(false));
 
 function renderSelectionBar(allRides: AppState["rides"]): void {
   const byKey = new Map(allRides.map((r) => [r.key, r]));
@@ -2249,8 +2302,6 @@ function renderSelectionBar(allRides: AppState["rides"]): void {
   document.body.classList.toggle("has-sel", nSel > 0);
   const label = document.getElementById("selGroupLabel");
   if (label) label.textContent = `${nSel} selected`;
-  // One ride picked: say how to get the rest quickly (pointer devices only, via CSS).
-  document.getElementById("selHint")?.classList.toggle("hidden", nSel !== 1);
   if (nSel === 0) {
     setSelMenu(false);
     return;
@@ -2262,7 +2313,7 @@ function renderSelectionBar(allRides: AppState["rides"]): void {
     btn.style.display = count ? "" : "none";
     const span = btn.querySelector<HTMLElement>(":scope > .btn-label");
     if (span) span.textContent = text;
-    btn.title = text; // the label folds to the icon on narrow bars
+    btn.title = text;
   };
   // Push: only upload-capable rides not already on Strava — "Push 3 rides to Strava"
   // under "5 selected" makes the 2 skipped rides self-evident.
@@ -3326,10 +3377,8 @@ const earlyClickActions: Record<string, () => void> = {
   btnGpxSource: () => goGpx(),
   btnPickClose: () => hideSources(),
   btnRideMapFull: () => fetchRideMapFull(),
-  btnRideMapWeather: () => toggleRideMapWeather(),
   btnRideMapCollapse: () => toggleRideMapChrome(),
   btnRideMapProfileStops: () => toggleRideMapProfileStops(),
-  btnRideMapProfile: () => toggleRideMapProfile(),
   btnRideMapClose: () => closeRideMap(),
 };
 const lateClickActions: Record<string, () => void> = {
@@ -3431,19 +3480,6 @@ document.addEventListener("click", (e) => {
   // from its bar button or by clicking the backdrop outside the canvas.
   if (t.dataset?.expand) {
     return openRideMap(t.dataset.expand);
-  }
-  if (t.dataset?.color && t.closest("#rideMapColor")) {
-    // Wind is the seg's 4th pillar — selecting it resolves/enables wind colouring;
-    // any other mode turns wind colouring off and hides its summary line.
-    if (t.dataset.color === "wind") return enableRideMapWind();
-    document.getElementById("rideMapWind")?.classList.add("hidden");
-    return setRideMapColor(t.dataset.color as "none" | "height" | "speed");
-  }
-  if (t.dataset?.profile && t.closest("#rideMapProfileMetric")) {
-    return setRideMapProfileMetric(t.dataset.profile as "elevation" | "speed");
-  }
-  if (t.dataset?.axis && t.closest("#rideMapProfileAxis")) {
-    return setRideMapProfileAxis(t.dataset.axis as "distance" | "time");
   }
 
   // Split-button: toggle its dropdown. Any click outside an open menu closes it.
@@ -3961,7 +3997,7 @@ window.addEventListener("resize", () => {
 document.addEventListener("keydown", (e) => {
   if (e.key !== "Escape") return;
   if (document.getElementById("selBar")?.classList.contains("menu-open")) {
-    setSelMenu(false);
+    setSelMenu(false, true);
     return;
   }
   const settingsM = document.getElementById("settingsModal");
@@ -4065,6 +4101,17 @@ document.getElementById("tagModalChips")?.addEventListener("click", (e) => {
 
 document.addEventListener("change", (e) => {
   const cb = e.target as HTMLInputElement;
+  if (cb.id === "rideMapColor") {
+    if (cb.value === "wind") return enableRideMapWind();
+    return setRideMapColor(cb.value as "none" | "height" | "speed");
+  }
+  if (cb.id === "rideMapProfileMetric") {
+    return setRideMapProfile(cb.value as "hidden" | "elevation" | "speed");
+  }
+  if (cb.id === "rideMapProfileAxis") {
+    return setRideMapProfileAxis(cb.value as "distance" | "time");
+  }
+  if (cb.id === "rideMapWeatherToggle") return toggleRideMapWeather();
   if (cb.classList?.contains("chk")) {
     cb.checked ? selected.add(cb.dataset.key!) : selected.delete(cb.dataset.key!);
     applySelection();

@@ -99,7 +99,7 @@
   --glass: rgba(20, 23, 29, 0.92); /* translucent header/popover backdrop */
   --glass-strong: rgba(20, 23, 29, 0.94); /* more opaque glass variant */
   --track: #2a313c; /* slider / progress-bar rail fill */
-  --seg-on: #2d3444; /* the raised active segment of a .seg */
+  --seg-on: #2d3444; /* the flat active segment of a .seg */
   /* Text fields: a filled well, a hairline, an accent ring on focus. */
   --field-bg: #0d1015;
   --field-border: #2a313d;
@@ -420,111 +420,73 @@ header {
   letter-spacing: 0.2px;
   cursor: default;
 }
-/* Selection toolbar: when rides are selected it appears in the top bar — an
-   accent-tinted strip with the count, a clear ×, and every batch action as an
-   icon + label button (labels fold to icons under 1700px; the full label stays in
-   the tooltip). Prominent by design: a selection is a mode. */
+/* Selection is one seamless control at every width: count + Actions. */
 .selbar {
-  flex: 1 1 auto;
-  min-width: 0;
+  flex: 0 0 auto;
+  position: relative;
   display: flex;
   align-items: center;
-  gap: 4px;
-  margin-left: 10px;
-  /* Exactly inside the top bar's 33px content box (54px less its 10px padding and
-     hairline): taller, it grew the bar by ~6px and shifted the page on every first
-     pick. The 29px buttons sit centred in it. */
-  box-sizing: border-box;
-  height: 32px;
-  padding: 0 6px 0 2px;
-  background: var(--accent-tint);
-  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--line));
-  border-radius: 10px;
-  overflow-x: auto;
-  scrollbar-width: none;
-}
-.selbar::-webkit-scrollbar {
-  display: none;
+  min-width: 0;
+  height: var(--tap-min);
+  margin-left: var(--ctrl-pad-x);
+  padding: 0;
+  background: var(--panel2);
+  border: var(--ctrl-border) solid var(--line);
+  border-radius: var(--ctrl-radius);
 }
 .selbar.hidden {
   display: none;
 }
 .selbar-x {
   flex: 0 0 auto;
-  width: 28px;
-  height: 28px;
-  padding: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border-radius: 7px;
-  background: transparent;
+  width: var(--tap-min);
+  height: calc(var(--tap-min) - 2 * var(--ctrl-border));
+  padding: 0;
   border-color: transparent;
-  color: var(--text);
+  border-radius: calc(var(--ctrl-radius) - var(--ctrl-border)) 0 0
+    calc(var(--ctrl-radius) - var(--ctrl-border));
+  background: transparent;
+  color: var(--muted);
 }
 .selbar-x > .bi {
   width: 16px;
   height: 16px;
 }
+.selbar-x:hover:not(:disabled) {
+  color: var(--text);
+  border-color: transparent;
+  background: var(--ghost-bg-hover);
+}
 .selbar-count {
   flex: 0 0 auto;
-  margin: 0 8px 0 2px;
-  font-size: 13px;
-  color: var(--accent);
+  margin: 0 var(--ctrl-pad-x-sm) 0 var(--ctrl-pad-y-sm);
+  padding-right: var(--ctrl-pad-x-sm);
+  border-right: var(--ctrl-border) solid var(--ghost-line);
+  color: var(--accent-soft-text);
+  font-size: var(--ctrl-font-sm);
+  font-weight: 500;
   white-space: nowrap;
 }
-/* The range hint: only where there is a keyboard + pointer to use it, and only
-   while exactly one ride is picked (see renderSelectionBar). */
-.selbar-hint {
-  display: none;
-  flex: 0 0 auto;
-  margin-right: 8px;
-  font-size: 12px;
-  color: var(--muted);
-  white-space: nowrap;
-}
-@media (hover: hover) and (pointer: fine) and (min-width: 1100px) {
-  .selbar-hint {
-    display: inline;
-  }
-  .selbar-hint.hidden {
-    display: none;
-  }
-}
-.selbar .btn-label {
-  display: inline;
-}
-/* The action buttons sit inline (labelled) where there is room… */
-.selbar-acts {
-  display: contents;
-}
-.selbar-acts > button.small {
-  flex: 0 0 auto;
-  white-space: nowrap;
-  background: transparent;
-  border-color: transparent;
-  color: var(--text);
-}
-.selbar-acts > button.small:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--accent) 16%, transparent);
-  border-color: transparent;
-}
-.selbar-acts > button.small.danger {
-  color: var(--err-text);
-}
-.selbar-acts > button.small.danger:hover:not(:disabled) {
-  background: var(--err-bg);
-}
-.selbar-more {
-  display: none;
-  flex: 0 0 auto;
+.selbar > .selbar-more {
+  display: inline-flex;
   align-items: center;
-  gap: 5px;
-  margin-left: auto;
-  background: var(--panel);
-  border-color: color-mix(in srgb, var(--accent) 35%, var(--line));
+  gap: var(--ctrl-pad-y);
+  min-height: calc(var(--tap-min) - 2 * var(--ctrl-border));
+  padding: var(--ctrl-pad-y-sm) var(--ctrl-pad-x);
+  border-color: transparent;
+  border-radius: 0 calc(var(--ctrl-radius) - var(--ctrl-border))
+    calc(var(--ctrl-radius) - var(--ctrl-border)) 0;
+  background: transparent;
   color: var(--text);
-  font-weight: 600;
+  font-weight: 500;
+}
+.selbar > .selbar-more:hover:not(:disabled),
+.selbar.menu-open > .selbar-more {
+  border-color: transparent;
+  background: var(--ghost-bg-hover);
 }
 .selbar-caret {
   width: 16px;
@@ -539,44 +501,80 @@ header {
 .selbar.menu-open .selbar-caret {
   transform: rotate(180deg);
 }
-/* …and below 1700px they fold into the Actions menu: the same buttons, as labelled
-   rows in a dropdown — never a strip of look-alike icons. */
-@media (max-width: 1699px) {
-  .selbar {
-    position: relative;
-    overflow: visible;
+/* Mounted on body: the header's backdrop-filter must not trap fixed menus. */
+.selbar-acts {
+  display: none;
+  position: fixed;
+  z-index: 210;
+  min-width: 260px;
+  max-width: calc(100vw - 2 * var(--ctrl-pad-x));
+  max-height: calc(100svh - 2 * var(--ctrl-pad-y));
+  overflow-y: auto;
+  padding: var(--ctrl-pad-y);
+  border: var(--ctrl-border) solid var(--line);
+  border-radius: var(--ctrl-radius);
+  background: var(--panel2);
+  box-shadow: var(--shadow-menu);
+}
+.selbar-acts.open {
+  display: flex;
+  flex-direction: column;
+}
+.selmenu-head,
+.selmenu-scrim {
+  display: none;
+}
+@media (max-width: 560px) {
+  .selbar-count {
+    margin: 0 var(--ctrl-pad-y) 0 0;
+    padding-right: var(--ctrl-pad-y);
   }
-  .selbar-more {
-    display: inline-flex;
+  .selbar > .selbar-more {
+    padding-inline: calc(var(--ctrl-pad-x) - var(--ctrl-pad-y-sm));
   }
   .selbar-acts {
-    display: none;
-    position: absolute;
-    top: calc(100% + 6px);
-    right: 0;
-    z-index: 60;
-    flex-direction: column;
-    min-width: 248px;
-    padding: 5px;
-    background: var(--panel2);
-    border: 1px solid var(--line);
-    border-radius: 10px;
-    box-shadow: var(--shadow-menu);
-  }
-  .selbar.menu-open .selbar-acts {
-    display: flex;
-  }
-  .selbar-acts > button.small {
-    justify-content: flex-start;
-    gap: 10px;
+    inset: auto 0 0;
     width: 100%;
-    padding: 9px 11px;
-    border-radius: 7px;
-    font-size: 13px;
-    text-align: left;
+    max-width: none;
+    max-height: 80svh;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: var(--ctrl-pad-y) var(--ctrl-pad-x)
+      max(var(--ctrl-pad-x), env(safe-area-inset-bottom));
+    border-radius: var(--radius) var(--radius) 0 0;
+    border-bottom: 0;
   }
-  .selbar-acts > button.small:hover:not(:disabled) {
-    background: var(--surface-hover);
+  .selmenu-head {
+    position: sticky;
+    top: calc(-1 * var(--ctrl-pad-y));
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--ctrl-gap);
+    padding: var(--ctrl-pad-y) 0;
+    background: var(--panel2);
+    font-size: var(--ctrl-font);
+  }
+  .selmenu-head b {
+    font-weight: 500;
+  }
+  .selmenu-head > button {
+    width: var(--tap-min);
+    height: var(--tap-min);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    background: transparent;
+    border-color: transparent;
+  }
+  .selmenu-scrim:not(.hidden) {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 209;
+    background: var(--scrim);
   }
 }
 .spacer {
@@ -698,6 +696,7 @@ button.tb-back {
 /* Ride map: the toolbar, summary and wind line fold into the title bar. */
 .ridemap.slim .ridemap-tools,
 .ridemap.slim .ridemap-summary,
+.ridemap.slim .ridemap-graph-tools,
 .ridemap.slim .ridemap-wind {
   display: none;
 }
@@ -716,7 +715,13 @@ button {
   border-radius: var(--ctrl-radius);
   padding: 7px 13px;
   cursor: pointer;
-  transition: 0.12s ease;
+  transition:
+    color 0.12s ease,
+    background-color 0.12s ease,
+    border-color 0.12s ease,
+    box-shadow 0.12s ease,
+    opacity 0.12s ease,
+    filter 0.12s ease;
   white-space: nowrap;
 }
 button:hover:not(:disabled) {
@@ -768,6 +773,37 @@ button.danger {
 button.danger:hover:not(:disabled) {
   background: var(--err-bg);
   border-color: var(--err-border);
+}
+/* A shared action surface owns its border and fill; rows only lift on hover. */
+:is(.selbar-acts, .splitmenu, .rbtns .ovr-items) > button:not(.ms-clear) {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  width: 100%;
+  min-height: var(--tap-min);
+  padding: var(--ctrl-pad-x-sm) var(--ctrl-pad-x);
+  border: var(--ctrl-border) solid transparent;
+  border-radius: var(--ctrl-radius-sm);
+  background: transparent;
+  font-size: var(--ctrl-font-sm);
+  font-weight: 500;
+  text-align: left;
+}
+:is(.selbar-acts, .splitmenu, .rbtns .ovr-items) > button:not(.ms-clear):hover:not(:disabled) {
+  background: var(--ghost-bg-hover);
+  border-color: transparent;
+}
+:is(.selbar-acts, .splitmenu, .rbtns .ovr-items) > button.danger:not(.ms-clear) {
+  color: var(--err-text);
+}
+:is(.selbar-acts, .splitmenu, .rbtns .ovr-items)
+  > button.danger:not(.ms-clear):hover:not(:disabled) {
+  background: var(--err-bg);
+}
+:is(.selbar-acts, .rbtns .ovr-items) > button.danger,
+#btnReset {
+  margin-top: var(--ctrl-pad-y);
+  border-top-color: var(--line);
 }
 /* Softer accent: signals the primary action of a group without a full orange fill,
    so a long list of rides doesn't become a wall of orange. Fills on hover. */
@@ -825,25 +861,26 @@ button.small {
   opacity: 1;
 }
 
-/* Segmented control: a recessed pill with the active option raised as a chip.
+/* Segmented control: one seamless surface with a flat sliding selection.
    Neutral by design — the accent is reserved for primary actions and the active
    nav item, so a row of toggles never turns into a wall of orange. */
 .seg {
   display: inline-flex;
-  gap: 2px;
-  padding: 3px;
+  gap: 0;
+  padding: 0;
   background: var(--panel2);
   border: var(--ctrl-border) solid var(--line);
   border-radius: var(--ctrl-radius);
 }
 .seg button {
   border: 0;
-  border-radius: calc(var(--ctrl-radius) - 3px);
+  border-radius: 0;
   background: transparent;
-  padding: calc(var(--ctrl-pad-y) - 2px) var(--ctrl-pad-x);
+  min-height: calc(var(--tap-min) - 2 * var(--ctrl-border));
+  padding: var(--ctrl-pad-y) var(--ctrl-pad-x);
   color: var(--muted);
   font-size: var(--ctrl-font);
-  font-weight: 600; /* same weight as the active chip — toggling never shifts widths */
+  font-weight: 500; /* stable widths when the selection changes */
   line-height: 1.3;
 }
 .seg button:disabled {
@@ -857,12 +894,11 @@ button.small {
 .seg button.active {
   background: var(--seg-on);
   color: var(--text);
-  font-weight: 600;
-  box-shadow: var(--shadow-thumb);
+  box-shadow: none;
 }
-/* The sliding thumb (src/seg.ts): a raised pill that glides to the active button.
+/* The sliding thumb (src/seg.ts): a flat fill that glides to the active button.
    Once a seg has one, the active button itself goes flat and the thumb carries the
-   fill + shadow beneath it. */
+   fill beneath it. */
 .seg {
   position: relative;
   isolation: isolate;
@@ -876,15 +912,22 @@ button.small {
   top: 0;
   left: 0;
   z-index: 0;
-  border-radius: calc(var(--ctrl-radius) - 3px);
+  border-radius: 0;
   background: var(--seg-on);
-  box-shadow: var(--shadow-thumb);
   pointer-events: none;
   transition:
     transform 0.24s cubic-bezier(0.2, 0.7, 0.2, 1),
-    width 0.24s cubic-bezier(0.2, 0.7, 0.2, 1),
-    height 0.24s cubic-bezier(0.2, 0.7, 0.2, 1),
-    opacity 0.15s ease;
+    width 0.24s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+.seg > button:first-of-type,
+.seg:has(> button.active:first-of-type) > .seg-thumb {
+  border-top-left-radius: calc(var(--ctrl-radius) - var(--ctrl-border));
+  border-bottom-left-radius: calc(var(--ctrl-radius) - var(--ctrl-border));
+}
+.seg > button:last-of-type,
+.seg:has(> button.active:last-of-type) > .seg-thumb {
+  border-top-right-radius: calc(var(--ctrl-radius) - var(--ctrl-border));
+  border-bottom-right-radius: calc(var(--ctrl-radius) - var(--ctrl-border));
 }
 .seg-thumb.no-anim {
   transition: none;
@@ -912,7 +955,10 @@ button.small {
   color: var(--muted);
   font-size: var(--ctrl-font);
   cursor: text;
-  transition: 0.12s ease;
+  transition:
+    color 0.12s ease,
+    background-color 0.12s ease,
+    border-color 0.12s ease;
 }
 .custom:hover {
   border-color: var(--border-hover);
@@ -1094,7 +1140,10 @@ button.small {
   background: var(--panel2);
   border: var(--ctrl-border) solid var(--line);
   color: var(--muted);
-  transition: 0.12s ease;
+  transition:
+    color 0.12s ease,
+    background-color 0.12s ease,
+    border-color 0.12s ease;
   white-space: nowrap;
 }
 .fchip:hover {
@@ -1982,7 +2031,7 @@ body.job-active main {
 .rp-month .rows.open > .rrow {
   border-top: 0;
   border-bottom: 1px solid var(--line);
-  padding: 10px 6px;
+  padding: 10px var(--row-inset);
 }
 /* When this month holds the open per-ride "⋮" menu, let the dropdown escape the
    box instead of being clipped by `overflow: hidden`. Only one menu is open at a
@@ -2247,7 +2296,6 @@ span.caret.open::before {
     var(--accent) 0%,
     color-mix(in srgb, var(--accent) 62%, var(--panel)) 100%
   );
-  transition: height 0.25s ease;
   min-height: 3px;
   position: relative;
 }
@@ -2407,10 +2455,12 @@ span.caret.open::before {
   display: block;
 }
 .rrow {
+  --row-inset: 14px;
+  --selection-rail: 2px;
   display: flex;
   align-items: flex-start;
-  gap: 12px;
-  padding: 11px 15px;
+  gap: 10px;
+  padding: 11px var(--row-inset);
   cursor: pointer;
   border-top: 1px solid var(--line);
   /* When a row is scrolled into view from a map's "Selected" list it must clear
@@ -2420,22 +2470,23 @@ span.caret.open::before {
 .rrow:hover {
   background: var(--surface-soft);
 }
-/* Selected rows: an accent inset stripe + faint tint (matching the .fchip.on
-   tint) so a multi-ride selection reads at a glance. Inset shadow, not a left
-   border, to avoid shifting the row content. */
+/* A fine rail sits 12px clear of the checkbox. Every row keeps the same inset,
+   so selecting a ride never shifts its checkbox or text. The rail is an inset
+   shadow rather than a border; Shift previews and discovery flashes share it. */
 .rrow.sel {
-  background: rgba(252, 82, 0, 0.08);
-  box-shadow: inset 3px 0 0 var(--accent);
+  background: color-mix(in srgb, var(--accent) 5%, transparent);
+  box-shadow: inset var(--selection-rail) 0 0 var(--accent);
 }
 .rrow.sel:hover {
-  background: var(--accent-tint-strong);
+  background: var(--accent-tint);
 }
 /* Shift-range preview (main.ts renderRangePreview): with Shift held, the rows a click
    would select get a lighter tint, a fainter stripe and a dashed ring on the box;
    rows it would clear fade. The hovered end names the count in a pill. */
 .rrow.range-add:not(.sel) {
   background: color-mix(in srgb, var(--accent) 5%, transparent);
-  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--accent) 45%, transparent);
+  box-shadow: inset var(--selection-rail) 0 0
+    color-mix(in srgb, var(--accent) 45%, transparent);
 }
 .rrow.range-add:not(.sel) .chk {
   outline: 1.5px dashed color-mix(in srgb, var(--accent) 75%, transparent);
@@ -2444,7 +2495,7 @@ span.caret.open::before {
 }
 .rrow.range-remove.sel {
   background: color-mix(in srgb, var(--muted) 7%, transparent);
-  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--muted) 60%, transparent);
+  box-shadow: inset var(--selection-rail) 0 0 color-mix(in srgb, var(--muted) 60%, transparent);
 }
 .rrow.range-remove.sel .rmain,
 .rrow.range-remove.sel .chk {
@@ -2485,11 +2536,11 @@ span.caret.open::before {
 @keyframes rrow-flash {
   0% {
     background: rgba(252, 82, 0, 0.22);
-    box-shadow: inset 3px 0 0 var(--accent);
+    box-shadow: inset var(--selection-rail) 0 0 var(--accent);
   }
   100% {
     background: transparent;
-    box-shadow: inset 3px 0 0 transparent;
+    box-shadow: inset var(--selection-rail) 0 0 transparent;
   }
 }
 .rrow.deleted .rtitle-text {
@@ -2674,8 +2725,7 @@ span.caret.open::before {
   padding: var(--ctrl-pad-y-sm);
   aspect-ratio: 1;
 }
-/* The row menu is the same menu vocabulary as the app's ⋯ menu (.splitmenu):
-   borderless items on one surface, hover fill — not a stack of loose buttons. */
+/* Row menus use the shared flat action-row recipe above. */
 .rbtns .ovr-items {
   display: none;
   position: absolute;
@@ -2685,31 +2735,15 @@ span.caret.open::before {
   flex-direction: column;
   gap: 1px;
   min-width: 184px;
-  padding: 4px;
+  padding: var(--ctrl-pad-y);
   background: var(--panel2);
-  border: 1px solid var(--line);
-  border-radius: 9px;
+  border: var(--ctrl-border) solid var(--line);
+  border-radius: var(--ctrl-radius);
   box-shadow: var(--shadow-menu);
 }
 .rbtns.open .ovr-items {
   display: flex;
 }
-.rbtns .ovr-items > button {
-  width: 100%;
-  justify-content: flex-start;
-  text-align: left;
-  border-color: transparent;
-  background: transparent;
-  border-radius: 6px;
-}
-.rbtns .ovr-items > button:hover:not(:disabled) {
-  background: var(--surface-hover);
-  border-color: transparent;
-}
-.rbtns .ovr-items > button.danger:hover:not(:disabled) {
-  background: var(--err-bg);
-}
-
 /* Split button: a primary action fused with a caret that reveals a dropdown of related
    actions (used for GPX Preview / Save .gpx file). The two buttons read as ONE segmented
    control — shared border, a single internal divider, rounded only on the outer edges. */
@@ -2813,38 +2847,53 @@ span.caret.open::before {
   z-index: 30;
   background: var(--panel2);
   border: 1px solid var(--line);
-  border-radius: 9px;
-  padding: 4px;
+  border-radius: var(--ctrl-radius);
+  padding: var(--ctrl-pad-y);
   box-shadow: var(--shadow-menu);
   white-space: nowrap;
 }
 .split.open .splitmenu {
   display: block;
 }
-/* Menu rows, not buttons: drop the per-item border/fill the base `button` rule gives
-   them (which read as gross stacked outlined pills) and render flat, full-width rows
-   with a single hover highlight — the standard dropdown-item look. */
-.splitmenu button {
-  display: block;
-  width: 100%;
-  text-align: left;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  padding: 7px 11px;
+/* Single-choice dropdowns share the app's trigger and flat menu-row recipes.
+   Their chevron sits inside the same horizontal padding as the label. */
+.choice-select > button.menubtn {
+  min-width: 8em;
+  min-height: var(--tap-min);
+  justify-content: space-between;
+  gap: calc(2 * var(--ctrl-gap));
+  padding-inline: var(--ctrl-pad-x);
 }
-.splitmenu button:not(:last-child) {
-  margin-bottom: 1px;
+.choice-menu {
+  position: fixed;
+  right: auto;
+  z-index: 1100;
+  width: max-content;
+  max-width: calc(100vw - 2 * var(--ctrl-pad-x));
+  max-height: calc(100svh - 2 * var(--ctrl-pad-y));
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
-.splitmenu button:hover:not(:disabled) {
-  background: var(--surface-hover);
-  border-color: transparent;
+.choice-menu:not([hidden]) {
+  display: flex;
+  flex-direction: column;
 }
-.splitmenu button.danger {
-  color: var(--err-text);
+.splitmenu.choice-menu > button[aria-checked="true"] {
+  color: var(--accent-soft-text);
+  background: var(--accent-soft-bg);
 }
-.splitmenu button.danger:hover:not(:disabled) {
-  background: var(--err-bg);
+.splitmenu.choice-menu > button > .bi {
+  margin-left: auto;
+  color: inherit;
+  visibility: hidden;
+}
+.choice-menu > button[aria-checked="true"] > .bi {
+  visibility: visible;
+}
+@media (pointer: coarse) {
+  .splitmenu.choice-menu > button[role="menuitemradio"] {
+    min-height: calc(var(--tap-min) + 2 * var(--ctrl-pad-y));
+  }
 }
 /* Section caption inside the consolidated ⋯ menu ("Selected", "App data"): a small
    muted uppercase label that groups the rows beneath it without heavy divider lines. */
@@ -3063,7 +3112,8 @@ span.caret.open::before {
   width: 18px;
   height: 18px;
   color: var(--wind-text);
-  flex: 0 0 auto;
+  margin-right: var(--ctrl-gap);
+  vertical-align: middle;
 }
 /* Map arrows (Leaflet divIcon): the chosen wind-direction marker. ITERATION: finalist
    #4 — double chevron (»), larger, with a dedicated dark casing underlay drawn beneath
@@ -3095,6 +3145,7 @@ span.caret.open::before {
    picker at z-80) with a top bar (title · hover readout · close) over a big
    interactive Leaflet map. */
 .ridemap {
+  padding-bottom: env(safe-area-inset-bottom);
   position: fixed;
   inset: 0;
   z-index: 75;
@@ -3128,26 +3179,27 @@ body.ridemap-open {
   color: var(--text);
 }
 .ridemap-title {
+  flex: 1 1 auto;
+  min-width: 0;
   font-weight: 500;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 50%;
 }
-/* The live hover readout. It must NEVER reflow the bar as you scrub: it claims exactly
-   the leftover space (flex-basis 0 + grow) and ellipsises its text WITHIN that box, so a
-   longer/shorter readout — or the wind pill appearing — can't shove the toolbar (which
-   would otherwise trip the compact-fold and make the buttons jump). The wind dial is
-   pinned to the box's right edge so it holds a stable position instead of sliding with
-   the text length. */
+/* Reserve space only for real readout content, including after its persistent nodes
+   have been cleared. The title uses the whole remaining header when the readout is
+   idle. During scrubbing it steps aside; on a map tap both share the available space. */
 .ridemap-hover {
-  flex: 1 1 0;
+  flex: 1 1 auto;
   min-width: 0;
   display: flex;
   align-items: center;
   overflow: hidden;
   color: var(--muted);
   font-variant-numeric: tabular-nums;
+}
+.ridemap-hover:not(:has(.rmh-text:not(:empty))) {
+  display: none;
 }
 .ridemap-hover .rmh-text {
   min-width: 0;
@@ -3261,193 +3313,67 @@ body.ridemap-open {
 .ridemap-canvas .leaflet-tile-pane {
   filter: var(--tile-filter);
 }
-/* The toolbar: its own row under the title, as labelled groups ("Colour route by",
-   "Weather", "Graph", "Track") so every control says what it does. It scrolls
-   sideways as a last resort once the JS has folded the controls to icons. */
-.ridemap-tools {
+/* Contextual ride controls: keep scope labels visible, wrap instead of replacing
+   them with icons. Map controls sit above the map; graph controls below it. */
+.ridemap-tools,
+.ridemap-graph-tools {
   flex: 0 0 auto;
   display: flex;
-  align-items: flex-end;
-  gap: 8px 22px;
-  padding: 7px 14px 9px;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 18px;
+  padding: 8px 14px;
   background: var(--panel);
   border-bottom: 1px solid var(--line);
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
-  scrollbar-width: none;
+  font-size: var(--ctrl-font-sm);
 }
-.ridemap-tools::-webkit-scrollbar {
-  display: none;
-}
-.ridemap-tools .hidden {
-  display: none;
-}
-.rmt-group {
-  flex: 0 0 auto;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 5px;
-}
-.rmt-group > b {
-  color: var(--muted);
-  font-size: 10px;
-  font-weight: 650;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  white-space: nowrap;
-}
-/* The group's controls sit in one row (the caption is the first child). */
-.rmt-group > b ~ * {
+.ridemap-tools label,
+.ridemap-graph-tools label,
+.ridemap-field,
+.ridemap-graph-actions {
   display: inline-flex;
+  align-items: center;
+  gap: var(--ctrl-gap);
 }
-.rmt-group > b ~ .hidden {
-  display: none;
+.ridemap-tools select,
+.ridemap-graph-tools select {
+  max-width: 100%;
 }
-.rmt-group {
+.ridemap-check {
+  min-height: var(--tap-min);
+  cursor: pointer;
+}
+.ridemap-check input {
+  flex: 0 0 auto;
+}
+.ridemap-graph-tools {
+  border-top: 1px solid var(--line);
+}
+.ridemap-graph-actions {
+  margin-left: auto;
   flex-wrap: wrap;
-  flex-direction: row;
-  align-items: center;
-  gap: 6px;
 }
-.rmt-group > b {
-  flex: 1 0 100%;
+#btnRideMapProfileStops {
+  min-height: var(--tap-min);
+  font-weight: 500;
 }
-/* A toggle carries its own on/off mark — a small box that fills with a tick when
-   pressed — so "Profile" or "Rain & wind" never needs a verb that flips. */
-.rmb-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-}
-.rmb-toggle::before {
-  content: "";
-  flex: 0 0 auto;
-  width: 15px;
-  height: 15px;
-  box-sizing: border-box;
-  border: 1.6px solid currentColor;
-  border-radius: 4px;
-  opacity: 0.75;
-}
-.rmb-toggle[aria-pressed="true"]::before {
-  opacity: 1;
-  border-color: #fff;
-  background:
-    #fff
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='m5 12.5 4.2 4.2L19 7' fill='none' stroke='%23fc5200' stroke-width='3.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")
-    center / 12px no-repeat;
-}
-/* Standalone toolbar buttons match the segmented controls' height, so a row of
-   mixed controls sits on one line. */
-.rmt-group > .rmb {
-  min-height: 32px;
-  padding-top: 5px;
-  padding-bottom: 5px;
-}
-/* Controls keep their natural width: a shrinking button would squeeze its label and
-   the overflow test (scrollWidth > clientWidth) that folds the row to icons would
-   never fire. Only the status text may shrink (it ellipsises). */
-.ridemap-tools .rmb,
-.ridemap-tools .seg {
-  flex: 0 0 auto;
-}
-/* Close always stays put — it's anchored after the (scrollable) tools cluster and may
-   never be shrunk or scrolled out of view. */
-#btnRideMapClose {
-  flex: 0 0 auto;
-}
-/* Icon-collapse: each bar control carries an inline-SVG icon plus its text label.
-   Normally the label shows and the icon is hidden; when the bar runs out of room the
-   JS adds `.compact` and we flip to icon-only (meaning kept in title/aria-label),
-   reclaiming width without dropping any control — same icon-only vocabulary as the
-   floating map buttons. */
-.ridemap-bar .rmb-ico,
-.ridemap-tools .rmb-ico {
-  display: none;
-  width: 16px;
-  height: 16px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 2;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-/* A standalone bar toggle (Wind, Hide stops) signals its ON state with the same accent
-   fill the segmented controls (`.seg button.active`) use, so an active toggle reads the
-   same everywhere in the bar. The icon stroke is `currentColor`, so it whitens too. */
-.ridemap-tools .rmb.active {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #fff;
-}
-.ridemap-tools .seg-thumb {
-  background: var(--accent);
-}
-.ridemap-tools .rmb.active:hover:not(:disabled) {
-  background: var(--accent);
-  border-color: var(--accent);
-  filter: brightness(1.08);
-}
-.ridemap-tools.compact .rmb .lbl,
-.ridemap-tools.compact .rmt-group > b {
-  display: none;
-}
-/* The toolbar's actions and segment pillars show icon + label, like the rest of the
-   app; a toggle's box is its mark, so it shows its icon only once folded. */
-.ridemap-tools .rmb-ico {
-  display: block;
-}
-.ridemap-tools .rmb {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-.ridemap-tools .rmb-toggle .rmb-ico {
-  display: none;
-}
-.ridemap-tools.compact .rmb-toggle .rmb-ico {
-  display: block;
-}
-.ridemap-tools.compact .rmb-toggle {
-  gap: 5px;
-}
-/* In compact mode the labelled push-buttons and seg buttons become square icon
-   tiles so the row reads as a tidy strip of icons. */
-.ridemap-tools.compact .rmb {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 6px;
-  min-width: 30px;
-}
-.ridemap-tools.compact .seg button.rmb {
-  padding: 6px 9px;
-}
-/* A hidden control stays hidden in compact mode too: the `.compact .rmb` rule above
-   outranks the plain `.hidden` utility, so re-assert the hide with higher specificity.
-   Without this, a button the JS hid (e.g. Fetch full track / Resolve wind once both
-   the track and wind are already loaded) would wrongly reappear as an icon. */
-.ridemap-tools.compact .rmb.hidden {
+.ridemap-graph-tools.hidden,
+.ridemap-tools .hidden,
+.ridemap-graph-tools .hidden {
   display: none;
 }
 /* Close is in the title bar: pinned at its end, never folded. */
 .ridemap-close {
   margin-left: auto;
 }
-.ridemap-color button {
-  cursor: pointer;
-}
 /* Inline, in-context feedback for the full-track fetch — visible even in the
    full-screen map (where the bottom toast is easy to miss). Empty by default. */
 .ridemap-status {
   flex: 0 1 auto;
-  max-width: 38vw;
+  max-width: 100%;
   color: var(--muted);
   font-size: 12px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  overflow-wrap: anywhere;
 }
 .ridemap-status:empty {
   display: none;
@@ -3553,15 +3479,14 @@ body.ridemap-open {
   color: var(--muted);
   font-weight: 500;
 }
-/* Persistent strip of headline stats the full recorded track unlocks (point
-   count, measured distance, real elevation gain/loss, recording span, speeds).
-   Sits between the bar and the map; only shown once a full track is loaded. */
+/* One flowing summary: use the available width, wrapping only when values need it. */
 .ridemap-summary {
   flex: 0 0 auto;
   display: flex;
   flex-wrap: wrap;
-  gap: 8px 18px;
-  padding: 8px 14px;
+  align-items: center;
+  gap: 4px 14px;
+  padding: 6px 14px;
   background: var(--panel);
   border-bottom: 1px solid var(--line);
   font-size: 12.5px;
@@ -3569,23 +3494,39 @@ body.ridemap-open {
 .ridemap-summary.hidden {
   display: none;
 }
-.rms-chip {
+.rms-row {
+  display: contents;
+}
+.rms-speed-start {
+  display: inline-flex;
+  align-items: center;
+  gap: 14px;
+}
+.rms-chip,
+.rms-speed-label,
+.rms-points {
   color: var(--muted);
   white-space: nowrap;
+}
+.rms-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
 }
 .rms-chip b {
   color: var(--text);
   font-variant-numeric: tabular-nums;
   font-weight: 600;
 }
-/* The "not moving" hint: a quieter chip so the excluded-idle-time note reads as a
-   subtle footnote to the moving average, not a headline stat. */
-.rms-chip.subtle {
-  opacity: 0.62;
+.rms-climb,
+.rms-climb > b {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 }
-.rms-chip.subtle b {
-  color: var(--muted);
-  font-weight: 500;
+.rms-climb .bi {
+  width: 12px;
+  height: 12px;
 }
 /* The shared profile strip (the ride map's and a planned route's): an SVG stretched to
    the strip, its labels in HTML beside it. */
@@ -4216,7 +4157,6 @@ body.ridemap-open {
   width: 36px;
   height: 36px;
   padding: 0;
-  box-shadow: var(--shadow-thumb);
 }
 /* The legend fold is one of the cluster: same square chrome and glyph weight as
    settings / refresh beside it, not the app's lean round panel chevron. */
@@ -6050,22 +5990,29 @@ button.fc-model-reveal[aria-pressed="true"] {
   display: inline-flex;
   flex: 0 0 auto;
   isolation: isolate;
+  background: var(--panel2);
+  border: var(--ctrl-border) solid var(--line);
+  border-radius: var(--ctrl-radius-sm);
 }
 .range-filter .rf-presets .rf-reset {
-  border-top-right-radius: 0;
-  border-bottom-right-radius: 0;
+  min-height: var(--tap-min);
+  border: 0;
+  border-radius: calc(var(--ctrl-radius-sm) - var(--ctrl-border)) 0 0
+    calc(var(--ctrl-radius-sm) - var(--ctrl-border));
+  font-weight: 500;
+  background: transparent;
 }
 .range-filter .rf-caret {
   flex: 0 0 auto;
-  width: 24px;
+  width: var(--tap-min);
   padding: 0;
-  margin-left: -1px;
   background: transparent;
-  border: 1px solid var(--line);
+  border: 0;
+  border-left: var(--ctrl-border) solid var(--line);
   border-top-left-radius: 0;
   border-bottom-left-radius: 0;
-  border-top-right-radius: 7px;
-  border-bottom-right-radius: 7px;
+  border-top-right-radius: calc(var(--ctrl-radius-sm) - var(--ctrl-border));
+  border-bottom-right-radius: calc(var(--ctrl-radius-sm) - var(--ctrl-border));
   color: var(--muted);
   cursor: pointer;
   position: relative;
@@ -6087,11 +6034,12 @@ button.fc-model-reveal[aria-pressed="true"] {
   transform: translateY(1px) rotate(-135deg); /* flip to point up while open */
 }
 .range-filter .rf-caret:hover,
-.range-filter .rf-presets.open .rf-caret {
+.range-filter .rf-presets.open .rf-caret,
+.range-filter .rf-presets .rf-reset:hover {
   z-index: 1;
   color: var(--text);
-  border-color: var(--border-hover);
-  background: var(--panel2);
+  border-color: var(--line);
+  background: var(--ghost-bg-hover);
 }
 /* Every one of these controls sits at the BOTTOM of its container (the Timeline
    bar under the map, the basemap filters under their map/chart), so drop the menu
@@ -6442,10 +6390,12 @@ button.small:has(> .bi) {
 .ovr-items > button:has(> .bi) {
   display: flex;
 }
+.selbar-acts > button > .bi,
 .splitmenu button > .bi,
 .ovr-items > button > .bi {
   color: var(--muted);
 }
+.selbar-acts > button.danger > .bi,
 .splitmenu button.danger > .bi,
 .ovr-items > button.danger > .bi {
   color: inherit;
@@ -8903,7 +8853,7 @@ body.ridemap-open .toast {
   }
   .rrow {
     gap: 10px;
-    padding: 10px 12px;
+    padding: 10px var(--row-inset);
   }
 
   /* -- ride title row: let the status/GPS badges wrap below the title instead
@@ -9280,25 +9230,21 @@ body.ridemap-open .toast {
   /* -- full-screen route bar: keep the title + Close on one tidy row -------
         At phone width the bar's gap/padding and the estimate footnote crowd the
         row; trim them and cap the title so the pinned Close button always has
-        room. The control tiles already fold to icons (and scroll if still tight),
-        so this just buys the row some breathing space. */
+        room. Contextual controls keep their labels and wrap below the title. */
   .ridemap-bar {
     gap: 8px;
     padding: 8px 10px;
   }
-  .ridemap-tools {
-    gap: 6px 14px;
+  .ridemap-tools,
+  .ridemap-graph-tools {
+    gap: 6px var(--ctrl-gap);
     padding: 6px 10px 8px;
   }
-  /* The ride's summary: one sideways-scrolling line instead of four rows. */
-  .ridemap-summary {
-    flex-wrap: nowrap;
-    overflow-x: auto;
-    scrollbar-width: none;
-    gap: 14px;
+  .ridemap-graph-tools {
+    column-gap: var(--ctrl-pad-y-sm);
   }
-  .ridemap-summary::-webkit-scrollbar {
-    display: none;
+  .ridemap-summary {
+    padding: 6px 10px;
   }
   /* A ride's time zone tag folds away (the tooltip keeps it). */
   .rmeta-tz {
@@ -9372,9 +9318,6 @@ body.ridemap-open .toast {
   .fc-charts:not(.compare-mode) .fc-model-row > header {
     width: 56px;
   }
-  .ridemap-title {
-    max-width: 42%;
-  }
   /* The "~ time is estimated" footnote is non-essential chrome (the same note
      lives in the estimate tooltip); drop it on narrow screens like the build
      hash and button labels elsewhere. */
@@ -9410,11 +9353,6 @@ body.ridemap-open .toast {
   .fchip {
     padding: 4px 8px;
     font-size: 12px;
-  }
-  /* Ride rows: trim the side padding so the content column gets more width. */
-  .rrow {
-    padding: 10px 9px;
-    gap: 8px;
   }
   /* Two even stat columns read cleaner than a ragged auto-fill at this width. */
   .stats {
@@ -9825,7 +9763,10 @@ body.dragging-files::after {
   border: 1px solid var(--line);
   color: var(--muted);
   cursor: pointer;
-  transition: 0.12s ease;
+  transition:
+    color 0.12s ease,
+    background-color 0.12s ease,
+    border-color 0.12s ease;
   white-space: nowrap;
 }
 .tagmodal-chip:hover {
@@ -10102,7 +10043,6 @@ button.tagcolor-none {
   z-index: 11;
   overflow-y: auto;
   overflow-x: hidden;
-  transition: width 0.15s ease;
 }
 .sb-brand {
   display: flex;
@@ -10472,7 +10412,7 @@ body.sb-rail .sb-toggle .mi {
   body.job-active main {
     padding-bottom: calc(150px + env(safe-area-inset-bottom));
   }
-  /* Selection mode: the toolbar takes the title's place and scrolls sideways. */
+  /* Selection mode: the compact toolbar takes the title's place. */
   body.has-sel .tb-title {
     display: none;
   }
@@ -10612,13 +10552,13 @@ body.sb-rail .sb-toggle .mi {
     background: var(--line-strong);
     transition:
       background 0.12s ease,
-      height 0.12s ease;
+      transform 0.12s ease;
   }
   #forecastView:not(.hidden):not(:has(.fc-top.collapsed)) .fc-splitter:hover i,
   #forecastView:not(.hidden):not(:has(.fc-top.collapsed)) .fc-splitter:focus-visible i,
   #forecastView:not(.hidden):not(:has(.fc-top.collapsed)) .fc-splitter.dragging i {
     background: var(--accent);
-    height: 56px;
+    transform: scaleY(1.5556);
   }
   #forecastView:not(.hidden):not(:has(.fc-top.collapsed)) .fc-splitter:focus-visible {
     outline: none;
@@ -11485,3 +11425,20 @@ body.sb-rail .sb-toggle .mi {
     transform: none;
   }
 }
+
+/* Motion must never be needed to use the app. Existing loading rules keep their
+   static indicators; finish other animations once so animationend cleanup still
+   runs. This also covers new components and third-party CSS. */
+/* biome-ignore-start lint/complexity/noImportantStyles: the user's motion preference overrides component and inline transitions. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition: none !important;
+    animation-duration: 0.01ms !important;
+    animation-delay: 0s !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+  }
+}
+/* biome-ignore-end lint/complexity/noImportantStyles: the user's motion preference overrides component and inline transitions. */

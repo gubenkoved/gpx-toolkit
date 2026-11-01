@@ -49,6 +49,9 @@ const PATHS = {
   back: '<path d="M19 12H5M12 19l-7-7 7-7"/>',
   chevLeft: '<path d="m15 18-6-6 6-6"/>',
   chevRight: '<path d="m9 18 6-6-6-6"/>',
+  /** Elevation gain / loss, without font-dependent arrow glyphs. */
+  arrowUp: '<path d="M12 19V5m-6 6 6-6 6 6"/>',
+  arrowDown: '<path d="M12 5v14m-6-6 6 6 6-6"/>',
   /** Calendar — open a day picker. */
   calendar:
     '<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/>',

@@ -974,8 +974,10 @@ function wireChartInteraction(): void {
       // bring it up (only when it isn't already in view, so a desktop never jumps).
       const r = card.getBoundingClientRect();
       const navH = document.querySelector<HTMLElement>(".bottomnav")?.offsetHeight ?? 0;
-      if (r.bottom > window.innerHeight - navH)
-        card.scrollIntoView({ block: "end", behavior: "smooth" });
+      if (r.bottom > window.innerHeight - navH) {
+        const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+        card.scrollIntoView({ block: "end", behavior: reduced ? "auto" : "smooth" });
+      }
     } else {
       clearSegSelection();
     }

@@ -17,6 +17,53 @@ humans and the assistant can read this file as a compressed history of decisions
 
 ---
 
+## ride controls belong beside what they change
+- **What:** the ride map uses labelled route-colour and weather controls above the map,
+  a combined Hidden / Elevation / Speed graph selector and axis below it, and a direct
+  Hide stops toggle in the same row. All three selectors use padded chevron triggers and the
+  app's themed menus with selected-choice checkmarks and keyboard navigation.
+  All track statistics share one flowing summary under the title, using one line
+  whenever they fit and wrapping only as needed, with explicit
+  distance/time labels, vector elevation arrows, point count and speeds sharing a
+  unit label; the separate Ride details footer is removed. Preferences,
+  full-track fetching and data-dependent choices remain available.
+  The header title uses its available width, without percentage caps or an empty
+  hover readout reserving space; the weather direction icon sits inline with its
+  summary text instead of wrapping onto a line of its own.
+- **Why:** folding the old toolbar to icons erased each control's scope and made the
+  repeated speed/elevation symbols ambiguous. Contextual rows keep their labels on
+  phones while grouping related measurements in one place and giving the map back
+  the space consumed by a second statistics panel.
+
+## motion follows selection without moving the page
+- **What:** toolbar fitting commits its final layout before restoring transitions;
+  shared controls transition explicit paint properties, and segmented highlights
+  slide only when their selection changes. Resizes, rebuilds and reappearance snap
+  into place. Removed in-flow size transitions and extended reduced-motion handling
+  to all CSS motion and both smooth-scroll paths. Added shared-control regressions.
+- **Why:** expanding a year re-ran toolbar fitting, animating Distance / Speed labels
+  from zero size and changing the phone header's height by 40px. Layout probes and
+  unrelated updates must stay invisible; useful motion must respect the user's
+  preference and keep surrounding content stable.
+
+## room around the ride-selection rail
+- **What:** ride rows use a 2px selection rail, 14px horizontal padding, and a softer
+  tint. Selected and unselected rows share the same alignment on desktop and phones;
+  Shift-range previews and discovery flashes use the same fine rail.
+- **Why:** the continuous desktop list had overridden row padding to 6px, leaving
+  only 3px between the rail and the checkbox. The chosen fine-rail option gives that
+  pair 12px of breathing room without moving content when selection changes.
+
+## seamless controls, compact selection actions
+- **What:** selection keeps one count and one Actions menu at every width, with a
+  keyboard-accessible dropdown on desktop and a scrim-backed bottom sheet on phones.
+  Segmented controls and date-range pairs share flat, continuous surfaces; selection,
+  ride, and app-data menus share quiet rows, with destructive actions still distinct.
+- **Why:** nested highlights and a long strip of batch commands competed with the
+  library. The chosen seamless design makes each group read as one control, keeping
+  every action available without crowding the header. Shared recipes keep sibling
+  controls aligned across views and themes.
+
 ## daylight on the departure strip
 - **What:** the ride-time-by-departure strip's baseline lights up amber while the sun is
   up at the route's start (fading through civil twilight), with the sunrise and sunset

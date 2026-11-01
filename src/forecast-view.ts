@@ -1247,9 +1247,9 @@ function modelHeader(model: ForecastModel, stale: boolean): string {
   return (
     `<header title="${deps.esc(name)}"><b>${deps.esc(model.provider)}</b><span>${deps.esc(model.label)}</span>` +
     `<small>${deps.esc(model.resolution)} · ${model.nativeHours}h native${stale ? " · stale" : ""}</small>` +
-    `<span class="fc-model-compact" title="${deps.esc(name)}"><span class="fc-model-compact-text"><b>${deps.esc(model.provider)}</b> ${deps.esc(model.label)}</span></span>` +
+    `<span class="fc-model-compact"><span class="fc-model-compact-text"><b>${deps.esc(model.provider)}</b> ${deps.esc(model.label)}</span></span>` +
     (presentation === "textual"
-      ? `<button type="button" class="fc-model-reveal" data-table-model="${deps.esc(model.id)}" aria-pressed="${selected}" aria-label="${selected ? "Hide" : "Show"} details for ${deps.esc(name)}" title="${deps.esc(name)}"><svg class="mi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></svg></button>`
+      ? `<button type="button" class="fc-model-reveal" data-table-model="${deps.esc(model.id)}" aria-pressed="${selected}" aria-label="${selected ? "Hide" : "Show"} details for ${deps.esc(name)}" title="${selected ? "Hide" : "Show"} details for ${deps.esc(name)}"><svg class="mi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></svg></button>`
       : "") +
     `</header>`
   );
@@ -1396,7 +1396,7 @@ function timetableHtml(
         return (
           `<div class="fc-tt-col" role="columnheader" style="--mc:${forecastModelColor(model.id)}" title="${deps.esc(name)} · ${deps.esc(model.resolution)} · ${model.nativeHours}h native${stale ? " · stale" : ""}">` +
           `<b>${deps.esc(model.provider)}</b><span>${deps.esc(model.label)}</span><small>${deps.esc(model.resolution)}${stale ? " · stale" : ""}</small>` +
-          `<button type="button" class="fc-model-reveal fc-tt-info" data-table-model="${deps.esc(model.id)}" aria-pressed="${selected}" aria-label="${selected ? "Hide" : "Show"} details for ${deps.esc(name)}" title="${deps.esc(name)}"><svg class="mi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></svg></button>` +
+          `<button type="button" class="fc-model-reveal fc-tt-info" data-table-model="${deps.esc(model.id)}" aria-pressed="${selected}" aria-label="${selected ? "Hide" : "Show"} details for ${deps.esc(name)}" title="${selected ? "Hide" : "Show"} details for ${deps.esc(name)}"><svg class="mi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></svg></button>` +
           `</div>`
         );
       })

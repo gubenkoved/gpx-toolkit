@@ -53,9 +53,10 @@ const SHOTS = [
       await page.locator('#rideList .rrow').first().click({ position: { x: 360, y: 20 } });
       await page.locator('#rideList .rmap-expand').first().click();
       await page.click('#btnRideMapFull');
-      await page.waitForSelector('#rmtGraph:not(.hidden)', { timeout: 60000 });
-      await page.click('#rideMapColor [data-color="speed"]');
-      await page.click('#btnRideMapWeather');
+      await page.waitForSelector('#rideMapGraphControls:not(.hidden)', { timeout: 60000 });
+      await page.click('#rideMapColorChoice');
+      await page.click('#rideMapColorMenu [data-value="speed"]');
+      await page.check('#rideMapWeatherToggle');
       await page.waitForFunction(
         () => {
           const readout = document.getElementById('rideMapWeather');

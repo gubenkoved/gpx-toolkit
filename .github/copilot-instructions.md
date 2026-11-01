@@ -360,6 +360,17 @@ password persistence, and keep every cloud action behind `withBeelineAccess`.
   ([seg.ts](../src/seg.ts)) finds it by that shape. Toggle `.active`; never set a
   background on the active button (the thumb carries the fill), and never make a `.seg`
   `position: static` (its thumb is placed relative to it; `seg.ts` guards this).
+- **Motion must preserve layout and reflect a real interaction.** Shared controls
+  transition explicit paint properties, never `all`, font size, spacing or other
+  in-flow geometry. Toolbar fitting commits its final layout before restoring
+  transitions; segmented thumbs slide only for a changed selection, snapping on
+  resize, rebuild and reappearance. Keep any progress animation inside a fixed
+  track. Honour `prefers-reduced-motion` in CSS and programmatic scrolling.
+- **Grouped controls are seamless.** Selection actions, segmented controls, and date-range
+  action pairs share one neutral surface and one outer hairline. Their children are flat,
+  with quiet hover fills, light type, and rounded corners only at the group's edges;
+  avoid nested button fills and raised inner pills. A selected segment keeps a clear flat
+  fill. Selection, per-ride, and app-data menus use the shared flat action-row recipe.
 - **Button glyphs come from one registry.** A button that wants an icon takes it from
   [icons.ts](../src/icons.ts): `${icon("name")}` in a template, or `data-icon="name"` on
   static markup (injected by `decorateIcons()` at boot). Never paste an SVG or use a
@@ -384,14 +395,29 @@ password persistence, and keep every cloud action behind `withBeelineAccess`.
   ("Updated …", a picked date). A level is used only if it avoids the wrap, so a phone
   layout that stacks by design keeps its labels. Icon-only controls keep their name
   in `title` / `aria-label`.
+- **Ride-map controls keep their scope visible.** Route colour and Weather on map
+  belong above the map; Graph (Hidden / Elevation / Speed), its horizontal axis and
+  graph-only Hide stops toggle belong beside the profile below it. A single setting
+  is a direct toggle, not an Options menu with another row. Keep these labels on phones
+  and wrap the rows rather than folding them into ambiguous icons. All recorded-track
+  statistics share one flowing summary below the title: distance, recording span,
+  climb, point count and speeds with one shared unit label. Use a single line whenever
+  they fit; wrap individual measurements only when space requires it, never force
+  separate rows by category. Do not add a separate statistics footer. Map colouring
+  and graph selection remain independent.
+  The ride title uses the header's available width: no percentage cap or space
+  reserved for an empty hover readout; truncate only when the visible content needs it.
+  The three selectors
+  use [choice-menu.ts](../src/choice-menu.ts), sharing the app's padded chevron triggers
+  and flat themed menu rows rather than native option popups.
 - **Focus rings are for the keyboard.** The base `:focus-visible` ring is the accent;
   `<html data-input="pointer">` (ui.ts `trackInputModality`) hides rings after a press,
   because Chrome counts a Shift/Ctrl-click as keyboard use. Don't strip `outline` from a
   control to hide a ring a mouse left; it's already handled.
-- **A button never matches its background.** Filled buttons use `--panel2`; a `.ghost`
+- **Standalone buttons lift off their background.** Filled buttons use `--panel2`; a `.ghost`
   button is a faint wash of the text colour (`--ghost-bg`, `--ghost-line`), so it lifts
-  off any surface in either theme. Only the lean round chrome (`.collapse-btn`,
-  `.ridemap-close`, `.tb-back`) is bare.
+  off any surface in either theme. Children of a shared control/menu surface are flat;
+  lean round chrome (`.collapse-btn`, `.ridemap-close`, `.tb-back`) is bare.
 - **A viewport-tall view uses `height: var(--view-h); margin-bottom: var(--view-mb)`**
   (defined on `main` from the live `--hdr-h` / `--nav-h` and `main`'s padding). Never
   subtract a literal height from `100vh`: a stale constant leaves the page scrolling by
@@ -472,6 +498,11 @@ password persistence, and keep every cloud action behind `withBeelineAccess`.
 
 ### Explore list and selection
 
+- **Selection rails have breathing room.** Ride rows share a 14px horizontal inset
+  (`--row-inset` on `.rrow`) at every width, selected or not. The 2px inset rail
+  (`--selection-rail`) leaves 12px before the checkbox; Shift previews and discovery
+  flashes use the same width. Never tighten just the continuous list's left padding
+  or shift a row's contents when it becomes selected.
 - **Aligned group headers.** In the year and month headers (`.yhead`/`.mhead`) the title
   column (`.ytitle`/`.mtitle`) is fixed-width
   (`flex: 0 0 auto; min-width; white-space: nowrap`), so the 90px volume bar (`.bars`) and
@@ -501,10 +532,12 @@ password persistence, and keep every cloud action behind `withBeelineAccess`.
   no-op. Derive every subset once from a single `selRides` array with cheap ride-view
   flags (`can_upload`/`status`, `gpx_cached`, `hasResolvedWind`, `deleted`) through
   `setSelAction(id, count, label)`; no per-button `find` loops.
-- **Batch actions are never a strip of look-alike icons.** Where labels fit (≥1700px) the
-  toolbar shows labelled buttons inline; below that the same buttons fold into the
-  labelled Actions menu (`#selMore` → `.selbar-acts`). A new batch action goes into
-  `.selbar-acts` with an icon **and** a label.
+- **Batch actions stay compact at every width.** The seamless toolbar shows the selection
+  count once, a clear ×, and one labelled Actions menu (`#selMore` → `.selbar-acts`).
+  A new batch action goes in that menu with an icon **and** a label. The menu mounts on
+  `<body>` (the header's blur traps fixed descendants): an anchored dropdown on desktop,
+  a scrim-backed bottom sheet with a visible close button on phones. Arrow keys skip
+  hidden/disabled actions; Escape closes and returns focus to the trigger.
 
 ### Charts
 
@@ -591,7 +624,7 @@ map is worse than none. Rows are grouped by concern; put a new module in its gro
 | File | Responsibility | Key symbols |
 |------|----------------|-------------|
 | [index.html](../index.html) | App shell markup (grouped sidebar: Rides · Plan · Weather · Research · per-view top bar · phone bottom nav + More sheet), every view's static markup, the Sources + Settings dialogs, the pre-paint theme boot script | |
-| [src/seg.ts](../src/seg.ts) | Sliding segmented controls: gives every `.seg` a thumb that glides to `button.active`, driven by a MutationObserver (class flips, rebuilt segs) + ResizeObserver, so the code that toggles `.active` never changes | `initSegSliding()` |
+| [src/seg.ts](../src/seg.ts) | Sliding segmented controls: each `.seg` gets a thumb that slides only when the selected button changes; batched MutationObserver updates and ResizeObserver measurements of the control and buttons snap layout changes, rebuilds and reappearance into place | `initSegSliding()` |
 | [src/router.ts](../src/router.ts) | Hash router: `#/<view>` (incl. `#/routes`), plus `?lat=&lon=` for Forecast and Wind rose so a URL shares the picked point; parse / format / validate, and push vs replace history entries; Forecast also carries `&at=YYYY-MM-DD` (a past day, `validRouteDay`) | `parseRoute()`, `formatRoute()`, `writeRoute()`, `validRoutePoint()`, `Route`, `validRouteDay()` |
 | [src/shell.ts](../src/shell.ts) | App-shell behaviour: reflect the active view onto every `.navlink[data-view]` + the top-bar title, the sidebar rail toggle, the phone More sheet, and re-parenting the Plan and Research groups + footer into that sheet on the phone media query, and publishing the header's / bottom nav's live heights as `--hdr-h` / `--nav-h` (one set of nav nodes, never two); a drill-in's way back is one lean arrow before the title (`setViewBack`: the view sets it as it renders and clears it when left) | `initShell()`, `syncShell()`, `setViewSubtitle()`, `setViewBack()`, `lastWeatherView()`, `VIEW_TITLES` |
 | [src/main.ts](../src/main.ts) | UI entry: render + wiring, re-auth gating, GPX import, Location-History import/drop, the Explore view and selection toolbar; mounts the per-view modules (Map, Stats, Wind vs speed, Forecast, Wind rose, Timeline, Routes); owns the route store and carries it in Export All / Import / Reset. Explore from 1100px is a contents tree (`#months`, sticky, flat rows; a scroll-spy marks the month in view) beside a continuous ruled list of every ride (`#rideList`, sticky month headings, heavier year headings; tree clicks scroll the list; the page (the viewport) scrolls — `pageScroller()`; never make `<body>` its own scroll box, or keyboard scrolling dies); narrower screens keep rows inside the (open) month box. The chart's Auto granularity is density-driven (`chartBuckets()` from the chart width) and quiet periods are filled (`fillEmptyBuckets`) | `activate()`, `getRealController()`, `openApp()`, `goBeeline()`, `goGpx()`, `pullFromBeeline()`, `importGpxFiles()`, `importLocationHistory()`, `dropLocationHistory()`, `withBeelineAccess()` |
@@ -600,7 +633,7 @@ map is worse than none. Rows are grouped by concern; put a new module in its gro
 | [src/jobs-view.ts](../src/jobs-view.ts) | Live activity tile (a fixed strip along the bottom of the main pane, following the sidebar width; above the bottom nav on phones) / its minimized form, a chip at the head of the top bar's actions (in flow, never over a view; verb + done/total, the count alone on phones) / "Up next" queue + the persistent error stack; owns its own UI state, reads job state via `getJobs` | `initJobsView()`, `renderJob()`, `renderError()`, `pushError()`, `toggleQueue()`, `hideJob()`, `dismissError()` |
 | [src/explore-view.ts](../src/explore-view.ts) | Shared ride-display helpers + the "Selected rides" card list (Map side panel / Stats heatmap); pure `(ride) => string` builders over `getRides` | `initExploreView()`, `renderMatchedCards()`, `rideWhen()`, `rideTimesTitle()` |
 | [src/range-view.ts](../src/range-view.ts) | The shared dual-thumb date-range slider (Map/Stats/Wind-Speed windows), parameterized by `RangeView`; bounds/selection state + reconcile + drag/preset handlers, behind a `RangeViewDeps` seam (rides in, remount + persist out) | `initRangeView()`, `refreshRange()`, `syncRangeControl()`, `ridesInRange()`, `rangeOf()`, `resetRange()`, `applyRangePreset()`, `onRangeInput()`, `onWindowDrag()`, `rangeWindowLabel()` |
-| [src/ridemap.ts](../src/ridemap.ts) | Full-screen single-ride map (`#rideMapModal`): a title bar (title · live hover readout · fold chevron · bare × close) over a toolbar of labelled groups: "Colour route by" (Route / Height / Speed / Wind; Height + Speed need the full track, Wind resolves on first use), "Weather" (the `Rain & wind` toggle: the Forecast map's `WeatherFx` overlay + a corner readout of wind / rain / temperature at the hovered point, the ride's midpoint when idle; wind cached before weather variables existed is re-resolved once), "Graph" (Profile toggle, Elevation / Speed, By distance / By time, Skip stops) and "Track" (Fetch full track); toggles carry a ticked box (`.rmb-toggle`), labels never flip; the row folds to icons when it overflows; the toolbar choices are remembered (`gpx_toolkit.ridemap_prefs`) across rides and reloads, a remembered Wind / Rain & wind resolving on open like a click would. Behind a `RideMapDeps` seam | `initRideMap()`, `openRideMap()`, `closeRideMap()`, `refreshOpenRideMapWind()` |
+| [src/ridemap.ts](../src/ridemap.ts) | Full-screen single-ride map (`#rideMapModal`): title + hover readout + fold/close; one compact recorded-track summary (distance, recording span, climb, point count and speeds sharing a unit label); labelled Route colour (Plain / Elevation / Speed / Wind) and Weather on map above the map; Graph (Hidden / Elevation / Speed), By distance/time and a direct Hide stops toggle below it; no separate statistics footer. Controls wrap with their labels intact. Real track data gates the choices; Leaflet follows layout changes via ResizeObserver. Map colouring and graph choices are independent and remembered (`gpx_toolkit.ridemap_prefs`) across rides/reloads. Wind and weather resolve on first use, including remembered choices on open; weather follows the hovered point via WeatherFx and the corner readout. Behind a RideMapDeps seam | `initRideMap()`, `openRideMap()`, `closeRideMap()`, `refreshOpenRideMapWind()` |
 | [src/controller.ts](../src/controller.ts) | Orchestration + app state; source registry; per-ride dispatch; full-track cache; point wind climatology; weather along a planned route (archive cell-days via the wind cache, forecast cell-days in memory only, so a stale forecast never passes for a day's weather; optionally several named forecast models fetched one by one and merged with `consensusCellDays`) | `Controller`, `registerSource()`, `state()`, `runTask()`, `importGpx()`, `onImported()`, `getFullTrack()`, `getPointWind()`, `cachedWindYears()`, `routeWeather()` |
 | [src/source.ts](../src/source.ts) | `RideSource` seam + capabilities + shared GPX/catalog types | `RideSource`, `SourceCapabilities`, `SourceKind`, `GpxFile`, `ImportResult`, `gpxFilename()` |
 
@@ -692,11 +725,12 @@ map is worse than none. Rows are grouped by concern; put a new module in its gro
 | [src/app-state.ts](../src/app-state.ts) | Shared app state as signals (the seam for decomposing `main.ts` into per-view modules); a view imports the shared state it needs | `activeView`, `setActiveView()`, `ViewName` |
 | [src/confirm.ts](../src/confirm.ts) | Self-contained styled confirm / prompt / consent dialogs (promise-based, own DOM listeners via `initConfirm`); reuses the `.scrim`/`.modal-card` vocabulary | `confirmDialog()`, `promptDialog()`, `consentDialog()`, `initConfirm()` |
 | [src/http.ts](../src/http.ts) | Request deadlines that tell a slow answer from a stalled one: abort after an idle gap (no bytes) or a total cap, caller's signal still cancels; `readJson` streams the body and restarts the idle clock per chunk | `deadline()`, `readJson()`, `Deadline` |
-| [src/fold.ts](../src/fold.ts) | Labels fold before rows wrap: measures a toolbar (wrap / overflow, transitions suspended) and sets the mildest cumulative `.fold-N` that keeps it on one line, on width change (ResizeObserver) or `refold()`; none when no level avoids the wrap | `autoFold()`, `refold()` |
-| [src/tooltip.ts](../src/tooltip.ts) | The app's one tooltip: adopts every `title` / `data-tip` (moved to `data-tip` on hover so the native bubble never shows; kept as `aria-label` / `aria-description`) and shows a themed card above its anchor; charts show rich tips (title, label · value rows, note) at a point | `initTooltips()`, `showTip()`, `hideTip()`, `TipContent` |
+| [src/fold.ts](../src/fold.ts) | Labels fold before rows wrap: probes a toolbar (wrap / overflow, transitions suspended) and commits the mildest fitting `.fold-N` before restoring transitions, on width change (ResizeObserver) or `refold()`; full labels when no level avoids the wrap | `autoFold()`, `refold()` |
+| [src/tooltip.ts](../src/tooltip.ts) | The app's one tooltip: adopts every `title` / `data-tip` (moved to `data-tip` on hover, for the whole ancestor chain and for titles set later, so no native bubble ever shows; SVG shapes use `data-tip`, never `<title>`; kept as `aria-label` / `aria-description`) and shows a themed card above its anchor; charts show rich tips (title, label · value rows, note) at a point | `initTooltips()`, `showTip()`, `hideTip()`, `TipContent` |
 | [src/icons.ts](../src/icons.ts) | The shared button icon set: one registry of inline-SVG glyphs; `icon(name)` for templates, `decorateIcons()` injects into static `data-icon` markup at boot | `icon()`, `decorateIcons()`, `IconName` |
 | [src/idle.ts](../src/idle.ts) | Idle-time slicing: run a list of work in ~12ms `requestIdleCallback` slices (cancellable, `onDone`), the one way heavy per-ride loops touch the main thread | `runInSlices()`, `chunked()` |
 | [src/ui.ts](../src/ui.ts) | Render-layer design vocabulary: pure `(opts) => string` builders for shared components (one canonical markup + classes each); centralised HTML escaping; the pane loader shown while sliced work runs | `escHtml()`, `statNum()`, `paneLoader()`, `initCollapse()` |
+| [src/choice-menu.ts](../src/choice-menu.ts) | Styled single-choice dropdowns over native select value/availability models; reuse split-button triggers and flat menu rows, keep menus within their modal, and handle selected/disabled/hidden choices, keyboard navigation, typeahead, dismissal and focus restoration. Used for ride-map colour, graph and axis | `initChoiceMenu()`, `ChoiceMenu` |
 | [src/sun.ts](../src/sun.ts) | The sun at a place and instant (low-precision almanac position); sunrise / sunset found by a minute scan (so polar day / night need no special case) and the dark seconds of a time span | `sunAltitude()`, `sunEvents()`, `darkSeconds()`, `SUN_HORIZON_DEG`, `CIVIL_TWILIGHT_DEG` |
 | [src/tz.ts](../src/tz.ts) | Ride-local time: lat/lon → IANA zone (lazy `tz-lookup`, code-split), and a start INSTANT → ride-local wall-clock key / hour / DST-correct offset via `Intl`; offset + city display helpers; a calendar day's start in a zone (`zonedMidnight`) | `loadTz()`, `zoneForPoint()`, `localTime()`, `offsetMinutes()`, `formatOffset()`, `zoneCity()`, `browserZone()`, `zonedMidnight()` |
 | [src/slider.ts](../src/slider.ts) | Unified single-thumb range slider behaviour: drive the `.uslider` accent left-fill (`--fill`) from each input's value, so every single-thumb slider matches the dual-thumb `.rf-*` look | `setSliderFill()`, `initSliderFills()` |

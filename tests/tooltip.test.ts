@@ -52,6 +52,25 @@ describe("app tooltip", () => {
     expect(tip().textContent).toBe("Second");
   });
 
+  it("adopts every titled ancestor too, so no native bubble shows beside the app tip", () => {
+    vi.useFakeTimers();
+    document.body.innerHTML = `<div id="col" title="AROME · 1.3 km"><button id="inner" title="Show details"></button></div>`;
+    hover(document.getElementById("inner")!);
+    expect(document.getElementById("col")!.hasAttribute("title")).toBe(false);
+    expect(document.getElementById("inner")!.hasAttribute("title")).toBe(false);
+    vi.advanceTimersByTime(400);
+    expect(tip().textContent).toBe("Show details");
+  });
+
+  it("adopts a title set while the pointer already rests on the element", async () => {
+    document.body.innerHTML = `<button id="b" aria-label="Locate"></button>`;
+    const b = document.getElementById("b")!;
+    b.setAttribute("title", "Stop showing my location");
+    await Promise.resolve();
+    expect(b.hasAttribute("title")).toBe(false);
+    expect(b.getAttribute("data-tip")).toBe("Stop showing my location");
+  });
+
   it("renders a heading line, rows and a note, escaped", () => {
     showTip(100, 100, {
       title: "Leave <07:00>",

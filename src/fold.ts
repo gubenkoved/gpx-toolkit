@@ -41,10 +41,9 @@ export function refold(el: HTMLElement): void {
   const entry = observed.get(el);
   if (!entry || !el.isConnected || !el.getClientRects().length) return;
   const { levels } = entry;
-  // Measure each level at its final size: buttons animate every property (a 0.12s
-  // `transition`), so mid-fold they still had their old font-size / gap and every
-  // level looked useless. Transitions are suspended inline while we measure (inline
-  // wins over any component rule), then each element gets its own value back.
+  // Probe final sizes without transitions. Commit the chosen layout BEFORE restoring
+  // them, including the fallback to level 0: otherwise the browser animates from the
+  // last failed probe (icon-only labels) back to the full labels and can rewrap rows.
   const nodes = [el, ...el.querySelectorAll<HTMLElement>("*")];
   const saved = nodes.map((n) => n.style.transition);
   for (const n of nodes) n.style.transition = "none";
@@ -55,6 +54,7 @@ export function refold(el: HTMLElement): void {
     }
     setLevel(el, 0, levels);
   } finally {
+    void el.offsetWidth;
     nodes.forEach((n, i) => {
       n.style.transition = saved[i];
     });

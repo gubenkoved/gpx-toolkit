@@ -207,22 +207,38 @@ function schedule(target: Element, pointer: { x: number; y: number } | null): vo
 
 const TIPPED = "[title], [data-tip]";
 
+/** Adopt the title of the target and of every titled ancestor: the browser shows the
+ *  native bubble of ANY titled element under the pointer, not just the nearest, so a
+ *  titled button inside a titled column header would otherwise show two tips at once. */
+function adoptChain(target: Element): void {
+  for (
+    let node: Element | null = target;
+    node;
+    node = node.parentElement?.closest(TIPPED) ?? null
+  )
+    adopt(node);
+}
+
 export function initTooltips(): void {
+  // A title set while the pointer already rests on its element (a toggle that renames
+  // itself on click) would reach the browser untouched: adopt it the moment it lands.
+  new MutationObserver((records) => {
+    for (const record of records) adopt(record.target as Element);
+  }).observe(document.documentElement, {
+    attributes: true,
+    attributeFilter: ["title"],
+    subtree: true,
+  });
   document.addEventListener(
     "pointerover",
     (event) => {
       const target = (event.target as Element | null)?.closest?.(TIPPED);
       if (!target) return;
-      // Even on touch the native bubble must not appear — adopt the title, show nothing.
-      if (event.pointerType === "touch") {
-        adopt(target);
-        return;
-      }
+      adoptChain(target);
+      // Even on touch the native bubble must not appear — adopted above, show nothing.
+      if (event.pointerType === "touch") return;
       // A held modifier means a range / toggle pick is under way: no hint over it.
-      if (event.shiftKey || event.ctrlKey || event.metaKey) {
-        adopt(target);
-        return;
-      }
+      if (event.shiftKey || event.ctrlKey || event.metaKey) return;
       schedule(target, { x: event.clientX, y: event.clientY });
     },
     true,
@@ -245,6 +261,7 @@ export function initTooltips(): void {
     (event) => {
       const target = (event.target as Element | null)?.closest?.(TIPPED);
       if (!target || !(target as HTMLElement).matches?.(":focus-visible")) return;
+      adoptChain(target);
       schedule(target, null);
     },
     true,
