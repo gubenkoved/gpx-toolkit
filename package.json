@@ -1,7 +1,7 @@
 {
   "name": "gpx-toolkit",
   "private": true,
-  "version": "0.45.1",
+  "version": "0.45.2",
   "type": "module",
   "description": "GPX Toolkit — backend-free, in-browser ride toolkit; import GPX files, explore/map/analyze your rides, and upload Beeline-account rides to Strava.",
   "scripts": {
@@ -11,8 +11,10 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
     "lint": "biome lint",
     "format": "biome format --write",
+    "format:check": "biome format",
     "check": "biome check",
     "check:fix": "biome check --write",
     "gen-icons": "node scripts/gen-icons.mjs",

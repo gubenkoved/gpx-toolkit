@@ -90,8 +90,9 @@ request pushes against them.
 
 ### Before you call a change done
 
-1. `npm run verify` passes (type-check, Biome lint and format check, tests; exactly what
-   CI runs), and so does `npm run build`.
+1. `python3 scripts/manage.py check` passes (launcher tests, `npm run verify` for
+   type-check, Biome lint and format check, app tests, then `npm run build`; exactly
+   what CI runs).
 2. Layout or CSS changes are checked at a phone width and in both themes.
 3. The [module map](#module-map) is updated if you added, split, renamed or removed a
    module or changed what one is responsible for.
@@ -299,11 +300,22 @@ password persistence, and keep every cloud action behind `withBeelineAccess`.
 
 - **TypeScript 5.6** (strict), **Vite 6** (`base: "./"`, `target: "esnext"`), **Vitest 2**
   with **jsdom**, **Leaflet** for maps, **Biome 2** for lint and format.
+- [scripts/manage.py](../scripts/manage.py) is the development entrypoint (Python 3.10+,
+  standard library only). Run it without arguments for help. It resolves the repository
+  from its own path and delegates to npm scripts; keep tool definitions in
+  [package.json](../package.json), not duplicated in Python. `setup` installs locked
+  dependencies; `dev` starts Vite (`--proxy` enables the optional Beeline GPX proxy);
+  `lint`, `format`/`fmt`, `fix`, `typecheck`, `test` (`--watch`), `build`, `preview`
+  and `gen-icons` cover the dev cycle. Pass Vite/Vitest options after `--`.
+- `python3 scripts/manage.py check` is the full local and CI gate: launcher regression
+  tests, `npm run verify`, then `npm run build`. It stops on failure and never fixes or
+  installs implicitly. Use `fix` for Biome's safe lint fixes and formatting. Launcher
+  tests live in [scripts/test_manage.py](../scripts/test_manage.py) and use `unittest`.
 - `npm run dev`: Vite dev server. It boots into the library; the first launch explains the
   sources, and the Beeline source has a demo.
 - `npm run build`: `tsc --noEmit`, then `vite build`.
 - `npm test` / `npm run test:watch`: Vitest.
-- `npm run verify`: type-check, `biome check` and Vitest; exactly what CI runs.
+- `npm run verify`: type-check, `biome check` and Vitest (the app portion of the CI gate).
   `npm run check:fix` applies Biome's safe fixes and formatting.
 
 ## Code conventions

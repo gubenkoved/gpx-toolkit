@@ -99,19 +99,43 @@ the **⋯** menu (Export / Import).
 
 ## Run it locally
 
-Needs Node.js 20+.
+Needs Node.js 20+ and Python 3.10+ for the dependency-free development launcher.
 
 ```bash
-npm install
-npm run dev
+python3 scripts/manage.py setup
+python3 scripts/manage.py dev
 ```
 
 | Command | What it does |
 |---------|--------------|
-| `npm run dev` | Dev server |
-| `npm run build` | Type-check and build to `dist/` |
-| `npm test` | Run the tests (Vitest) |
-| `npm run verify` | Type-check, lint and test (what CI runs) |
+| `python3 scripts/manage.py` | List commands and help |
+| `python3 scripts/manage.py setup` | Install locked dependencies with `npm ci` |
+| `python3 scripts/manage.py dev` | Start the Vite dev server |
+| `python3 scripts/manage.py dev --proxy` | Start with the optional Beeline GPX proxy |
+| `python3 scripts/manage.py lint` | Check lint (`--fix` applies safe lint fixes) |
+| `python3 scripts/manage.py format` | Format code (`--check` checks without writing; `fmt` is an alias) |
+| `python3 scripts/manage.py fix` | Apply safe lint fixes and formatting together |
+| `python3 scripts/manage.py typecheck` | Check TypeScript types |
+| `python3 scripts/manage.py test` | Run launcher tests and app tests (`--watch` watches app tests) |
+| `python3 scripts/manage.py build` | Type-check and build to `dist/` |
+| `python3 scripts/manage.py preview` | Serve the existing production build |
+| `python3 scripts/manage.py gen-icons` | Regenerate app icons |
+| `python3 scripts/manage.py check` | Full CI gate: launcher tests, types, lint, format, app tests and build |
+
+The launcher resolves paths from its own location, so it also works from another
+directory when invoked by its absolute path. On Windows, use `python` instead of
+`python3`. Forward Vite or Vitest options after `--`, for example:
+
+```bash
+python3 scripts/manage.py dev -- --host 127.0.0.1 --port 5173
+python3 scripts/manage.py test -- tests/format.test.ts
+```
+
+`check` stops at the first failure, preserves its exit status and never applies fixes
+or installs dependencies. Run `fix`, then `check` to repair and verify. The existing
+npm scripts remain the tool definitions and can still be run directly; `npm run verify`
+covers types, Biome lint/format and app tests, while `check` also tests the launcher
+and builds the production bundle. No virtual environment or Python packages are needed.
 
 To self-host, serve `dist/` from any static host over HTTPS. Pushes to `main` deploy to
 GitHub Pages.

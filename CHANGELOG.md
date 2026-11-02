@@ -17,6 +17,14 @@ humans and the assistant can read this file as a compressed history of decisions
 
 ---
 
+## one development entrypoint and the same gates locally and in CI
+- **What:** added `scripts/manage.py` for setup, dev/proxy, lint, formatting/fixes,
+  types, tests/watch, build/preview and icons; `check` runs launcher regression tests,
+  app verification and a production build, and CI uses that same command.
+- **Why:** carry over the discoverable management-script convention from sibling
+  projects while keeping this app's existing npm scripts as the tool definitions.
+  The launcher needs only Python's standard library and never installs or fixes implicitly.
+
 ## ride controls belong beside what they change
 - **What:** the ride map uses labelled route-colour and weather controls above the map,
   a combined Hidden / Elevation / Speed graph selector and axis below it, and a direct

@@ -11,6 +11,7 @@ dist/
 
 # Test / coverage caches
 coverage/
+__pycache__/
 
 # Environment / secrets
 .env

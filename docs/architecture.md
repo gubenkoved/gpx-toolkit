@@ -116,5 +116,6 @@ without it, downloads fall back to a route-only GPX.
 `npm test` runs Vitest with jsdom over `tests/*.test.ts`. Tests never touch the network:
 the Beeline source runs against an in-memory fake and a recorded response in
 `tests/fixtures/beeline/`, and storage uses an in-memory backend. CI runs
-`npm run verify` (type-check, Biome lint and format, tests) on pull requests and
+`python3 scripts/manage.py check` (launcher tests, type-check, Biome lint and format,
+app tests and production build) on pull requests and
 feature branches.
