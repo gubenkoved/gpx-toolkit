@@ -1137,6 +1137,8 @@ function scheduleForecastNowMarker(): void {
   if (!mounted) return;
   const now = Date.now();
   updateTableNowMarker(now);
+  // The idle map shows "now": move it on to the new hour.
+  if (selectedTime == null) syncMapWeather();
   const delay = FORECAST_HOUR_MS - (now % FORECAST_HOUR_MS) + 50;
   forecastNowTimer = setTimeout(() => scheduleForecastNowMarker(), delay);
 }
@@ -2041,16 +2043,21 @@ function meanDirection(degs: number[]): number | null {
   return ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
 }
 
-/** The consensus weather at the hovered hour across the shown models. */
-function weatherAtSelection(): WeatherSnapshot | null {
-  if (selectedTime == null) return null;
+/** The hour the map mirrors: the hovered/picked one, else the chart's marker
+ *  (the current hour, or a past day's start), so the map is never blank. */
+function mapWeatherTime(): number {
+  return selectedTime ?? markerHour();
+}
+
+/** The consensus weather at an hour across the shown models. */
+function weatherAt(time: number): WeatherSnapshot | null {
   const shown = presentation === "compare" ? visibleCompareForecasts() : visibleForecasts();
   const speeds: number[] = [];
   const dirs: number[] = [];
   const rains: number[] = [];
   const clouds: number[] = [];
   for (const item of shown) {
-    const i = item.times.indexOf(selectedTime);
+    const i = item.times.indexOf(time);
     if (i < 0) continue;
     const sp = item.windSpeedKmh[i];
     const di = item.windDirectionDeg[i];
@@ -2074,12 +2081,12 @@ function weatherAtSelection(): WeatherSnapshot | null {
   };
 }
 
-/** One readout fragment for the hovered hour — the strip (map hidden) and the
+/** One readout fragment for the mirrored hour — the strip (map hidden) and the
  *  map's corner pill (map shown) render the same thing. */
-function weatherReadoutHtml(snap: WeatherSnapshot): string {
+function weatherReadoutHtml(snap: WeatherSnapshot, time: number): string {
   const when =
-    selectedTime == null
-      ? ""
+    selectedTime == null && !atDay
+      ? "Now"
       : new Intl.DateTimeFormat(undefined, {
           timeZone: zone,
           weekday: "short",
@@ -2088,7 +2095,7 @@ function weatherReadoutHtml(snap: WeatherSnapshot): string {
           hour: "2-digit",
           minute: "2-digit",
           hour12: false,
-        }).format(selectedTime);
+        }).format(time);
   const travel = ((snap.fromDeg + 180) % 360).toFixed(0);
   return (
     (when ? `<span class="fc-when">${deps.esc(when)}</span>` : "") +
@@ -2100,12 +2107,14 @@ function weatherReadoutHtml(snap: WeatherSnapshot): string {
   );
 }
 
-/** Mirror the hovered hour on the map (effects overlay + corner pill) and in the
- *  strip. No marker at the point: the streaks already show the direction, and a
- *  marker would sit exactly on the spot the user picked. */
+/** Mirror the hovered hour (else now / the past day's start) on the map (effects
+ *  overlay + corner pill) and in the strip. No marker at the point: the streaks
+ *  already show the direction, and a marker would sit exactly on the spot the
+ *  user picked. */
 function syncMapWeather(): void {
-  const snap = weatherAtSelection();
-  const html = snap ? weatherReadoutHtml(snap) : "";
+  const time = mapWeatherTime();
+  const snap = weatherAt(time);
+  const html = snap ? weatherReadoutHtml(snap, time) : "";
   const strip = $("forecastStripWind");
   if (strip) strip.innerHTML = html;
   const pill = $("forecastWeatherPill");

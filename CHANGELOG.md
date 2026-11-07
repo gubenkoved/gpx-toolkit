@@ -17,6 +17,10 @@ humans and the assistant can read this file as a compressed history of decisions
 
 ---
 
+## the forecast map shows the weather now by default
+- **What:** with nothing hovered, the Forecast map's wind/rain effects and corner pill show the current hour (a past day's start in a past window), labelled "Now", and roll over each hour; hovering still previews any hour.
+- **Why:** a blank map until you hover the chart hid the most useful answer — what it's like out there right now.
+
 ## one development entrypoint and the same gates locally and in CI
 - **What:** added `scripts/manage.py` for setup, dev/proxy, lint, formatting/fixes,
   types, tests/watch, build/preview and icons; `check` runs launcher regression tests,
