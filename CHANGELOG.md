@@ -17,6 +17,10 @@ humans and the assistant can read this file as a compressed history of decisions
 
 ---
 
+## ride-map route colours keep their range when one point spikes
+- **What:** Speed / Elevation route colouring scales to the middle 90% of the distance (stops left out and drawn grey; outliers clamp to the end colour), uses an evenly spaced blue→red ramp instead of an HSL sweep, and shows a legend (≤low · ramp · ≥high + unit) beside the picker.
+- **Why:** a single GPS speed spike (and the 0 km/h stops) stretched the min–max scale so most of a ride rendered one shade of green; without a legend the colours couldn't be read as numbers anyway.
+
 ## the forecast map shows the weather now by default
 - **What:** with nothing hovered, the Forecast map's wind/rain effects and corner pill show the current hour (a past day's start in a past window), labelled "Now", and roll over each hour; hovering still previews any hour.
 - **Why:** a blank map until you hover the chart hid the most useful answer — what it's like out there right now.

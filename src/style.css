@@ -3339,6 +3339,35 @@ body.ridemap-open {
 .ridemap-graph-tools select {
   max-width: 100%;
 }
+/* Route colour legend: low number · ramp bar · high number + unit (≤ / ≥ when the
+   ends are clamped), plus a grey "stopped" swatch in speed mode. */
+.ridemap-legend {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.ridemap-legend .rml-bar {
+  width: 96px;
+  height: 6px;
+  border-radius: 3px;
+}
+.ridemap-legend .rml-num {
+  color: var(--text);
+}
+.ridemap-legend .rml-stop {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 4px;
+}
+.ridemap-legend .rml-stop i {
+  width: 12px;
+  height: 4px;
+  border-radius: 2px;
+}
 .ridemap-check {
   min-height: var(--tap-min);
   cursor: pointer;

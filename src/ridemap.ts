@@ -358,10 +358,128 @@ function finiteRange(values: (number | null)[]): { lo: number; hi: number } | nu
   return Number.isFinite(lo) && Number.isFinite(hi) ? { lo, hi } : null;
 }
 
-/** Map a normalized value t∈[0,1] to a blue→green→red heat colour (low→high). */
-function heatColor(t: number): string {
-  const c = Math.max(0, Math.min(1, t));
-  return `hsl(${Math.round((1 - c) * 240)}, 82%, 55%)`;
+// -- route colour scale ---------------------------------------------------- //
+
+/** Low → high ramp for speed / elevation route colouring. Evenly spaced, distinct
+ *  hues (a plain HSL sweep spends a third of its range on look-alike greens), so each
+ *  step of the scale reads as a different colour on the dark or light basemap. */
+const ROUTE_RAMP = ["#3b6fe0", "#1fb5e0", "#2ecc71", "#e6d930", "#ff8c1a", "#e8322b"];
+/** Stopped stretches in speed mode: neutral, so a stop never reads as "very slow". */
+const ROUTE_STOPPED = "#8b93a4";
+/** Share of the distance at each end that takes the end colour instead of stretching
+ *  the scale: one GPS spike or a long stop can't wash out the rest of the ride. */
+const ROUTE_TRIM = 0.05;
+/** Smallest scale span, so a steady ride or a flat one doesn't turn noise into a rainbow. */
+const ROUTE_MIN_SPAN = { speed: 4, height: 10 } as const;
+
+const rampRgb = ROUTE_RAMP.map((h) =>
+  [1, 3, 5].map((o) => Number.parseInt(h.slice(o, o + 2), 16)),
+);
+
+/** Colour at t∈[0,1] along the route ramp (clamped). */
+export function rampColor(t: number): string {
+  const c = Math.max(0, Math.min(1, Number.isFinite(t) ? t : 0.5)) * (rampRgb.length - 1);
+  const i = Math.min(rampRgb.length - 2, Math.floor(c));
+  const f = c - i;
+  const rgb = rampRgb[i].map((a, k) => Math.round(a + (rampRgb[i + 1][k] - a) * f));
+  return `rgb(${rgb.join(",")})`;
+}
+
+/** The ramp as a CSS gradient, for the legend bar (same stops as the line). */
+function rampGradientCss(): string {
+  return `linear-gradient(90deg, ${ROUTE_RAMP.join(", ")})`;
+}
+
+export interface ColorScale {
+  lo: number;
+  hi: number;
+  /** Some values fall below `lo` / above `hi` and are drawn in the end colour. */
+  clampLo: boolean;
+  clampHi: boolean;
+}
+
+/**
+ * The colour scale for a per-point series: the `trim` and `1 − trim` quantiles of the
+ * values weighted by `weights` (the distance each point stands for; 0 leaves a point
+ * out, e.g. a stop), widened to at least `minSpan`. Weighting by distance, not by
+ * point, keeps a dense cluster of GPS fixes from owning the scale. Null when there's
+ * nothing to scale.
+ */
+export function robustScale(
+  values: (number | null)[],
+  weights: number[],
+  minSpan: number,
+  trim: number = ROUTE_TRIM,
+): ColorScale | null {
+  const pairs: [number, number][] = [];
+  let total = 0;
+  for (let i = 0; i < values.length; i++) {
+    const v = values[i];
+    const w = weights[i] ?? 0;
+    if (v == null || !Number.isFinite(v) || !(w > 0)) continue;
+    pairs.push([v, w]);
+    total += w;
+  }
+  if (!pairs.length) return null;
+  pairs.sort((a, b) => a[0] - b[0]);
+  const quantile = (q: number): number => {
+    const target = q * total;
+    let acc = 0;
+    for (const [v, w] of pairs) {
+      acc += w;
+      if (acc >= target) return v;
+    }
+    return pairs[pairs.length - 1][0];
+  };
+  const min = pairs[0][0];
+  const max = pairs[pairs.length - 1][0];
+  let lo = quantile(trim);
+  let hi = quantile(1 - trim);
+  if (hi - lo < minSpan) {
+    const mid = (lo + hi) / 2;
+    lo = mid - minSpan / 2;
+    hi = mid + minSpan / 2;
+    if (min >= 0 && lo < 0) {
+      hi -= lo;
+      lo = 0;
+    }
+  }
+  const eps = 1e-9;
+  return { lo, hi, clampLo: min < lo - eps, clampHi: max > hi + eps };
+}
+
+/** Fill (or hide) the route colour legend beside the Route colour picker. */
+function renderRideLegend(
+  scale: ColorScale | null,
+  mode: "height" | "speed" | null,
+  hasStops: boolean,
+): void {
+  const el = document.getElementById("rideMapLegend");
+  if (!el) return;
+  if (!scale || !mode) {
+    el.classList.add("hidden");
+    el.innerHTML = "";
+    return;
+  }
+  const speed = mode === "speed";
+  const unit = speed ? "km/h" : "m";
+  const fmt = (v: number) => String(Math.round(v));
+  const lo = `${scale.clampLo ? "≤" : ""}${fmt(scale.lo)}`;
+  const hi = `${scale.clampHi ? "≥" : ""}${fmt(scale.hi)}`;
+  const what = speed ? "moving speed" : "elevation";
+  el.title =
+    `Route colour: ${what} from ${fmt(scale.lo)} to ${fmt(scale.hi)} ${unit}\n` +
+    `The scale spans the middle ${Math.round((1 - 2 * ROUTE_TRIM) * 100)}% of the ` +
+    `distance; anything beyond takes the end colour, so a single spike can't wash out ` +
+    `the rest of the ride.${speed && hasStops ? " Stops are grey." : ""}`;
+  el.innerHTML =
+    `<span class="rml-num">${lo}</span>` +
+    `<span class="rml-bar" style="background:${rampGradientCss()}"></span>` +
+    `<span class="rml-num">${hi}</span><span class="rml-unit">${unit}</span>` +
+    (speed && hasStops
+      ? `<span class="rml-stop"><i style="background:${ROUTE_STOPPED}"></i>stopped</span>`
+      : "");
+  el.classList.remove("hidden");
 }
 
 /** Re-project the open track to container pixels (after a pan / zoom / resize). */
@@ -389,6 +507,7 @@ function drawRideLine(): void {
   // arrows + the grid-cell footprints the data covers), computed on the wind sample
   // geometry — see drawRideWindOverlay. Falls back to the plain route until resolved.
   if (rideMapColorMode === "wind") {
+    renderRideLegend(null, null, false);
     const drawn = drawRideWindOverlay(layer);
     if (!drawn) L.polyline(pts, { color: "#fc5200", weight: 4 }).addTo(layer);
     drawEndpointMarkers(layer, pts);
@@ -402,22 +521,50 @@ function drawRideLine(): void {
       : rideMapColorMode === "speed"
         ? rideHover.speeds
         : null;
-  const range = values ? finiteRange(values) : null;
-  if (rideMapColorMode === "none" || !full || !values || !range) {
+  if (rideMapColorMode === "none" || !full || !values) {
+    renderRideLegend(null, null, false);
     L.polyline(pts, { color: "#fc5200", weight: 4 }).addTo(layer);
     drawEndpointMarkers(layer, pts);
     return;
   }
-  const span = range.hi - range.lo || 1;
+  const speedMode = rideMapColorMode === "speed";
+  // Stopped points (speed mode): drawn grey and left out of the scale, so the
+  // standstills don't pin its low end to 0.
+  const stopped = new Array<boolean>(pts.length).fill(false);
+  if (speedMode && rideHover.speeds) {
+    const ranges = stableStoppedRanges(
+      full,
+      getState().settings.movingThresholdKmh,
+      rideHover.speeds,
+    );
+    for (const [s, e] of ranges)
+      for (let i = s; i <= e + 1 && i < pts.length; i++) stopped[i] = true;
+  }
+  const cum = rideHover.cum;
+  const weights = pts.map((_, i) =>
+    stopped[i] ? 0 : (cum[Math.min(i + 1, cum.length - 1)] - cum[Math.max(i - 1, 0)]) / 2,
+  );
+  const scale = robustScale(values, weights, ROUTE_MIN_SPAN[speedMode ? "speed" : "height"]);
+  if (!scale) {
+    renderRideLegend(null, null, false);
+    L.polyline(pts, { color: "#fc5200", weight: 4 }).addTo(layer);
+    drawEndpointMarkers(layer, pts);
+    return;
+  }
+  renderRideLegend(scale, speedMode ? "speed" : "height", stopped.includes(true));
+  const span = scale.hi - scale.lo || 1;
   // Cap the number of drawn segments so a multi-thousand-point track stays snappy;
   // the colour gradient reads smoothly at a few hundred segments.
   const maxSeg = 500;
   const stride = Math.max(1, Math.floor((pts.length - 1) / maxSeg));
   for (let i = stride; i < pts.length; i += stride) {
     const seg = pts.slice(i - stride, i + 1);
-    const v = values[Math.min(i, values.length - 1)];
-    const t = v == null ? 0.5 : (v - range.lo) / span;
-    L.polyline(seg, { color: heatColor(t), weight: 4, opacity: 0.95 }).addTo(layer);
+    const idx = Math.min(i, values.length - 1);
+    const v = values[idx];
+    const color = stopped[idx]
+      ? ROUTE_STOPPED
+      : rampColor(v == null ? 0.5 : (v - scale.lo) / span);
+    L.polyline(seg, { color, weight: 4, opacity: 0.95 }).addTo(layer);
   }
   drawEndpointMarkers(layer, pts);
 }
